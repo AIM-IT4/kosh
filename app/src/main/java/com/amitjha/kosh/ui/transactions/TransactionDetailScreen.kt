@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -93,8 +93,8 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
         onBack = { nav.popBackStack() },
         actions = {
             if (item != null) {
-                IconButton(onClick = { nav.navigate(Routes.editTxn(id)) }) { Icon(Icons.Filled.Edit, contentDescription = "Edit") }
-                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete") }
+                IconButton(onClick = { nav.navigate(Routes.editTxn(id)) }) { Icon(Icons.Outlined.Edit, contentDescription = "Edit") }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete") }
             }
         },
     ) { padding ->
@@ -130,7 +130,7 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
                     Text("Check the category and account, then confirm.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = vm::markReviewed) {
-                        Icon(Icons.Filled.Check, contentDescription = null)
+                        Icon(Icons.Outlined.Check, contentDescription = null)
                         Spacer(Modifier.padding(start = 6.dp))
                         Text("Looks right")
                     }

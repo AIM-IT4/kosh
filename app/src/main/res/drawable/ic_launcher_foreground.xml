@@ -2,13 +2,13 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- stem of the K -->
-    <path android:fillColor="#FFFFFFFF" android:pathData="M37,33 a4,4 0 0 1 8,0 v42 a4,4 0 0 1 -8,0 z"/>
-    <!-- lower leg -->
-    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="8" android:strokeLineCap="round"
-        android:pathData="M50,55 L69,75"/>
-    <!-- upper arm: a rising arrow -->
-    <path android:strokeColor="#FFFFD166" android:strokeWidth="8" android:strokeLineCap="round"
-        android:pathData="M45,58 L66,37"/>
-    <path android:fillColor="#FFFFD166" android:pathData="M57,30 L74,29 L73,46 Z"/>
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.85" android:scaleY="0.85" android:translateX="-1.75">
+        <path android:strokeColor="#FF111111" android:strokeWidth="8" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M40,30 L40,78"/>
+        <path android:strokeColor="#FF111111" android:strokeWidth="8" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M40,60 L64,40"/>
+        <path android:strokeColor="#FF111111" android:strokeWidth="8" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M50,52 L66,78"/>
+        <path android:fillColor="#FF10B981" android:pathData="M64.5,33 a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0"/>
+    </group>
 </vector>

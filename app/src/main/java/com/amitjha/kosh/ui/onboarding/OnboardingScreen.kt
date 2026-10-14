@@ -1,5 +1,9 @@
 package com.amitjha.kosh.ui.onboarding
 
+import com.amitjha.kosh.designsystem.theme.KoshText
+import androidx.compose.material.icons.outlined.Email
+import com.amitjha.kosh.ui.common.friendlyGmailError
+import com.amitjha.kosh.ui.common.GmailExplainerSheet
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
@@ -31,20 +35,18 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Sms
+import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -118,7 +120,6 @@ fun OnboardingScreen() {
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding(),
     ) {
@@ -184,12 +185,12 @@ private fun StepPage(
                         .padding(top = 8.dp)
                         .size(56.dp)
                         .clip(RoundedCornerShape(18.dp))
-                        .background(BrandPalette.brandGradient),
+                        .background(KoshTheme.colors.ink),
                     contentAlignment = Alignment.Center,
-                ) { Icon(icon, contentDescription = null, tint = Color.White) }
+                ) { Icon(icon, contentDescription = null, tint = KoshTheme.colors.onInk) }
                 Spacer(Modifier.height(16.dp))
             }
-            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(title, style = KoshText.screenTitle)
             Spacer(Modifier.height(6.dp))
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
             Spacer(Modifier.height(20.dp))
@@ -212,14 +213,14 @@ private fun Welcome(onNext: () -> Unit) {
         Spacer(Modifier.weight(0.6f))
         KoshLogo(size = 108.dp)
         Spacer(Modifier.height(24.dp))
-        Text("Welcome to Kosh", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text("Welcome to Kosh", style = KoshText.screenTitle, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text("Your expenses, income, cards and investments in one private place.",
             style = MaterialTheme.typography.bodyLarge, color = KoshTheme.colors.subtleText, textAlign = TextAlign.Center)
         Spacer(Modifier.height(28.dp))
-        ValueProp(Icons.Filled.Sms, "Automatic tracking", "Bank SMS and card emails become transactions and bills.")
-        ValueProp(Icons.AutoMirrored.Filled.TrendingUp, "Wealth on autopilot", "FD, EPF and NPS values update by themselves.")
-        ValueProp(Icons.Filled.Lock, "Private by design", "Everything stays on your phone. Insights are computed offline.")
+        ValueProp(Icons.Outlined.Sms, "Automatic tracking", "Bank SMS and card emails become transactions and bills.")
+        ValueProp(Icons.AutoMirrored.Outlined.TrendingUp, "Wealth on autopilot", "FD, EPF and NPS values update by themselves.")
+        ValueProp(Icons.Outlined.Lock, "Private by design", "Everything stays on your phone. Insights are computed offline.")
         Spacer(Modifier.weight(1f))
         PrimaryButton("Get started", onClick = onNext, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(16.dp))
@@ -344,11 +345,11 @@ private fun InvestmentsStep(onNext: () -> Unit) {
         subtitle = "Enter an FD or your EPF once and Kosh keeps the value current. Add NPS from the Wealth tab (it looks up live NAVs).",
         primary = "Continue",
         onPrimary = onNext,
-        icon = Icons.AutoMirrored.Filled.TrendingUp,
+        icon = Icons.AutoMirrored.Outlined.TrendingUp,
     ) {
         added.forEach {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = KoshTheme.colors.good)
+                Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = KoshTheme.colors.good)
                 Spacer(Modifier.width(8.dp))
                 Text(it)
             }
@@ -417,11 +418,11 @@ private fun PermissionsStep(onNext: () -> Unit) {
         subtitle = "Allow Kosh to read bank SMS so transactions, balances and card bills appear by themselves.",
         primary = "Continue",
         onPrimary = onNext,
-        icon = Icons.Filled.Sms,
+        icon = Icons.Outlined.Sms,
     ) {
         KoshCard(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Outlined.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(10.dp))
                 Text("SMS never leave your phone", fontWeight = FontWeight.SemiBold)
             }
@@ -433,10 +434,10 @@ private fun PermissionsStep(onNext: () -> Unit) {
             )
         }
         Spacer(Modifier.height(16.dp))
-        PermissionRow(Icons.Filled.Sms, "Read bank SMS", smsGranted) {
+        PermissionRow(Icons.Outlined.Sms, "Read bank SMS", smsGranted) {
             smsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
         }
-        PermissionRow(Icons.Filled.NotificationsActive, "Notifications for new spends and bill reminders", notifGranted) {
+        PermissionRow(Icons.Outlined.NotificationsActive, "Notifications for new spends and bill reminders", notifGranted) {
             if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -450,7 +451,7 @@ private fun PermissionRow(icon: ImageVector, title: String, granted: Boolean, on
             Spacer(Modifier.width(12.dp))
             Text(title, Modifier.weight(1f), fontWeight = FontWeight.Medium)
             if (granted) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = "Allowed", tint = KoshTheme.colors.good)
+                Icon(Icons.Outlined.CheckCircle, contentDescription = "Allowed", tint = KoshTheme.colors.good)
             } else {
                 TextButton(onClick = onAllow) { Text("Allow") }
             }
@@ -469,7 +470,7 @@ private fun GmailStep(onNext: () -> Unit) {
         scope.launch {
             message = when (val o = c.gmailAuth.completeConsent(result.data)) {
                 is GmailAuthOutcome.Granted -> "Connected"
-                is GmailAuthOutcome.Failed -> o.message
+                is GmailAuthOutcome.Failed -> friendlyGmailError(o.message)
                 is GmailAuthOutcome.NeedsConsent -> "Please try again"
             }
         }
@@ -479,27 +480,37 @@ private fun GmailStep(onNext: () -> Unit) {
         subtitle = "Optional: Kosh can read your credit card statement emails (read-only) to get bill amounts and due dates.",
         primary = if (s.gmailConnected) "Continue" else "Not now",
         onPrimary = onNext,
-        icon = Icons.Filled.Email,
+        icon = Icons.Outlined.Email,
     ) {
         if (s.gmailConnected) {
             KoshCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = KoshTheme.colors.good)
+                    Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = KoshTheme.colors.good)
                     Spacer(Modifier.width(10.dp))
                     Text("Connected as ${s.gmailAccountEmail}", fontWeight = FontWeight.Medium)
                 }
             }
         } else {
-            PrimaryButton("Connect Gmail", modifier = Modifier.fillMaxWidth(), icon = Icons.Filled.Email, onClick = {
-                val activity = context as? Activity ?: return@PrimaryButton
-                scope.launch {
-                    when (val o = c.gmailAuth.connect(activity)) {
-                        is GmailAuthOutcome.NeedsConsent -> consent.launch(IntentSenderRequest.Builder(o.pendingIntent).build())
-                        is GmailAuthOutcome.Granted -> message = "Connected"
-                        is GmailAuthOutcome.Failed -> message = o.message
-                    }
-                }
-            })
+            var explain by remember { mutableStateOf(false) }
+            PrimaryButton("Connect Gmail", modifier = Modifier.fillMaxWidth(), icon = Icons.Outlined.Email, onClick = { explain = true })
+            if (explain) {
+                GmailExplainerSheet(
+                    onContinue = {
+                        explain = false
+                        val activity = context as? Activity
+                        if (activity != null) {
+                            scope.launch {
+                                when (val o = c.gmailAuth.connect(activity)) {
+                                    is GmailAuthOutcome.NeedsConsent -> consent.launch(IntentSenderRequest.Builder(o.pendingIntent).build())
+                                    is GmailAuthOutcome.Granted -> message = "Connected"
+                                    is GmailAuthOutcome.Failed -> message = friendlyGmailError(o.message)
+                                }
+                            }
+                        }
+                    },
+                    onDismiss = { explain = false },
+                )
+            }
             Spacer(Modifier.height(10.dp))
             Text(
                 "Google shows an “unverified app” screen for personal apps — choose Continue. You can connect later in More.",
@@ -509,7 +520,7 @@ private fun GmailStep(onNext: () -> Unit) {
         }
         message?.let {
             Spacer(Modifier.height(10.dp))
-            Text(it, color = MaterialTheme.colorScheme.primary)
+            Text(it, color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -540,7 +551,7 @@ private fun ImportStep(onNext: () -> Unit) {
         primary = "Continue",
         onPrimary = onNext,
         primaryEnabled = !running,
-        icon = Icons.Filled.AutoAwesome,
+        icon = Icons.Outlined.AutoAwesome,
     ) {
         if (running) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -567,9 +578,9 @@ private fun DoneStep(onFinish: () -> Unit) {
     val accounts by c.accounts.observeAccounts().collectAsStateWithLifecycle(initialValue = emptyList())
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.weight(0.7f))
-        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = KoshTheme.colors.good, modifier = Modifier.size(84.dp))
+        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = KoshTheme.colors.good, modifier = Modifier.size(84.dp))
         Spacer(Modifier.height(16.dp))
-        Text("You're all set", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("You're all set", style = KoshText.screenTitle)
         Spacer(Modifier.height(8.dp))
         Text(
             "${accounts.size} account${if (accounts.size == 1) "" else "s"} ready. New bank SMS will be picked up automatically.",

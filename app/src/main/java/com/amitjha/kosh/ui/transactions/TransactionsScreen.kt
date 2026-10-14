@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.transactions
 
+import com.amitjha.kosh.designsystem.components.KoshCard
+import com.amitjha.kosh.designsystem.theme.KoshText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,12 +9,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -151,34 +152,74 @@ fun TransactionsScreen(nav: NavController) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
-    val canGoNext = !state.period.endExclusive.isAfter(Time.today())
+    TransactionsContent(
+        state = state,
+        hidden = hidden,
+        snackbar = snackbar,
+        onPrevious = vm::previous,
+        onNext = vm::next,
+        onQuery = vm::setQuery,
+        onToggleFilter = vm::toggle,
+        onDelete = { t ->
+            haptic()
+            scope.launch {
+                val removed = vm.delete(t.txn.id) ?: return@launch
+                val r = snackbar.showSnackbar("Transaction deleted", "Undo", duration = SnackbarDuration.Short)
+                if (r == SnackbarResult.ActionPerformed) vm.restore(removed)
+            }
+        },
+        onReviewed = { t ->
+            haptic()
+            vm.markReviewed(t.txn.id)
+        },
+        onOpen = { t -> nav.navigate(Routes.txn(t.txn.id)) },
+    )
+}
 
+/** Stateless Activity screen; used by the app and by screenshot tests. */
+@Composable
+fun TransactionsContent(
+    state: TxnListState,
+    hidden: Boolean,
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
+    onPrevious: () -> Unit = {},
+    onNext: () -> Unit = {},
+    onQuery: (String) -> Unit = {},
+    onToggleFilter: (String) -> Unit = {},
+    onDelete: (TransactionItem) -> Unit = {},
+    onReviewed: (TransactionItem) -> Unit = {},
+    onOpen: (TransactionItem) -> Unit = {},
+) {
+    val canGoNext = !state.period.endExclusive.isAfter(Time.today())
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
             item(key = "head") {
-                Column(Modifier.statusBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp)) {
-                    Text("Activity", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp)) {
+                    Text("Activity", style = KoshText.screenTitle)
                     MonthSwitcher(
                         label = Fmt.month(state.period.label),
-                        onPrevious = vm::previous,
-                        onNext = vm::next,
+                        onPrevious = onPrevious,
+                        onNext = onNext,
                         canGoNext = canGoNext,
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatChip("Income", state.income, Modifier.weight(1f), type = TxnType.INCOME, hidden = hidden)
-                        StatChip("Spent", state.expense, Modifier.weight(1f), type = TxnType.EXPENSE, hidden = hidden)
+                    KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+                        Row(Modifier.fillMaxWidth()) {
+                            StatChip("Income", state.income, Modifier.weight(1f), type = TxnType.INCOME, hidden = hidden)
+                            StatChip("Spent", state.expense, Modifier.weight(1f), type = TxnType.EXPENSE, hidden = hidden)
+                            StatChip("Net", state.income - state.expense, Modifier.weight(1f), hidden = hidden)
+                        }
                     }
                     KoshTextField(
                         value = state.query,
-                        onValue = vm::setQuery,
+                        onValue = onQuery,
                         label = "Search merchant, note or category",
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }
             }
             item(key = "filters") {
-                FilterChipsRow(options = FILTERS, selected = state.filters, onToggle = vm::toggle, modifier = Modifier.padding(vertical = 4.dp))
+                FilterChipsRow(options = FILTERS, selected = state.filters, onToggle = onToggleFilter, modifier = Modifier.padding(vertical = 8.dp))
             }
             if (state.loaded && state.groups.isEmpty()) {
                 item(key = "empty") {
@@ -189,38 +230,32 @@ fun TransactionsScreen(nav: NavController) {
                         } else {
                             "Transactions for ${Fmt.month(state.period.label)} will show up here. Tap + to add one."
                         },
-                        icon = if (state.query.isNotBlank()) Icons.Filled.SearchOff else Icons.AutoMirrored.Filled.ReceiptLong,
+                        icon = if (state.query.isNotBlank()) Icons.Outlined.SearchOff else Icons.AutoMirrored.Outlined.ReceiptLong,
                         modifier = Modifier.padding(top = 40.dp),
                     )
                 }
             }
             state.groups.forEach { g ->
                 item(key = "d" + g.date) {
-                    DateHeader(Fmt.dayLabel(g.date), Modifier.padding(horizontal = 16.dp), netPaise = g.net, hidden = hidden)
+                    DateHeader(Fmt.dayLabel(g.date), Modifier.padding(horizontal = 20.dp), netPaise = g.net, hidden = hidden)
                 }
                 items(g.items, key = { it.txn.id }) { t ->
                     SwipeActionsRow(
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp),
                         onDelete = {
-                            haptic()
-                            scope.launch {
-                                val removed = vm.delete(t.txn.id) ?: return@launch
-                                val r = snackbar.showSnackbar("Transaction deleted", "Undo", duration = SnackbarDuration.Short)
-                                if (r == SnackbarResult.ActionPerformed) vm.restore(removed)
-                            }
+                            onDelete(t)
                             true
                         },
                         onConfirm = if (!t.txn.reviewed) {
                             {
-                                haptic()
-                                vm.markReviewed(t.txn.id)
+                                onReviewed(t)
                                 false
                             }
                         } else {
                             null
                         },
                     ) {
-                        TxnRow(t, hidden, Modifier.fillMaxWidth()) { nav.navigate(Routes.txn(t.txn.id)) }
+                        TxnRow(t, hidden, Modifier.fillMaxWidth()) { onOpen(t) }
                     }
                 }
             }

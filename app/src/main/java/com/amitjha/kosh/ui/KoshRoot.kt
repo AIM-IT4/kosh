@@ -1,5 +1,23 @@
 package com.amitjha.kosh.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -18,6 +36,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,8 +45,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -112,10 +129,27 @@ private const val RELOCK_AFTER_MILLIS = 60_000L
 fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: () -> Unit) {
     val settingsState by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
     val settings = settingsState
-    val dark = when (settings?.themeMode ?: ThemeMode.SYSTEM) {
+    val dark = when (settings?.themeMode ?: ThemeMode.LIGHT) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
+    }
+
+    val activity = LocalContext.current as? androidx.activity.ComponentActivity
+    DisposableEffect(activity, dark) {
+        activity?.enableEdgeToEdge(
+            statusBarStyle = if (dark) {
+                androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            } else {
+                androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+            },
+            navigationBarStyle = if (dark) {
+                androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            } else {
+                androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+            },
+        )
+        onDispose {}
     }
 
     KoshTheme(darkTheme = dark) {
@@ -157,10 +191,15 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
                 else -> Stage.Main
             }
 
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .windowInsetsPadding(WindowInsets.statusBars),
+            ) {
                 AnimatedContent(
                     targetState = stage,
-                    transitionSpec = { fadeIn(tween(350)) togetherWith fadeOut(tween(250)) },
+                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
                     label = "stage",
                 ) { s ->
                     when (s) {
@@ -181,29 +220,22 @@ private enum class Stage { Splash, Locked, Onboarding, Main }
 private fun Splash() {
     var start by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { start = true }
-    val scale by animateFloatAsState(
-        if (start) 1f else 0.6f,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "logo",
-    )
+    val alpha by animateFloatAsState(if (start) 1f else 0f, tween(300), label = "splash")
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.splash()),
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            KoshLogo(Modifier.scale(scale), size = 112.dp, shape = LogoShape.RoundedSquare)
-            Spacer(Modifier.height(20.dp))
-            AnimatedVisibility(start, enter = fadeIn(tween(500, 200)) + slideInVertically { it / 2 }) {
-                Text("Kosh", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
-            }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.graphicsLayer { this.alpha = alpha },
+        ) {
+            KoshLogo(size = 72.dp, shape = LogoShape.None)
+            Spacer(Modifier.height(12.dp))
+            Text("Kosh", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = KoshTheme.colors.ink)
         }
     }
-}
-
-private object Brush {
-    fun splash() = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(BrandPalette.Indigo900, BrandPalette.Ink))
 }
 
 @Composable
@@ -228,15 +260,15 @@ private fun LockScreen(onUnlocked: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.splash()),
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            KoshLogo(size = 88.dp)
-            Text("Kosh is locked", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.SemiBold)
-            message?.let { Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium) }
+            KoshLogo(size = 64.dp, shape = LogoShape.None)
+            Text("Kosh is locked", style = MaterialTheme.typography.titleLarge, color = KoshTheme.colors.ink)
+            message?.let { Text(it, color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodyMedium) }
             Spacer(Modifier.height(8.dp))
-            PrimaryButton(text = "Unlock", onClick = unlock, icon = Icons.Filled.Fingerprint)
+            PrimaryButton(text = "Unlock", onClick = unlock, icon = Icons.Outlined.Fingerprint, modifier = Modifier.padding(horizontal = 48.dp).fillMaxWidth())
         }
     }
 }
@@ -271,11 +303,15 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
             }
         },
         floatingActionButton = {
-            AnimatedVisibility(showBar, enter = scaleIn() + fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(
+                current == Routes.HOME || current == Routes.TRANSACTIONS,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(120)),
+            ) {
                 AddFab { nav.navigate(Routes.addTxn()) }
             }
         },
-        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
+        floatingActionButtonPosition = androidx.compose.material3.FabPosition.End,
     ) { padding ->
         Box(Modifier.padding(bottom = if (showBar) padding.calculateBottomPadding() else 0.dp)) {
             KoshNavHost(nav)
@@ -285,54 +321,73 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
 
 @Composable
 private fun AddFab(onClick: () -> Unit) {
-    FloatingActionButton(
-        onClick = onClick,
-        shape = CircleShape,
-        containerColor = Color.Transparent,
-        elevation = FloatingActionButtonDefaults.elevation(6.dp),
-        modifier = Modifier
-            .padding(bottom = 36.dp)
-            .size(60.dp)
-            .background(BrandPalette.brandGradient, CircleShape),
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        Modifier
+            .size(56.dp)
+            .clip(shape)
+            .background(KoshTheme.colors.ink)
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Add transaction" },
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Filled.Add, contentDescription = "Add transaction", tint = Color.White, modifier = Modifier.size(30.dp))
+        Icon(Icons.Outlined.Add, contentDescription = null, tint = KoshTheme.colors.onInk, modifier = Modifier.size(24.dp))
     }
 }
 
 @Composable
 private fun BottomBar(nav: NavHostController, current: String?) {
-    NavigationBar(
-        containerColor = KoshTheme.colors.cardSurface,
-        tonalElevation = 0.dp,
-        modifier = Modifier,
-    ) {
-        Tabs.forEachIndexed { index, tab ->
-            if (index == 2) {
-                // Room for the centre add button.
-                Box(Modifier.weight(0.6f))
-            }
-            val selected = current == tab.route
-            NavigationBarItem(
-                selected = selected,
-                onClick = {
-                    if (!selected) {
-                        nav.navigate(tab.route) {
-                            popUpTo(Routes.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+    KoshBottomBar(current) { route ->
+        nav.navigate(route) {
+            popUpTo(Routes.HOME) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+}
+
+/** Five evenly spaced tabs on a white bar with a top hairline; the selected tab is ink with an emerald dot. */
+@Composable
+fun KoshBottomBar(current: String?, onSelect: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().background(KoshTheme.colors.cardSurface)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(KoshTheme.colors.hairline))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(60.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Tabs.forEach { tab ->
+                val selected = current == tab.route
+                val tint = if (selected) KoshTheme.colors.ink else KoshTheme.colors.tertiaryText
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            role = androidx.compose.ui.semantics.Role.Tab,
+                        ) {
+                            if (!selected) onSelect(tab.route)
                         }
-                    }
-                },
-                icon = { Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = tab.label) },
-                label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                    unselectedIconColor = KoshTheme.colors.subtleText,
-                    unselectedTextColor = KoshTheme.colors.subtleText,
-                ),
-            )
+                        .semantics { this.selected = selected },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.height(3.dp))
+                    Text(tab.label, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = tint)
+                    Spacer(Modifier.height(3.dp))
+                    Box(
+                        Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) KoshTheme.colors.accent else Color.Transparent),
+                    )
+                }
+            }
         }
     }
 }

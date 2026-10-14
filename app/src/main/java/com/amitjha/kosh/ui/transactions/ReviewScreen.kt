@@ -13,12 +13,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -90,7 +90,7 @@ fun ReviewScreen(nav: NavController) {
                     haptic()
                     vm.confirmAll()
                 }) {
-                    Icon(Icons.Filled.DoneAll, contentDescription = null)
+                    Icon(Icons.Outlined.DoneAll, contentDescription = null)
                     Spacer(Modifier.size(6.dp))
                     Text("Confirm all")
                 }
@@ -101,7 +101,7 @@ fun ReviewScreen(nav: NavController) {
             EmptyState(
                 title = "All caught up",
                 message = "New transactions from your bank SMS and card emails will appear here for a quick check.",
-                icon = Icons.Filled.TaskAlt,
+                icon = Icons.Outlined.TaskAlt,
                 modifier = Modifier.padding(padding).padding(top = 60.dp),
                 actionLabel = "Back to home",
                 onAction = { nav.popBackStack() },
@@ -126,13 +126,13 @@ fun ReviewScreen(nav: NavController) {
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            ReviewAction("Confirm", Icons.Filled.Check, KoshTheme.colors.good) {
+                            ReviewAction("Confirm", Icons.Outlined.Check, KoshTheme.colors.good) {
                                 haptic()
                                 vm.confirm(t.txn.id)
                             }
-                            ReviewAction("Category", Icons.Filled.Category, MaterialTheme.colorScheme.primary) { editing = t }
-                            ReviewAction("Transfer", Icons.Filled.SwapHoriz, KoshTheme.colors.transfer) { vm.markTransfer(t.txn.id) }
-                            ReviewAction("Delete", Icons.Filled.DeleteOutline, KoshTheme.colors.alert) { vm.delete(t.txn.id) }
+                            ReviewAction("Category", Icons.Outlined.Category, MaterialTheme.colorScheme.primary) { editing = t }
+                            ReviewAction("Transfer", Icons.Outlined.SwapHoriz, KoshTheme.colors.transfer) { vm.markTransfer(t.txn.id) }
+                            ReviewAction("Delete", Icons.Outlined.DeleteOutline, KoshTheme.colors.alert) { vm.delete(t.txn.id) }
                         }
                     }
                 }

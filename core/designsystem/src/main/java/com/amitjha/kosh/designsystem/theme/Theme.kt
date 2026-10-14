@@ -1,7 +1,6 @@
 package com.amitjha.kosh.designsystem.theme
 
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -21,83 +20,85 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 private val DarkScheme: ColorScheme = darkColorScheme(
-    primary = BrandPalette.Indigo400,
-    onPrimary = Color.White,
-    primaryContainer = BrandPalette.Indigo800,
-    onPrimaryContainer = BrandPalette.Indigo50,
-    secondary = BrandPalette.Teal300,
-    onSecondary = BrandPalette.Ink,
-    secondaryContainer = Color(0xFF0D4D57),
-    onSecondaryContainer = Color(0xFFC8F4FA),
-    tertiary = BrandPalette.Gold,
-    onTertiary = BrandPalette.Ink,
-    tertiaryContainer = Color(0xFF5C4614),
-    onTertiaryContainer = Color(0xFFFFEBBE),
-    error = BrandPalette.Red,
-    onError = Color.White,
-    errorContainer = Color(0xFF5C1220),
-    onErrorContainer = Color(0xFFFFD9DC),
-    background = BrandPalette.Ink,
-    onBackground = Color(0xFFECEDF6),
-    surface = BrandPalette.Ink,
-    onSurface = Color(0xFFECEDF6),
-    surfaceVariant = BrandPalette.InkCardHigh,
-    onSurfaceVariant = BrandPalette.SlateLight,
-    surfaceContainerLowest = Color(0xFF0A0B14),
-    surfaceContainerLow = BrandPalette.InkRaised,
-    surfaceContainer = BrandPalette.InkCard,
-    surfaceContainerHigh = BrandPalette.InkCardHigh,
-    surfaceContainerHighest = Color(0xFF2C304A),
-    outline = BrandPalette.InkOutline,
-    outlineVariant = Color(0xFF262A42),
-    inverseSurface = Color(0xFFECEDF6),
-    inverseOnSurface = BrandPalette.Ink,
-    inversePrimary = BrandPalette.Indigo600,
+    primary = BrandPalette.Snow,
+    onPrimary = BrandPalette.Night,
+    primaryContainer = BrandPalette.NightFill,
+    onPrimaryContainer = BrandPalette.Snow,
+    secondary = BrandPalette.EmeraldBright,
+    onSecondary = BrandPalette.Night,
+    secondaryContainer = BrandPalette.EmeraldTintDark,
+    onSecondaryContainer = Color(0xFFA7F3D0),
+    tertiary = BrandPalette.EmeraldBright,
+    onTertiary = BrandPalette.Night,
+    tertiaryContainer = BrandPalette.EmeraldTintDark,
+    onTertiaryContainer = Color(0xFFA7F3D0),
+    error = Color(0xFFF87171),
+    onError = BrandPalette.Night,
+    errorContainer = Color(0xFF2A1414),
+    onErrorContainer = Color(0xFFFECACA),
+    background = BrandPalette.Night,
+    onBackground = BrandPalette.Snow,
+    surface = BrandPalette.Night,
+    onSurface = BrandPalette.Snow,
+    surfaceVariant = BrandPalette.NightFill,
+    onSurfaceVariant = BrandPalette.SnowSecondary,
+    surfaceTint = Color.Transparent,
+    surfaceContainerLowest = BrandPalette.Night,
+    surfaceContainerLow = BrandPalette.NightCard,
+    surfaceContainer = BrandPalette.NightCard,
+    surfaceContainerHigh = BrandPalette.NightCard,
+    surfaceContainerHighest = BrandPalette.NightFill,
+    outline = BrandPalette.NightHairline,
+    outlineVariant = BrandPalette.NightHairline,
+    inverseSurface = BrandPalette.Snow,
+    inverseOnSurface = BrandPalette.Night,
+    inversePrimary = BrandPalette.Ink,
     scrim = Color.Black,
 )
 
 private val LightScheme: ColorScheme = lightColorScheme(
-    primary = BrandPalette.Indigo600,
+    primary = BrandPalette.Ink,
     onPrimary = Color.White,
-    primaryContainer = BrandPalette.Indigo50,
-    onPrimaryContainer = BrandPalette.Indigo900,
-    secondary = Color(0xFF0B8FA0),
+    primaryContainer = BrandPalette.Fill,
+    onPrimaryContainer = BrandPalette.Ink,
+    secondary = BrandPalette.Emerald,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD3F5FA),
-    onSecondaryContainer = Color(0xFF033B43),
-    tertiary = BrandPalette.GoldDeep,
+    secondaryContainer = BrandPalette.EmeraldTint,
+    onSecondaryContainer = BrandPalette.EmeraldDeep,
+    tertiary = BrandPalette.Emerald,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFF1CC),
-    onTertiaryContainer = Color(0xFF3F2E00),
-    error = BrandPalette.RedDeep,
+    tertiaryContainer = BrandPalette.EmeraldTint,
+    onTertiaryContainer = BrandPalette.EmeraldDeep,
+    error = BrandPalette.Red,
     onError = Color.White,
-    errorContainer = Color(0xFFFFDADC),
-    onErrorContainer = Color(0xFF410009),
-    background = BrandPalette.Mist,
-    onBackground = Color(0xFF14162A),
-    surface = BrandPalette.Mist,
-    onSurface = Color(0xFF14162A),
-    surfaceVariant = Color(0xFFE6E7F2),
-    onSurfaceVariant = BrandPalette.Slate,
+    errorContainer = BrandPalette.RedTint,
+    onErrorContainer = Color(0xFF7F1D1D),
+    background = BrandPalette.Paper,
+    onBackground = BrandPalette.Ink,
+    surface = BrandPalette.Paper,
+    onSurface = BrandPalette.Ink,
+    surfaceVariant = BrandPalette.Fill,
+    onSurfaceVariant = BrandPalette.InkSecondary,
+    surfaceTint = Color.Transparent,
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFFBFBFE),
+    surfaceContainerLow = Color.White,
     surfaceContainer = Color.White,
-    surfaceContainerHigh = Color(0xFFF0F1F8),
-    surfaceContainerHighest = Color(0xFFE6E7F2),
-    outline = Color(0xFFC6C8DA),
-    outlineVariant = Color(0xFFE2E3EE),
-    inverseSurface = Color(0xFF23253A),
-    inverseOnSurface = Color(0xFFF2F2FA),
-    inversePrimary = BrandPalette.Indigo200,
+    surfaceContainerHigh = Color.White,
+    surfaceContainerHighest = BrandPalette.Fill,
+    outline = BrandPalette.Hairline,
+    outlineVariant = BrandPalette.Divider,
+    inverseSurface = BrandPalette.Ink,
+    inverseOnSurface = Color.White,
+    inversePrimary = BrandPalette.EmeraldBright,
     scrim = Color.Black,
 )
 
 internal val KoshShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 /** Spacing scale used across the app (4dp grid). */
@@ -114,7 +115,9 @@ data class Spacing(
     /** Horizontal padding for screen content. */
     val screen: Dp = 20.dp,
     /** Corner radius of standard cards. */
-    val cardRadius: Dp = 24.dp,
+    val cardRadius: Dp = 16.dp,
+    /** Vertical gap between sections. */
+    val section: Dp = 24.dp,
 )
 
 val LocalSpacing = staticCompositionLocalOf { Spacing() }
@@ -129,12 +132,12 @@ val LocalSpacing = staticCompositionLocalOf { Spacing() }
  * Material slots come from [MaterialTheme]; extra semantic colours from [KoshTheme.colors]
  * and spacing from [KoshTheme.spacing].
  *
- * @param darkTheme dark-first by default only if the system is dark; pass `true` to force it.
+ * @param darkTheme light by default; pass `true` for the dark theme.
  * @param dynamicColor use Material You wallpaper colours on Android 12+ (brand colours otherwise).
  */
 @Composable
 fun KoshTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
@@ -155,8 +158,10 @@ fun KoshTheme(
             colorScheme = scheme,
             typography = KoshTypography,
             shapes = KoshShapes,
-            content = content,
-        )
+        ) {
+            // Text outside a Surface would otherwise default to black, which vanishes on the dark theme.
+            CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides scheme.onBackground, content = content)
+        }
     }
 }
 

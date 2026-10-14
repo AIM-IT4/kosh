@@ -13,10 +13,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,10 +39,10 @@ enum class InsightSeverity { ALERT, WARNING, TIP, GOOD }
 fun InsightSeverity.accent(): Pair<Color, ImageVector> {
     val c = KoshTheme.colors
     return when (this) {
-        InsightSeverity.ALERT -> c.alert to Icons.Filled.ErrorOutline
-        InsightSeverity.WARNING -> c.warning to Icons.Filled.WarningAmber
-        InsightSeverity.TIP -> c.tip to Icons.Filled.Lightbulb
-        InsightSeverity.GOOD -> c.good to Icons.Filled.CheckCircle
+        InsightSeverity.ALERT -> c.alert to Icons.Outlined.ErrorOutline
+        InsightSeverity.WARNING -> c.warning to Icons.Outlined.WarningAmber
+        InsightSeverity.TIP -> c.tip to Icons.Outlined.Lightbulb
+        InsightSeverity.GOOD -> c.good to Icons.Outlined.CheckCircle
     }
 }
 
@@ -63,30 +63,26 @@ fun InsightCard(
     compact: Boolean = false,
 ) {
     val (accent, icon) = severity.accent()
-    val shape = RoundedCornerShape(22.dp)
+    val shape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(accent.copy(alpha = 0.16f), KoshTheme.colors.cardSurface, KoshTheme.colors.cardSurface),
-                ),
-            )
-            .border(1.dp, accent.copy(alpha = 0.25f), shape)
+            .background(KoshTheme.colors.cardSurface)
+            .border(1.dp, KoshTheme.colors.hairline, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.Top) {
-            IconBubble(color = accent, size = 36.dp, shape = RoundedCornerShape(12.dp), alpha = 0.18f) {
-                Icon(icon, contentDescription = severity.name.lowercase(), tint = accent, modifier = Modifier.size(20.dp))
+            IconBubble(color = accent, size = 32.dp, shape = RoundedCornerShape(10.dp), alpha = 0.10f) {
+                Icon(icon, contentDescription = severity.name.lowercase(), tint = accent, modifier = Modifier.size(18.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, maxLines = if (compact) 1 else 2)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
                     message,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = KoshTheme.colors.subtleText,
                     maxLines = if (compact) 2 else Int.MAX_VALUE,
                 )

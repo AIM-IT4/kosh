@@ -1,5 +1,6 @@
 package com.amitjha.kosh.designsystem.components
 
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -31,6 +32,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -49,6 +51,7 @@ import androidx.compose.material3.Icon
 /** Animates from 0 to [target] on first composition, then springs to new targets. */
 @Composable
 private fun animatedFraction(target: Float): Float {
+    if (LocalInspectionMode.current) return target
     var started by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { started = true }
     val value by animateFloatAsState(
@@ -60,7 +63,7 @@ private fun animatedFraction(target: Float): Float {
 }
 
 /**
- * A circular progress ring with a rounded gradient arc and centred content.
+ * A thin circular progress ring (emerald arc on a neutral track) with centred content.
  * Values above 1 are drawn as a full ring.
  */
 @Composable
@@ -68,9 +71,9 @@ fun ProgressRing(
     progress: Float,
     modifier: Modifier = Modifier,
     size: Dp = 88.dp,
-    thickness: Dp = 10.dp,
-    brush: Brush = Brush.sweepGradient(listOf(BrandPalette.Teal500, BrandPalette.Indigo400, BrandPalette.Teal500)),
-    trackColor: Color = KoshTheme.colors.cardSurfaceHigh,
+    thickness: Dp = 6.dp,
+    brush: Brush = SolidColor(KoshTheme.colors.accent),
+    trackColor: Color = KoshTheme.colors.fill,
     content: @Composable () -> Unit = {},
 ) {
     val p = animatedFraction(progress.coerceIn(0f, 1f))
@@ -108,9 +111,11 @@ fun BudgetProgressBar(
     val colors = KoshTheme.colors
     val fraction = if (limit > 0) spent.toFloat() / limit else 0f
     val f = animatedFraction(fraction.coerceIn(0f, 1f))
+    // A budget on course to overshoot is a warning even while little has been spent yet.
+    val willExceed = projected != null && limit > 0 && projected > limit
     val color = when {
         fraction >= 1f -> colors.alert
-        fraction >= 0.8f -> colors.warning
+        fraction >= 0.8f || willExceed -> colors.warning
         else -> colors.income
     }
     val track = colors.cardSurfaceHigh

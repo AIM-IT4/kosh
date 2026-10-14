@@ -4,46 +4,52 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 
-/** Raw brand palette, taken from the app logo. */
+/**
+ * The Kosh palette: warm off-white paper, ink text, a single emerald accent.
+ * There are deliberately no gradients; the old gradient names resolve to flat colours.
+ */
 object BrandPalette {
-    val Indigo900 = Color(0xFF1A1266)
-    val Indigo800 = Color(0xFF2B1F9E)
-    val Indigo600 = Color(0xFF4C3BE0)
-    val Indigo400 = Color(0xFF7B6CF0)
-    val Indigo200 = Color(0xFFC4BCFF)
-    val Indigo50 = Color(0xFFF0EEFF)
-    val Teal500 = Color(0xFF10B5C9)
-    val Teal300 = Color(0xFF5DD8E6)
-    val Gold = Color(0xFFFFD166)
-    val GoldDeep = Color(0xFFE0A93A)
+    // Neutrals (light)
+    val Paper = Color(0xFFF7F7F5)
+    val Card = Color(0xFFFFFFFF)
+    val Hairline = Color(0xFFEAEAE7)
+    val Divider = Color(0xFFEFEFEC)
+    val Ink = Color(0xFF111111)
+    val InkSecondary = Color(0xFF6B6B6B)
+    val InkTertiary = Color(0xFFA3A3A3)
+    val Fill = Color(0xFFF1F1EE)
 
-    val Ink = Color(0xFF0E0F1A)
-    val InkRaised = Color(0xFF161828)
-    val InkCard = Color(0xFF1C1F33)
-    val InkCardHigh = Color(0xFF24283F)
-    val InkOutline = Color(0xFF34385A)
-    val Mist = Color(0xFFF6F7FB)
-    val Paper = Color(0xFFFFFFFF)
-    val Slate = Color(0xFF5B6178)
-    val SlateLight = Color(0xFF9AA0B8)
+    // Neutrals (dark)
+    val Night = Color(0xFF0B0B0C)
+    val NightCard = Color(0xFF161618)
+    val NightHairline = Color(0xFF242427)
+    val NightFill = Color(0xFF1E1E21)
+    val Snow = Color(0xFFF2F2F0)
+    val SnowSecondary = Color(0xFF9B9B9B)
+    val SnowTertiary = Color(0xFF6A6A6A)
 
-    val Green = Color(0xFF2ECC8F)
-    val GreenDeep = Color(0xFF1F9E6C)
-    val Coral = Color(0xFFFF6B6B)
-    val CoralDeep = Color(0xFFE04848)
-    val Amber = Color(0xFFFFB547)
-    val AmberDeep = Color(0xFFCC8A1F)
-    val Red = Color(0xFFFF4D5E)
-    val RedDeep = Color(0xFFD62839)
-    val Grey = Color(0xFF8A90A8)
+    // Accent
+    val Emerald = Color(0xFF059669)
+    val EmeraldDeep = Color(0xFF047857)
+    val EmeraldBright = Color(0xFF10B981)
+    val EmeraldTint = Color(0xFFECFDF5)
+    val EmeraldTintDark = Color(0xFF0D2A21)
 
-    /** The logo gradient: indigo to teal. */
-    val brandGradient: Brush
-        get() = Brush.linearGradient(listOf(Indigo800, Indigo600, Teal500))
+    // Status
+    val Red = Color(0xFFDC2626)
+    val RedTint = Color(0xFFFEF2F2)
+    val Amber = Color(0xFFB45309)
+    val AmberTint = Color(0xFFFFFBEB)
+    val Blue = Color(0xFF2563EB)
+    val BlueTint = Color(0xFFEFF6FF)
 
-    val goldGradient: Brush
-        get() = Brush.linearGradient(listOf(Gold, GoldDeep))
+    /** Kept for compatibility; Kosh no longer uses gradients, so this is flat ink. */
+    val brandGradient: Brush get() = SolidColor(Ink)
+
+    /** Kept for compatibility; flat emerald. */
+    val goldGradient: Brush get() = SolidColor(Emerald)
 }
 
 /**
@@ -69,48 +75,83 @@ data class KoshColors(
     val shimmerBase: Color,
     val shimmerHighlight: Color,
     val isDark: Boolean,
+    /** Primary text / ink buttons. */
+    val ink: Color,
+    /** Text on ink buttons. */
+    val onInk: Color,
+    val tertiaryText: Color,
+    /** 1dp card outline. */
+    val hairline: Color,
+    val accent: Color,
+    val accentTint: Color,
+    val alertTint: Color,
+    val warningTint: Color,
+    val tipTint: Color,
+    /** Neutral fill for icon tiles, chips and inputs. */
+    val fill: Color,
 ) {
-    val heroGradient: Brush get() = BrandPalette.brandGradient
+    /** Kept for compatibility; a flat surface instead of a gradient. */
+    val heroGradient: Brush get() = SolidColor(cardSurface)
 }
 
-internal val DarkKoshColors = KoshColors(
-    income = BrandPalette.Green,
-    expense = BrandPalette.Coral,
-    transfer = BrandPalette.Grey,
+internal val LightKoshColors = KoshColors(
+    income = BrandPalette.Emerald,
+    expense = BrandPalette.Ink,
+    transfer = BrandPalette.InkSecondary,
     warning = BrandPalette.Amber,
     alert = BrandPalette.Red,
-    good = BrandPalette.Teal300,
-    tip = BrandPalette.Indigo400,
-    gold = BrandPalette.Gold,
-    cardSurface = BrandPalette.InkCard,
-    cardSurfaceHigh = BrandPalette.InkCardHigh,
-    glass = Color.White.copy(alpha = 0.08f),
-    glassBorder = Color.White.copy(alpha = 0.14f),
-    subtleText = BrandPalette.SlateLight,
-    divider = Color.White.copy(alpha = 0.08f),
-    shimmerBase = BrandPalette.InkCard,
-    shimmerHighlight = BrandPalette.InkCardHigh,
-    isDark = true,
-)
-
-internal val LightKoshColors = KoshColors(
-    income = BrandPalette.GreenDeep,
-    expense = BrandPalette.CoralDeep,
-    transfer = BrandPalette.Slate,
-    warning = BrandPalette.AmberDeep,
-    alert = BrandPalette.RedDeep,
-    good = Color(0xFF0B8FA0),
-    tip = BrandPalette.Indigo600,
-    gold = BrandPalette.GoldDeep,
-    cardSurface = BrandPalette.Paper,
-    cardSurfaceHigh = BrandPalette.Indigo50,
-    glass = Color.White.copy(alpha = 0.65f),
-    glassBorder = BrandPalette.Indigo200.copy(alpha = 0.5f),
-    subtleText = BrandPalette.Slate,
-    divider = Color(0x14000000),
-    shimmerBase = Color(0xFFE9EAF2),
-    shimmerHighlight = Color(0xFFF6F7FB),
+    good = BrandPalette.Emerald,
+    tip = BrandPalette.Blue,
+    gold = BrandPalette.Emerald,
+    cardSurface = BrandPalette.Card,
+    cardSurfaceHigh = BrandPalette.Fill,
+    glass = BrandPalette.Card,
+    glassBorder = BrandPalette.Hairline,
+    subtleText = BrandPalette.InkSecondary,
+    divider = BrandPalette.Divider,
+    shimmerBase = Color(0xFFEDEDEA),
+    shimmerHighlight = Color(0xFFF7F7F5),
     isDark = false,
+    ink = BrandPalette.Ink,
+    onInk = Color.White,
+    tertiaryText = BrandPalette.InkTertiary,
+    hairline = BrandPalette.Hairline,
+    accent = BrandPalette.Emerald,
+    accentTint = BrandPalette.EmeraldTint,
+    alertTint = BrandPalette.RedTint,
+    warningTint = BrandPalette.AmberTint,
+    tipTint = BrandPalette.BlueTint,
+    fill = BrandPalette.Fill,
 )
 
-val LocalKoshColors = staticCompositionLocalOf { DarkKoshColors }
+internal val DarkKoshColors = KoshColors(
+    income = BrandPalette.EmeraldBright,
+    expense = BrandPalette.Snow,
+    transfer = BrandPalette.SnowSecondary,
+    warning = Color(0xFFF59E0B),
+    alert = Color(0xFFF87171),
+    good = BrandPalette.EmeraldBright,
+    tip = Color(0xFF60A5FA),
+    gold = BrandPalette.EmeraldBright,
+    cardSurface = BrandPalette.NightCard,
+    cardSurfaceHigh = BrandPalette.NightFill,
+    glass = BrandPalette.NightCard,
+    glassBorder = BrandPalette.NightHairline,
+    subtleText = BrandPalette.SnowSecondary,
+    divider = BrandPalette.NightHairline,
+    shimmerBase = BrandPalette.NightCard,
+    shimmerHighlight = BrandPalette.NightFill,
+    isDark = true,
+    ink = BrandPalette.Snow,
+    onInk = BrandPalette.Night,
+    tertiaryText = BrandPalette.SnowTertiary,
+    hairline = BrandPalette.NightHairline,
+    accent = BrandPalette.EmeraldBright,
+    accentTint = BrandPalette.EmeraldTintDark,
+    alertTint = Color(0xFF2A1414),
+    warningTint = Color(0xFF2A2010),
+    tipTint = Color(0xFF14202F),
+    fill = BrandPalette.NightFill,
+)
+
+val LocalKoshColors = staticCompositionLocalOf { LightKoshColors }

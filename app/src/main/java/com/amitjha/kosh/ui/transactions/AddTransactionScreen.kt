@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -113,25 +113,56 @@ class AddTransactionViewModel(private val c: AppContainer) : ViewModel() {
 fun AddTransactionScreen(nav: NavController, editId: Long?, initialType: TxnType, initialAccountId: Long?) {
     val vm = koshViewModel(key = "add-$editId") { AddTransactionViewModel(it) }
     val refs by vm.refs.collectAsStateWithLifecycle()
+    AddTransactionContent(
+        refs = refs,
+        editId = editId,
+        initialType = initialType,
+        initialAccountId = initialAccountId,
+        load = { vm.load(it) },
+        onSave = { existing, draft -> vm.save(existing, draft) { nav.popBackStack() } },
+        onDelete = { id -> vm.delete(id) { nav.popBackStack() } },
+        onBack = { nav.popBackStack() },
+    )
+}
+
+/**
+ * Stateless (data-in, events-out) transaction editor; the form state lives here.
+ * [initialAmount] pre-fills the keypad, e.g. for screenshot tests.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddTransactionContent(
+    refs: EditorRefs,
+    editId: Long?,
+    initialType: TxnType,
+    initialAccountId: Long?,
+    load: suspend (Long) -> TransactionEntity? = { null },
+    onSave: (TransactionEntity?, TransactionEntity) -> Unit = { _, _ -> },
+    onDelete: (Long) -> Unit = {},
+    onBack: () -> Unit = {},
+    initialAmount: String = "",
+    initialCategoryKey: String? = null,
+    initialMerchant: String = "",
+) {
     val haptic = rememberHaptic()
 
     var existing by remember { mutableStateOf<TransactionEntity?>(null) }
     var type by remember { mutableStateOf(initialType) }
-    val expr = remember { KeypadExpression() }
-    var exprText by remember { mutableStateOf("") }
-    var categoryKey by remember { mutableStateOf<String?>(null) }
+    val expr = remember { KeypadExpression().apply { initialAmount.forEach { press(it.toString()) } } }
+    var exprText by remember { mutableStateOf(expr.text) }
+    var categoryKey by remember { mutableStateOf(initialCategoryKey) }
     var accountId by remember { mutableStateOf(initialAccountId) }
     var toAccountId by remember { mutableStateOf<Long?>(null) }
     var date by remember { mutableStateOf(Time.today()) }
     var timeOfDay by remember { mutableStateOf(java.time.LocalTime.now()) }
-    var merchant by remember { mutableStateOf("") }
+    var merchant by remember { mutableStateOf(initialMerchant) }
     var note by remember { mutableStateOf("") }
     var pickCategory by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(editId) {
         if (editId != null) {
-            val t = vm.load(editId) ?: return@LaunchedEffect
+            val t = load(editId) ?: return@LaunchedEffect
             existing = t
             type = t.type
             exprText = expr.apply { press("C"); t.amount.toRupeeInput().forEach { ch -> press(ch.toString()) } }.text
@@ -161,10 +192,10 @@ fun AddTransactionScreen(nav: NavController, editId: Long?, initialType: TxnType
 
     KoshScreen(
         title = if (existing == null) "New transaction" else "Edit transaction",
-        onBack = { nav.popBackStack() },
+        onBack = onBack,
         actions = {
             if (existing != null) {
-                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete") }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete") }
             }
         },
     ) { padding ->
@@ -226,7 +257,7 @@ fun AddTransactionScreen(nav: NavController, editId: Long?, initialType: TxnType
             NumberKeypad(onKey = { exprText = expr.press(it) }, modifier = Modifier.padding(horizontal = 12.dp))
             PrimaryButton(
                 text = if (existing == null) "Save" else "Update",
-                icon = Icons.Filled.Check,
+                icon = Icons.Outlined.Check,
                 enabled = canSave,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -245,7 +276,7 @@ fun AddTransactionScreen(nav: NavController, editId: Long?, initialType: TxnType
                         timestamp = ts,
                         source = existing?.source ?: TxnSource.MANUAL,
                     )
-                    vm.save(existing, draft) { nav.popBackStack() }
+                    onSave(existing, draft)
                 },
             )
         }
@@ -272,9 +303,7 @@ fun AddTransactionScreen(nav: NavController, editId: Long?, initialType: TxnType
             destructive = true,
             onConfirm = {
                 confirmDelete = false
-                vm.delete(existing!!.id) {
-                    nav.popBackStack()
-                }
+                onDelete(existing!!.id)
             },
             onDismiss = { confirmDelete = false },
         )

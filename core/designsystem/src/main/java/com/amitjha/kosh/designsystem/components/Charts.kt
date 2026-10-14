@@ -1,5 +1,6 @@
 package com.amitjha.kosh.designsystem.components
 
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -72,6 +73,8 @@ data class ChartPoint(val label: String, val value: Paise)
 
 @Composable
 private fun rememberEntrance(key: Any?, durationMillis: Int = 900): Float {
+    // Previews and screenshot tests capture a single frame: show the finished chart there.
+    if (LocalInspectionMode.current) return 1f
     val progress = remember { Animatable(0f) }
     LaunchedEffect(key) {
         progress.snapTo(0f)
@@ -91,7 +94,7 @@ fun DonutChart(
     slices: List<ChartSlice>,
     modifier: Modifier = Modifier,
     size: Dp = 200.dp,
-    thickness: Dp = 26.dp,
+    thickness: Dp = 10.dp,
     centerLabel: String = "Total",
     centerValue: Paise? = null,
     hidden: Boolean = false,
@@ -154,7 +157,7 @@ fun DonutChart(
                     useCenter = false,
                     topLeft = if (isSel) Offset(inset - 4f, inset - 4f) else topLeft,
                     size = if (isSel) Size(arcSize.width + 8f, arcSize.height + 8f) else arcSize,
-                    style = Stroke(if (isSel) stroke + 8f else stroke, cap = StrokeCap.Butt),
+                    style = Stroke(if (isSel) stroke + 4f else stroke, cap = StrokeCap.Butt),
                 )
                 start += sweep
             }
@@ -233,6 +236,7 @@ fun BarChart(
     val progress = rememberEntrance(groups)
     var selected by remember(groups) { mutableStateOf<Int?>(null) }
     val maxValue = groups.maxOfOrNull { max(it.income, it.expense) }?.coerceAtLeast(1L) ?: 1L
+    val expenseBar = KoshTheme.colors.tertiaryText.copy(alpha = 0.55f)
     val grid = colors.divider
     val labelColor = colors.subtleText
 
@@ -248,13 +252,13 @@ fun BarChart(
                 LegendDot(colors.income)
                 AmountText(sel.income, compact = true, hidden = hidden, style = AmountStyles.small, color = colors.income)
                 Spacer(Modifier.width(12.dp))
-                LegendDot(colors.expense)
-                AmountText(sel.expense, compact = true, hidden = hidden, style = AmountStyles.small, color = colors.expense)
+                LegendDot(expenseBar)
+                AmountText(sel.expense, compact = true, hidden = hidden, style = AmountStyles.small, color = colors.ink)
             } else {
                 LegendDot(colors.income)
                 Text("Income", style = MaterialTheme.typography.labelMedium, color = labelColor)
                 Spacer(Modifier.width(14.dp))
-                LegendDot(colors.expense)
+                LegendDot(expenseBar)
                 Text("Expense", style = MaterialTheme.typography.labelMedium, color = labelColor)
             }
         }
@@ -284,21 +288,17 @@ fun BarChart(
             if (groups.isEmpty()) return@Canvas
             val labelSpace = 0f
             val chartH = this.size.height - labelSpace
-            repeat(4) { i ->
-                val y = chartH * i / 3f
-                drawLine(grid, Offset(0f, y), Offset(this.size.width, y), strokeWidth = 1f,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f)))
-            }
+            drawLine(grid, Offset(0f, chartH - 0.5f), Offset(this.size.width, chartH - 0.5f), strokeWidth = 1f)
             val slot = this.size.width / groups.size
-            val barW = min(slot * 0.26f, 18.dp.toPx())
-            val radius = barW / 2f
+            val barW = min(slot * 0.24f, 14.dp.toPx())
+            val radius = 6.dp.toPx().coerceAtMost(barW / 2f)
             groups.forEachIndexed { i, g ->
                 val cx = slot * i + slot / 2f
                 val dim = selected != null && selected != i
                 val inH = chartH * g.income / maxValue * progress
                 val exH = chartH * g.expense / maxValue * progress
                 drawRoundBar(colors.income.copy(alpha = if (dim) 0.3f else 1f), cx - barW - 2f, chartH, barW, inH, radius)
-                drawRoundBar(colors.expense.copy(alpha = if (dim) 0.3f else 1f), cx + 2f, chartH, barW, exH, radius)
+                drawRoundBar(expenseBar.copy(alpha = if (dim) 0.3f else 1f), cx + 2f, chartH, barW, exH, radius)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -348,7 +348,7 @@ fun LineAreaChart(
     points: List<ChartPoint>,
     modifier: Modifier = Modifier,
     height: Dp = 180.dp,
-    color: Color = MaterialTheme.colorScheme.primary,
+    color: Color = KoshTheme.colors.accent,
     hidden: Boolean = false,
     showHeader: Boolean = true,
 ) {
@@ -399,11 +399,7 @@ fun LineAreaChart(
             val step = this.size.width / (points.size - 1)
             val xy = values.mapIndexed { i, v -> Offset(i * step, pad + h - (v - lo) / span * h) }
 
-            repeat(3) { i ->
-                val y = pad + h * i / 2f
-                drawLine(grid, Offset(0f, y), Offset(this.size.width, y), 1f,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f)))
-            }
+            drawLine(grid, Offset(0f, pad + h), Offset(this.size.width, pad + h), 1f)
             val line = smoothPath(xy)
             val area = Path().apply {
                 addPath(line)
@@ -412,13 +408,13 @@ fun LineAreaChart(
                 close()
             }
             clipRect(right = this.size.width * progress) {
-                drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = 0.35f), color.copy(alpha = 0f))))
-                drawPath(line, color, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                drawPath(area, color.copy(alpha = 0.08f))
+                drawPath(line, color, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
             val sel = selected
             if (sel != null) {
                 val p = xy[sel]
-                drawLine(color.copy(alpha = 0.5f), Offset(p.x, 0f), Offset(p.x, this.size.height), 1.5f)
+                drawLine(grid, Offset(p.x, 0f), Offset(p.x, this.size.height), 1f)
                 drawCircle(surface, 7.dp.toPx(), p)
                 drawCircle(color, 5.dp.toPx(), p)
             } else if (progress >= 1f) {
@@ -446,7 +442,7 @@ private fun smoothPath(points: List<Offset>): Path = Path().apply {
 fun Sparkline(
     values: List<Float>,
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.primary,
+    color: Color = KoshTheme.colors.accent,
     fill: Boolean = false,
     strokeWidth: Dp = 2.dp,
 ) {
@@ -469,7 +465,7 @@ fun Sparkline(
                     lineTo(pts.first().x, this@Canvas.size.height)
                     close()
                 }
-                drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = 0.35f), Color.Transparent)))
+                drawPath(area, color.copy(alpha = 0.08f))
             }
             drawPath(line, color, style = Stroke(strokeWidth.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
         }

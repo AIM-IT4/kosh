@@ -18,16 +18,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -90,7 +89,7 @@ fun KoshScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Box(Modifier.statusBarsPadding()) {
+            Box(Modifier) {
                 KoshTopBar(title = title, subtitle = subtitle, onBack = onBack, actions = actions)
             }
         },
@@ -181,7 +180,7 @@ fun FieldBox(
     label: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
-    trailing: ImageVector = Icons.Filled.ExpandMore,
+    trailing: ImageVector = Icons.Outlined.ExpandMore,
     content: @Composable () -> Unit,
 ) {
     Surface(
@@ -214,7 +213,7 @@ fun DateField(
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
-    FieldBox(label = label, modifier = modifier, onClick = { open = true }, trailing = Icons.Filled.CalendarMonth) {
+    FieldBox(label = label, modifier = modifier, onClick = { open = true }, trailing = Icons.Outlined.CalendarMonth) {
         Text(Fmt.fullDate(date), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
     }
     if (open) {
@@ -276,7 +275,7 @@ fun <T> ChoiceField(
                             Spacer(Modifier.width(12.dp))
                         }
                         Text(optionLabel(o), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                        if (o == selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                        if (o == selected) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -335,14 +334,27 @@ fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(16.dp))
+            Icon(icon, contentDescription = null, tint = KoshTheme.colors.subtleText, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(title, style = MaterialTheme.typography.bodyLarge)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
         }
-        Switch(checked = checked, onCheckedChange = onChecked, enabled = enabled)
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChecked,
+            enabled = enabled,
+            colors = androidx.compose.material3.SwitchDefaults.colors(
+                checkedThumbColor = androidx.compose.ui.graphics.Color.White,
+                checkedTrackColor = KoshTheme.colors.accent,
+                checkedBorderColor = KoshTheme.colors.accent,
+                uncheckedThumbColor = androidx.compose.ui.graphics.Color.White,
+                uncheckedTrackColor = KoshTheme.colors.fill,
+                uncheckedBorderColor = KoshTheme.colors.hairline,
+            ),
+        )
     }
 }
 
@@ -364,11 +376,11 @@ fun ActionRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(16.dp))
+            Icon(icon, contentDescription = null, tint = KoshTheme.colors.subtleText, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+            Text(title, style = MaterialTheme.typography.bodyLarge,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else KoshTheme.colors.subtleText)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
         }

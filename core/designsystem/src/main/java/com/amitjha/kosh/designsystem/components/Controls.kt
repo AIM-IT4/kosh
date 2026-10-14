@@ -10,6 +10,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import com.amitjha.kosh.designsystem.theme.KoshText
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -82,15 +84,15 @@ fun SegmentedTabs(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(42.dp)
+            .height(40.dp)
             .clip(shape)
-            .background(KoshTheme.colors.cardSurfaceHigh)
-            .padding(4.dp),
+            .background(KoshTheme.colors.fill)
+            .padding(3.dp),
     ) {
         val segment = maxWidth / options.size.coerceAtLeast(1)
         val offset by animateDpAsState(
             targetValue = segment * selectedIndex,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+            animationSpec = tween(200),
             label = "segment",
         )
         Box(
@@ -99,7 +101,8 @@ fun SegmentedTabs(
                 .width(segment)
                 .fillMaxHeight()
                 .clip(shape)
-                .background(BrandPalette.brandGradient),
+                .background(KoshTheme.colors.cardSurface)
+                .border(1.dp, KoshTheme.colors.hairline, shape),
         )
         Row(Modifier.fillMaxWidth().fillMaxHeight()) {
             options.forEachIndexed { i, label ->
@@ -118,8 +121,8 @@ fun SegmentedTabs(
                 ) {
                     Text(
                         label,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (selected) Color.White else KoshTheme.colors.subtleText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (selected) KoshTheme.colors.ink else KoshTheme.colors.subtleText,
                         maxLines = 1,
                     )
                 }
@@ -214,19 +217,15 @@ fun EmptyState(
     ) {
         Box(
             Modifier
-                .size(96.dp)
-                .clip(RoundedCornerShape(32.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(BrandPalette.Indigo600.copy(alpha = 0.25f), BrandPalette.Teal500.copy(alpha = 0.18f)),
-                    ),
-                ),
+                .size(56.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(KoshTheme.colors.fill),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp))
+            Icon(icon, contentDescription = null, tint = KoshTheme.colors.subtleText, modifier = Modifier.size(26.dp))
         }
         Spacer(Modifier.height(20.dp))
-        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
             message,
@@ -307,7 +306,7 @@ fun KoshTopBar(
             Spacer(Modifier.width(12.dp))
         }
         Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle != null) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText, maxLines = 1)
             }
@@ -331,18 +330,15 @@ fun StatChip(
     onDark: Boolean = false,
 ) {
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (onDark) Color.White.copy(alpha = 0.12f) else KoshTheme.colors.cardSurface)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+        modifier = modifier,
     ) {
         Text(
             label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (onDark) Color.White.copy(alpha = 0.75f) else KoshTheme.colors.subtleText,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (onDark) Color.White.copy(alpha = 0.7f) else KoshTheme.colors.subtleText,
             maxLines = 1,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(2.dp))
         AmountText(
             paise = value,
             style = AmountStyles.medium,
@@ -350,8 +346,8 @@ fun StatChip(
             hidden = hidden,
             color = if (onDark) Color.White else when (type) {
                 TxnType.INCOME -> KoshTheme.colors.income
-                TxnType.EXPENSE -> KoshTheme.colors.expense
-                else -> Color.Unspecified
+                TxnType.EXPENSE -> KoshTheme.colors.ink
+                else -> KoshTheme.colors.ink
             },
         )
         if (deltaPaise != null) {
@@ -370,18 +366,31 @@ fun SectionHeader(
     onAction: (() -> Unit)? = null,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+        modifier = modifier.fillMaxWidth().padding(bottom = 2.dp).heightIn(min = 32.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        Text(
+            title.uppercase(),
+            style = KoshText.sectionLabel,
+            color = KoshTheme.colors.subtleText,
+            modifier = Modifier.weight(1f),
+        )
         if (actionLabel != null && onAction != null) {
-            TextButton(onClick = onAction) { Text(actionLabel) }
+            Text(
+                actionLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = KoshTheme.colors.accent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(role = Role.Button, onClick = onAction)
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+            )
         }
     }
 }
 
 /**
- * The main call-to-action button, filled with the brand gradient.
+ * The main call-to-action button: solid ink with white text, 14dp corners, 52dp tall.
  */
 @Composable
 fun PrimaryButton(
@@ -391,28 +400,59 @@ fun PrimaryButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = modifier
-            .heightIn(min = 54.dp)
+            .heightIn(min = 52.dp)
             .clip(shape)
-            .background(
-                if (enabled) BrandPalette.brandGradient
-                else Brush.linearGradient(listOf(KoshTheme.colors.cardSurfaceHigh, KoshTheme.colors.cardSurfaceHigh)),
-            )
+            .background(if (enabled) KoshTheme.colors.ink else KoshTheme.colors.fill)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, tint = KoshTheme.colors.onInk, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
         }
         Text(
             text,
             style = MaterialTheme.typography.labelLarge,
-            color = if (enabled) Color.White else KoshTheme.colors.subtleText,
+            color = if (enabled) KoshTheme.colors.onInk else KoshTheme.colors.tertiaryText,
+        )
+    }
+}
+
+
+/** A secondary button: white with a hairline border and ink text. */
+@Composable
+fun SecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .clip(shape)
+            .background(KoshTheme.colors.cardSurface)
+            .border(1.dp, KoshTheme.colors.hairline, shape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = KoshTheme.colors.ink, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (enabled) KoshTheme.colors.ink else KoshTheme.colors.tertiaryText,
         )
     }
 }

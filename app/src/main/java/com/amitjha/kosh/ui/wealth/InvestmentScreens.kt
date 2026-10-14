@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -305,7 +305,7 @@ private fun NpsForm(item: InvestmentItem?, vm: InvestmentEditViewModel, onSave: 
                         Text("NAV ${String.format(Locale.ENGLISH, "%.4f", h.nav)}${h.navDate?.let { " · " + Fmt.date(it) } ?: ""}",
                             style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.subtleText)
                     }
-                    IconButton(onClick = { holdings.removeAt(i) }) { Icon(Icons.Filled.Close, contentDescription = "Remove") }
+                    IconButton(onClick = { holdings.removeAt(i) }) { Icon(Icons.Outlined.Close, contentDescription = "Remove") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     KoshTextField(h.units, { holdings[i] = h.copy(units = it.filter { c -> c.isDigit() || c == '.' }, value = null) },
@@ -396,8 +396,8 @@ fun InvestmentDetailScreen(nav: NavController, id: Long) {
         onBack = { nav.popBackStack() },
         actions = {
             if (inv != null) {
-                IconButton(onClick = { nav.navigate(Routes.editInvestment(id)) }) { Icon(Icons.Filled.Edit, contentDescription = "Edit") }
-                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete") }
+                IconButton(onClick = { nav.navigate(Routes.editInvestment(id)) }) { Icon(Icons.Outlined.Edit, contentDescription = "Edit") }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete") }
             }
         },
     ) { padding ->

@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CreditScore
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CreditScore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -101,34 +101,14 @@ fun BillsScreen(nav: NavController) {
     var paying by remember { mutableStateOf<BillItem?>(null) }
     var adding by remember { mutableStateOf(false) }
 
-    KoshScreen(
-        title = "Card bills",
-        subtitle = if (state.bills.isEmpty()) null else "Total due ${com.amitjha.kosh.model.Money.format(state.bills.sumOf { it.bill.totalDue }, showPaise = false)}"
-            .takeUnless { hidden },
+    BillsContent(
+        state = state,
+        hidden = hidden,
         onBack = { nav.popBackStack() },
-        actions = {
-            if (state.cards.isNotEmpty()) IconButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, contentDescription = "Add bill") }
-        },
-    ) { padding ->
-        if (state.loaded && state.bills.isEmpty()) {
-            EmptyState(
-                title = "No bills due",
-                message = if (state.cards.isEmpty()) {
-                    "Add a credit card to track its bills. Statements are read from your card SMS and Gmail."
-                } else {
-                    "You're all paid up. New statements from SMS or Gmail will show here with due dates."
-                },
-                icon = Icons.Filled.CreditScore,
-                modifier = Modifier.padding(padding).padding(top = 60.dp),
-                actionLabel = if (state.cards.isEmpty()) null else "Add a bill manually",
-                onAction = if (state.cards.isEmpty()) null else { { adding = true } },
-            )
-            return@KoshScreen
-        }
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 40.dp)) {
-            items(state.bills, key = { it.bill.id }) { b -> BillRow(b, hidden, onPay = { paying = b }, onDelete = { vm.delete(b.bill.id) }) }
-        }
-    }
+        onAdd = { adding = true },
+        onPay = { paying = it },
+        onDelete = { vm.delete(it.bill.id) },
+    )
 
     paying?.let { b ->
         PayBillDialog(b, state.banks, onDismiss = { paying = null }) { from, amount ->
@@ -161,6 +141,46 @@ fun BillsScreen(nav: NavController) {
     }
 }
 
+/** Stateless Card bills screen; used by the app and by screenshot tests. */
+@Composable
+fun BillsContent(
+    state: BillsState,
+    hidden: Boolean,
+    onBack: () -> Unit = {},
+    onAdd: () -> Unit = {},
+    onPay: (BillItem) -> Unit = {},
+    onDelete: (BillItem) -> Unit = {},
+) {
+    KoshScreen(
+        title = "Card bills",
+        subtitle = if (state.bills.isEmpty()) null else "Total due ${com.amitjha.kosh.model.Money.format(state.bills.sumOf { it.bill.totalDue }, showPaise = false)}"
+            .takeUnless { hidden },
+        onBack = onBack,
+        actions = {
+            if (state.cards.isNotEmpty()) IconButton(onClick = onAdd) { Icon(Icons.Outlined.Add, contentDescription = "Add bill") }
+        },
+    ) { padding ->
+        if (state.loaded && state.bills.isEmpty()) {
+            EmptyState(
+                title = "No bills due",
+                message = if (state.cards.isEmpty()) {
+                    "Add a credit card to track its bills. Statements are read from your card SMS and Gmail."
+                } else {
+                    "You're all paid up. New statements from SMS or Gmail will show here with due dates."
+                },
+                icon = Icons.Outlined.CreditScore,
+                modifier = Modifier.padding(padding).padding(top = 60.dp),
+                actionLabel = if (state.cards.isEmpty()) null else "Add a bill manually",
+                onAction = if (state.cards.isEmpty()) null else onAdd,
+            )
+            return@KoshScreen
+        }
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp, 4.dp, 20.dp, 40.dp)) {
+            items(state.bills, key = { it.bill.id }) { b -> BillRow(b, hidden, onPay = { onPay(b) }, onDelete = { onDelete(b) }) }
+        }
+    }
+}
+
 /** A bill row with urgency colour, due countdown and actions. */
 @Composable
 fun BillRow(b: BillItem, hidden: Boolean, onPay: () -> Unit, onUnpay: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
@@ -170,11 +190,11 @@ fun BillRow(b: BillItem, hidden: Boolean, onPay: () -> Unit, onUnpay: (() -> Uni
         days == null -> KoshTheme.colors.subtleText
         days < 0 -> KoshTheme.colors.alert
         days <= 3 -> KoshTheme.colors.warning
-        else -> KoshTheme.colors.good
+        else -> KoshTheme.colors.subtleText
     }
-    KoshCard(Modifier.padding(vertical = 6.dp), contentPadding = PaddingValues(14.dp)) {
+    KoshCard(Modifier.padding(vertical = 5.dp), contentPadding = PaddingValues(start = 14.dp, end = 6.dp, top = 14.dp, bottom = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BankBadge(b.card?.bankEnum() ?: Bank.OTHER, size = 40.dp)
+            BankBadge(b.card?.bankEnum() ?: Bank.OTHER, size = 36.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(b.card?.label() ?: "Card", fontWeight = FontWeight.SemiBold)
@@ -185,8 +205,7 @@ fun BillRow(b: BillItem, hidden: Boolean, onPay: () -> Unit, onUnpay: (() -> Uni
                             else -> b.dueDate?.let { "${Fmt.relativeDays(days ?: 0)} · ${Fmt.date(it)}" } ?: "No due date"
                         },
                         color = urgency,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
@@ -212,7 +231,7 @@ fun BillRow(b: BillItem, hidden: Boolean, onPay: () -> Unit, onUnpay: (() -> Uni
             if (b.bill.paid) {
                 if (onUnpay != null) TextButton(onClick = onUnpay) { Text("Mark unpaid") }
             } else {
-                TextButton(onClick = onPay) { Text("Mark paid", fontWeight = FontWeight.SemiBold) }
+                TextButton(onClick = onPay) { Text("Mark paid", fontWeight = FontWeight.SemiBold, color = KoshTheme.colors.accent) }
             }
         }
     }

@@ -1,5 +1,8 @@
 package com.amitjha.kosh.ui.settings
 
+import com.amitjha.kosh.designsystem.theme.KoshText
+import com.amitjha.kosh.ui.common.GmailExplainerSheet
+import com.amitjha.kosh.ui.common.friendlyGmailError
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -20,27 +23,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Inbox
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Science
-import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.DeleteForever
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Sms
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -156,20 +158,34 @@ fun MoreScreen(nav: NavController) {
         scope.launch {
             when (val o = c.gmailAuth.completeConsent(result.data)) {
                 is GmailAuthOutcome.Granted -> syncGmail()
-                is GmailAuthOutcome.Failed -> show(o.message)
+                is GmailAuthOutcome.Failed -> show(friendlyGmailError(o.message))
                 is GmailAuthOutcome.NeedsConsent -> show("Google needs more consent; try again")
             }
         }
     }
-    fun connectGmail() {
+    var showGmailExplainer by remember { mutableStateOf(false) }
+    fun startGmailConsent() {
         val activity = context as? Activity ?: return
         scope.launch {
             when (val o = c.gmailAuth.connect(activity)) {
                 is GmailAuthOutcome.NeedsConsent -> consent.launch(IntentSenderRequest.Builder(o.pendingIntent).build())
                 is GmailAuthOutcome.Granted -> syncGmail()
-                is GmailAuthOutcome.Failed -> show("Couldn't connect: ${o.message}")
+                is GmailAuthOutcome.Failed -> show(friendlyGmailError(o.message))
             }
         }
+    }
+
+    fun connectGmail() {
+        showGmailExplainer = true
+    }
+    if (showGmailExplainer) {
+        GmailExplainerSheet(
+            onContinue = {
+                showGmailExplainer = false
+                startGmailConsent()
+            },
+            onDismiss = { showGmailExplainer = false },
+        )
     }
 
     val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -182,22 +198,22 @@ fun MoreScreen(nav: NavController) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp)) {
             item(key = "head") {
-                Row(Modifier.statusBarsPadding().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    KoshLogo(size = 48.dp)
+                Row(Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    KoshLogo(size = 44.dp)
                     Spacer(Modifier.width(14.dp))
                     Column {
-                        Text("Kosh", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Kosh", style = KoshText.screenTitle)
                         Text("Your money, on your phone", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
                     }
                 }
             }
             item(key = "shortcuts") {
                 Section("Manage") {
-                    ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Filled.AccountBalance) { nav.navigate(Routes.ACCOUNTS) }
-                    ActionRow("Card bills", "Due dates and payments", Icons.Filled.CreditCard) { nav.navigate(Routes.BILLS) }
-                    ActionRow("Review imports", "Check SMS and email transactions", Icons.Filled.Inbox) { nav.navigate(Routes.REVIEW) }
-                    ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Filled.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
-                    ActionRow("Categories", null, Icons.Filled.Category) { nav.navigate(Routes.CATEGORIES) }
+                    ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Outlined.AccountBalance) { nav.navigate(Routes.ACCOUNTS) }
+                    ActionRow("Card bills", "Due dates and payments", Icons.Outlined.CreditCard) { nav.navigate(Routes.BILLS) }
+                    ActionRow("Review imports", "Check SMS and email transactions", Icons.Outlined.Inbox) { nav.navigate(Routes.REVIEW) }
+                    ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Outlined.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
+                    ActionRow("Categories", null, Icons.Outlined.Category) { nav.navigate(Routes.CATEGORIES) }
                 }
             }
             item(key = "appearance") {
@@ -209,7 +225,7 @@ fun MoreScreen(nav: NavController) {
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                     SwitchRow("Hide amounts", "Show ₹ •••• until you tap the eye", s.hideAmounts, { v -> scope.launch { c.settings.setHideAmounts(v) } },
-                        Icons.Filled.VisibilityOff)
+                        Icons.Outlined.VisibilityOff)
                     val canLock = remember { BiometricGate.isAvailable(context) }
                     SwitchRow(
                         "App lock",
@@ -227,7 +243,7 @@ fun MoreScreen(nav: NavController) {
                                 }
                             }
                         },
-                        Icons.Filled.Fingerprint,
+                        Icons.Outlined.Fingerprint,
                         enabled = canLock,
                     )
                 }
@@ -235,8 +251,8 @@ fun MoreScreen(nav: NavController) {
             item(key = "sms") {
                 Section("SMS & email") {
                     SwitchRow("Import bank SMS automatically", "New bank messages are added as they arrive. SMS never leave your phone.",
-                        s.smsAutoImport, { v -> scope.launch { c.settings.setSmsAutoImport(v) } }, Icons.Filled.Sms)
-                    ActionRow("Scan inbox now", "Last scan ${Fmt.ago(s.smsLastScanMillis)}", Icons.Filled.Sync, enabled = busy == null) {
+                        s.smsAutoImport, { v -> scope.launch { c.settings.setSmsAutoImport(v) } }, Icons.Outlined.Sms)
+                    ActionRow("Scan inbox now", "Last scan ${Fmt.ago(s.smsLastScanMillis)}", Icons.Outlined.Sync, enabled = busy == null) {
                         if (context.hasSmsPermission()) scanSms()
                         else smsPermission.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
                     }
@@ -244,12 +260,12 @@ fun MoreScreen(nav: NavController) {
                         ActionRow(
                             "Gmail: ${s.gmailAccountEmail}",
                             if (s.gmailReconnectNeeded) "Access expired — tap to reconnect" else "Last checked ${Fmt.ago(s.gmailLastSyncMillis)} · tap to sync now",
-                            Icons.Filled.Email,
+                            Icons.Outlined.Email,
                             enabled = busy == null,
                         ) { if (s.gmailReconnectNeeded) connectGmail() else syncGmail() }
                         ActionRow("Disconnect Gmail", null, null) { scope.launch { c.gmailAuth.disconnect() } }
                     } else {
-                        ActionRow("Connect Gmail", "Read credit card statements for bill amounts and due dates (read-only)", Icons.Filled.Email,
+                        ActionRow("Connect Gmail", "Read credit card statements for bill amounts and due dates (read-only)", Icons.Outlined.Email,
                             enabled = busy == null) { connectGmail() }
                     }
                 }
@@ -266,7 +282,7 @@ fun MoreScreen(nav: NavController) {
                     SwitchRow("New transactions", "When a bank SMS is imported", s.notifyTransactions, { v ->
                         if (v) ensurePermission()
                         scope.launch { c.settings.setNotifyTransactions(v) }
-                    }, Icons.Filled.Notifications)
+                    }, Icons.Outlined.Notifications)
                     SwitchRow("Bill reminders", "3 days and 1 day before the due date", s.notifyBills, { v ->
                         if (v) ensurePermission()
                         scope.launch { c.settings.setNotifyBills(v) }
@@ -291,13 +307,13 @@ fun MoreScreen(nav: NavController) {
             }
             item(key = "data") {
                 Section("Your data") {
-                    ActionRow("Back up", "Encrypted file protected by a password", Icons.Filled.Backup, enabled = busy == null) {
+                    ActionRow("Back up", "Encrypted file protected by a password", Icons.Outlined.Backup, enabled = busy == null) {
                         createBackup.launch("kosh-backup-${LocalDate.now()}.kosh")
                     }
-                    ActionRow("Restore from backup", "Replaces everything on this phone", Icons.Filled.Restore, enabled = busy == null) {
+                    ActionRow("Restore from backup", "Replaces everything on this phone", Icons.Outlined.Restore, enabled = busy == null) {
                         openBackup.launch(arrayOf("*/*"))
                     }
-                    ActionRow("Load sample data", "Explore Kosh with demo accounts and transactions", Icons.Filled.Science, enabled = busy == null) {
+                    ActionRow("Load sample data", "Explore Kosh with demo accounts and transactions", Icons.Outlined.Science, enabled = busy == null) {
                         busy = "Loading sample data…"
                         scope.launch {
                             c.demoData.load()
@@ -307,7 +323,7 @@ fun MoreScreen(nav: NavController) {
                             show("Sample data loaded")
                         }
                     }
-                    ActionRow("Erase all data", "Deletes accounts, transactions and investments", Icons.Filled.DeleteForever) { confirmErase = true }
+                    ActionRow("Erase all data", "Deletes accounts, transactions and investments", Icons.Outlined.DeleteForever) { confirmErase = true }
                 }
             }
             item(key = "about") {
@@ -375,11 +391,12 @@ fun MoreScreen(nav: NavController) {
     }
 }
 
+/** A titled group of settings rows on a card. */
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Column(Modifier.padding(top = 18.dp)) {
-        Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.subtleText, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(6.dp))
+fun Section(title: String, content: @Composable () -> Unit) {
+    Column(Modifier.padding(top = 24.dp)) {
+        Text(title.uppercase(), style = KoshText.sectionLabel, color = KoshTheme.colors.subtleText)
+        Spacer(Modifier.height(8.dp))
         KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) { content() }
     }
 }

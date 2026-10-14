@@ -1,5 +1,6 @@
 package com.amitjha.kosh.designsystem.components
 
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -74,32 +75,32 @@ fun TransactionRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(12.dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 4.dp, vertical = 10.dp),
+            .padding(horizontal = 2.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            CategoryIcon(iconName = iconName, color = categoryColor, size = 44.dp)
+            CategoryIcon(iconName = iconName, color = categoryColor, size = 36.dp)
             if (unreviewed) {
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .size(11.dp)
+                        .size(10.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface)
+                        .background(MaterialTheme.colorScheme.background)
                         .padding(2.dp)
                         .clip(CircleShape)
-                        .background(KoshTheme.colors.gold)
+                        .background(KoshTheme.colors.accent)
                         .semantics { contentDescription = "Needs review" },
                 )
             }
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -131,9 +132,9 @@ fun TransactionRow(
 @Composable
 fun SourceBadge(source: TxnSource, modifier: Modifier = Modifier) {
     val (label, color) = when (source) {
-        TxnSource.SMS -> "SMS" to KoshTheme.colors.tip
-        TxnSource.EMAIL -> "EMAIL" to KoshTheme.colors.good
-        TxnSource.AUTO -> "AUTO" to KoshTheme.colors.gold
+        TxnSource.SMS -> "SMS" to KoshTheme.colors.subtleText
+        TxnSource.EMAIL -> "EMAIL" to KoshTheme.colors.subtleText
+        TxnSource.AUTO -> "AUTO" to KoshTheme.colors.subtleText
         TxnSource.MANUAL -> "MANUAL" to KoshTheme.colors.subtleText
     }
     Text(
@@ -141,9 +142,9 @@ fun SourceBadge(source: TxnSource, modifier: Modifier = Modifier) {
         style = MaterialTheme.typography.labelSmall,
         color = color,
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.14f))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
+            .clip(RoundedCornerShape(4.dp))
+            .background(KoshTheme.colors.fill)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
     )
 }
 
@@ -247,10 +248,11 @@ fun SwipeActionsRow(
  */
 @Composable
 fun Modifier.staggeredEntrance(index: Int, maxDelayItems: Int = 10): Modifier {
+    if (LocalInspectionMode.current) return this
     val anim = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay((index.coerceAtMost(maxDelayItems) * 35).toLong())
-        anim.animateTo(1f, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow))
+        anim.animateTo(1f, tween(220))
     }
     return this.graphicsLayer {
         alpha = anim.value.coerceIn(0f, 1f)
@@ -261,6 +263,7 @@ fun Modifier.staggeredEntrance(index: Int, maxDelayItems: Int = 10): Modifier {
 /** A quick fade-in for whole sections. */
 @Composable
 fun Modifier.fadeIn(delayMillis: Int = 0): Modifier {
+    if (LocalInspectionMode.current) return this
     val anim = remember { Animatable(0f) }
     LaunchedEffect(Unit) { anim.animateTo(1f, tween(400, delayMillis)) }
     return this.graphicsLayer { alpha = anim.value }

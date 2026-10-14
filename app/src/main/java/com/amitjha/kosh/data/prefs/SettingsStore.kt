@@ -21,7 +21,7 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 data class Settings(
     val onboardingDone: Boolean = false,
     val biometricLockEnabled: Boolean = false,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.LIGHT,
     val smsAutoImport: Boolean = true,
     val smsLastScanMillis: Long = 0L,
     val gmailAccountEmail: String? = null,
@@ -65,7 +65,7 @@ class SettingsStore(private val context: Context) {
         Settings(
             onboardingDone = p[Keys.onboardingDone] ?: false,
             biometricLockEnabled = p[Keys.biometricLock] ?: false,
-            themeMode = p[Keys.themeMode]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
+            themeMode = p[Keys.themeMode]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.LIGHT,
             smsAutoImport = p[Keys.smsAutoImport] ?: true,
             smsLastScanMillis = p[Keys.smsLastScan] ?: 0L,
             gmailAccountEmail = p[Keys.gmailEmail],

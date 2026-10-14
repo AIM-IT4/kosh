@@ -84,8 +84,8 @@ fun formatAmount(paise: Paise, type: TxnType? = null, compact: Boolean = false, 
     val body = if (compact) Money.compact(value) else Money.format(value, showPaise = showPaise)
     return when (type) {
         TxnType.INCOME -> "+$body"
-        TxnType.EXPENSE -> "-$body"
-        else -> body
+        TxnType.EXPENSE -> "−$body"
+        else -> if (body.startsWith("-")) "−" + body.substring(1) else body
     }
 }
 

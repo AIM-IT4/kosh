@@ -1,5 +1,15 @@
 package com.amitjha.kosh.ui.home
 
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.ui.text.style.TextAlign
+import com.amitjha.kosh.designsystem.components.StackedBar
+import com.amitjha.kosh.designsystem.theme.KoshText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -21,12 +30,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.MarkEmailUnread
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -160,180 +163,220 @@ fun HomeScreen(nav: NavController) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
     var loadingDemo by remember { mutableStateOf(false) }
+    HomeContent(
+        state = state,
+        hidden = hidden,
+        loadingDemo = loadingDemo,
+        onToggleHidden = { vm.toggleHidden(hidden) },
+        onInsights = { nav.navigate(Routes.INSIGHTS) },
+        onReview = { nav.navigate(Routes.REVIEW) },
+        onBills = { nav.navigate(Routes.BILLS) },
+        onActivity = { nav.navigate(Routes.TRANSACTIONS) },
+        onTransaction = { nav.navigate(Routes.txn(it)) },
+        onAccounts = { nav.navigate(Routes.ACCOUNTS) },
+        onAccount = { nav.navigate(Routes.account(it)) },
+        onAddAccount = { nav.navigate(Routes.editAccount()) },
+        onLoadDemo = {
+            loadingDemo = true
+            scope.launch {
+                container.demoData.load()
+                container.investments.revalueAll(fetchNavs = false)
+                loadingDemo = false
+            }
+        },
+    )
+}
 
+/** Stateless Home screen, rendered from [HomeState]; used by the app and by screenshot tests. */
+@Composable
+fun HomeContent(
+    state: HomeState,
+    hidden: Boolean,
+    loadingDemo: Boolean = false,
+    onToggleHidden: () -> Unit = {},
+    onInsights: () -> Unit = {},
+    onReview: () -> Unit = {},
+    onBills: () -> Unit = {},
+    onActivity: () -> Unit = {},
+    onTransaction: (Long) -> Unit = {},
+    onAccounts: () -> Unit = {},
+    onAccount: (Long) -> Unit = {},
+    onAddAccount: () -> Unit = {},
+    onLoadDemo: () -> Unit = {},
+) {
+    val pad = Modifier.padding(horizontal = 20.dp)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 96.dp),
+        contentPadding = PaddingValues(bottom = 112.dp),
     ) {
         item(key = "header") {
             Row(
-                Modifier
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(Fmt.greeting(), style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
-                    Text("Your money", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(Fmt.todayLong(), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                    Text(Fmt.greeting(), style = KoshText.screenTitle)
                 }
-                IconButton(onClick = { vm.toggleHidden(hidden) }) {
+                IconButton(onClick = onToggleHidden) {
                     Icon(
-                        if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        if (hidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                         contentDescription = if (hidden) "Show amounts" else "Hide amounts",
+                        tint = KoshTheme.colors.subtleText,
                     )
                 }
-                IconButton(onClick = { nav.navigate(Routes.INSIGHTS) }) {
-                    Icon(Icons.Filled.Notifications, contentDescription = "Insights")
+                IconButton(onClick = onInsights) {
+                    Icon(Icons.Outlined.Lightbulb, contentDescription = "Insights", tint = KoshTheme.colors.subtleText)
                 }
             }
         }
 
         item(key = "hero") {
             val nw = state.netWorth
-            BalanceHeroCard(
-                label = "Net worth",
-                amount = nw?.total ?: 0,
-                deltaPaise = state.summary?.savings,
-                deltaLabel = "saved this month",
-                trend = state.trend,
-                hidden = hidden,
-                onToggleHidden = { vm.toggleHidden(hidden) },
-                modifier = Modifier.padding(horizontal = 20.dp),
-                footer = if (nw != null) {
-                    {
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            HeroFooterItem("Cash & bank", nw.liquid, hidden)
-                            HeroFooterItem("Investments", nw.investments, hidden)
-                            HeroFooterItem("Card dues", -nw.cardDebt, hidden)
-                        }
+            Column(pad.padding(top = 20.dp)) {
+                BalanceHeroCard(
+                    label = "Net worth",
+                    amount = nw?.total ?: 0,
+                    trend = state.trend,
+                    hidden = hidden,
+                )
+                if (nw != null) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        MiniFigure("Cash & bank", nw.liquid, hidden)
+                        MiniFigure("Investments", nw.investments, hidden)
+                        MiniFigure("Card dues", nw.cardDebt, hidden)
                     }
-                } else {
-                    null
-                },
-            )
+                }
+            }
         }
 
         item(key = "stats") {
             val s = state.summary
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                StatChip("Income", s?.income ?: 0, Modifier.weight(1f), type = TxnType.INCOME, hidden = hidden)
-                StatChip("Spent", s?.expense ?: 0, Modifier.weight(1f), type = TxnType.EXPENSE, hidden = hidden)
-                StatChip("Saved", s?.savings ?: 0, Modifier.weight(1f), hidden = hidden)
-            }
-        }
-
-        if (state.isEmpty) {
-            item(key = "empty") {
-                KoshCard(Modifier.padding(horizontal = 20.dp)) {
-                    EmptyState(
-                        title = "Let's set up Kosh",
-                        message = "Add your bank accounts, or scan your SMS inbox to pull in transactions automatically.",
-                        icon = Icons.Filled.AccountBalance,
-                        actionLabel = "Add an account",
-                        onAction = { nav.navigate(Routes.editAccount()) },
-                    )
-                    Text(
-                        if (loadingDemo) "Loading sample data…" else "Or explore with sample data",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(enabled = !loadingDemo) {
-                                loadingDemo = true
-                                scope.launch {
-                                    container.demoData.load()
-                                    container.investments.revalueAll(fetchNavs = false)
-                                    loadingDemo = false
-                                }
-                            }
-                            .padding(12.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelLarge,
-                    )
+            Column(pad.padding(top = KoshTheme.spacing.section)) {
+                SectionHeader("This month")
+                KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                        StatChip("Income", s?.income ?: 0, Modifier.weight(1f), type = TxnType.INCOME, hidden = hidden)
+                        VerticalHairline()
+                        StatChip("Spent", s?.expense ?: 0, Modifier.weight(1f).padding(start = 14.dp), type = TxnType.EXPENSE, hidden = hidden)
+                        VerticalHairline()
+                        StatChip("Saved", s?.savings ?: 0, Modifier.weight(1f).padding(start = 14.dp), hidden = hidden)
+                    }
                 }
             }
         }
 
         if (state.unreviewed > 0) {
             item(key = "review") {
-                ReviewBanner(state.unreviewed) { nav.navigate(Routes.REVIEW) }
+                ReviewBanner(state.unreviewed, pad.padding(top = 16.dp), onReview)
             }
         }
 
-        if (state.bills.isNotEmpty()) {
-            item(key = "bills-h") { SectionHeader("Card bills", Modifier.padding(horizontal = 20.dp), "See all") { nav.navigate(Routes.BILLS) } }
-            item(key = "bills") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(state.bills, key = { it.bill.id }) { b -> BillMiniCard(b, hidden) { nav.navigate(Routes.BILLS) } }
+        if (state.isEmpty) {
+            item(key = "empty") {
+                KoshCard(pad.padding(top = KoshTheme.spacing.section)) {
+                    EmptyState(
+                        title = "Set up Kosh",
+                        message = "Add your bank accounts, or scan your SMS inbox to pull in transactions automatically.",
+                        icon = Icons.Outlined.AccountBalance,
+                        actionLabel = "Add an account",
+                        onAction = onAddAccount,
+                    )
+                    Text(
+                        if (loadingDemo) "Loading sample data…" else "Explore with sample data",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(enabled = !loadingDemo, onClick = onLoadDemo)
+                            .padding(12.dp),
+                        color = KoshTheme.colors.accent,
+                        style = MaterialTheme.typography.labelLarge,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
         }
 
-        if (state.insights.isNotEmpty()) {
-            item(key = "ins-h") { SectionHeader("Insights", Modifier.padding(horizontal = 20.dp), "See all") { nav.navigate(Routes.INSIGHTS) } }
-            item(key = "ins") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(state.insights, key = { it.id }) { i ->
-                        InsightCard(
-                            severity = i.severity.toUi(),
-                            title = i.title,
-                            message = i.message,
-                            compact = true,
-                            modifier = Modifier.width(290.dp),
-                            onClick = { nav.navigate(Routes.INSIGHTS) },
-                        )
+        if (state.bills.isNotEmpty()) {
+            item(key = "bills") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Upcoming bills", actionLabel = "See all", onAction = onBills)
+                    KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                        state.bills.take(3).forEachIndexed { i, b ->
+                            if (i > 0) ListHairline()
+                            BillListRow(b, hidden, onBills)
+                        }
                     }
+                }
+            }
+        }
+
+        state.insights.firstOrNull()?.let { top ->
+            item(key = "insight") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Insight", actionLabel = if (state.insights.size > 1) "All ${state.insights.size}" else null, onAction = onInsights)
+                    InsightCard(
+                        severity = top.severity.toUi(),
+                        title = top.title,
+                        message = top.message,
+                        compact = true,
+                        onClick = onInsights,
+                    )
                 }
             }
         }
 
         val spend = state.summary?.byCategory.orEmpty()
         if (spend.isNotEmpty()) {
-            item(key = "donut-h") {
-                SectionHeader("Where your money went", Modifier.padding(horizontal = 20.dp), "Details") { nav.navigate(Routes.TRANSACTIONS) }
-            }
-            item(key = "donut") {
+            item(key = "spend") {
                 val slices = remember(spend) {
-                    spend.take(7).map { ChartSlice(it.category?.name ?: it.categoryKey, it.total, it.category.color()) }
+                    spend.take(6).map { ChartSlice(it.category?.name ?: it.categoryKey, it.total, it.category.color()) }
                 }
-                KoshCard(Modifier.padding(horizontal = 20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        DonutChart(
-                            slices = slices,
-                            size = 150.dp,
-                            thickness = 20.dp,
-                            centerLabel = "Spent",
-                            centerValue = state.summary?.expense,
-                            hidden = hidden,
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        ChartLegend(slices, Modifier.weight(1f), hidden = hidden, maxItems = 5)
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Spending", actionLabel = "Details", onAction = onActivity)
+                    KoshCard {
+                        StackedBar(slices = slices, height = 8.dp, showLegend = false, hidden = hidden)
+                        Spacer(Modifier.height(12.dp))
+                        spend.take(5).forEach { c ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(8.dp).clip(CircleShape).background(c.category.color()))
+                                Spacer(Modifier.width(10.dp))
+                                Text(c.category?.name ?: c.categoryKey, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                                Text(Fmt.pct(c.share * 100, 0), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.tertiaryText)
+                                Spacer(Modifier.width(12.dp))
+                                AmountText(c.total, style = AmountStyles.small, hidden = hidden, compact = true)
+                            }
+                        }
                     }
                 }
             }
         }
 
         if (state.recent.isNotEmpty()) {
-            item(key = "recent-h") {
-                SectionHeader("Recent activity", Modifier.padding(horizontal = 20.dp), "See all") { nav.navigate(Routes.TRANSACTIONS) }
-            }
-            items(state.recent.size, key = { "r" + state.recent[it].txn.id }) { i ->
-                val t = state.recent[i]
-                TxnRow(t, hidden, Modifier.padding(horizontal = 16.dp).staggeredEntrance(i)) { nav.navigate(Routes.txn(t.txn.id)) }
+            item(key = "recent") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Recent", actionLabel = "See all", onAction = onActivity)
+                    KoshCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)) {
+                        state.recent.forEachIndexed { i, t ->
+                            if (i > 0) ListHairline(start = 48.dp)
+                            TxnRow(t, hidden) { onTransaction(t.txn.id) }
+                        }
+                    }
+                }
             }
         }
 
         if (state.accounts.isNotEmpty()) {
-            item(key = "acc-h") {
-                SectionHeader("Accounts", Modifier.padding(horizontal = 20.dp), "Manage") { nav.navigate(Routes.ACCOUNTS) }
-            }
-            item(key = "acc") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(state.accounts, key = { it.id }) { a -> AccountMiniCard(a, hidden) { nav.navigate(Routes.account(a.id)) } }
+            item(key = "accounts") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Accounts", actionLabel = "Manage", onAction = onAccounts)
+                    KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                        state.accounts.forEachIndexed { i, a ->
+                            if (i > 0) ListHairline(start = 48.dp)
+                            AccountListRow(a, hidden) { onAccount(a.id) }
+                        }
+                    }
                 }
             }
         }
@@ -341,80 +384,97 @@ fun HomeScreen(nav: NavController) {
 }
 
 @Composable
-private fun HeroFooterItem(label: String, value: Long, hidden: Boolean) {
+private fun MiniFigure(label: String, value: Long, hidden: Boolean) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-        AmountText(value, style = AmountStyles.small, compact = true, hidden = hidden, color = Color.White)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+        AmountText(value, style = AmountStyles.small, compact = true, hidden = hidden, color = KoshTheme.colors.ink)
     }
 }
 
 @Composable
-private fun ReviewBanner(count: Int, onClick: () -> Unit) {
-    KoshCard(
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-        onClick = onClick,
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+private fun VerticalHairline() {
+    Box(Modifier.fillMaxHeight().width(1.dp).background(KoshTheme.colors.divider))
+}
+
+/** A 1dp divider for rows inside a card, optionally inset from the start. */
+@Composable
+fun ListHairline(start: androidx.compose.ui.unit.Dp = 0.dp) {
+    Box(Modifier.fillMaxWidth().padding(start = start).height(1.dp).background(KoshTheme.colors.divider))
+}
+
+@Composable
+private fun ReviewBanner(count: Int, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(KoshTheme.colors.accentTint)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.MarkEmailUnread, contentDescription = null, tint = Color.White) }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("$count new transaction${if (count == 1) "" else "s"} to review", fontWeight = FontWeight.SemiBold)
-                Text("Picked up from your SMS and email", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
-            }
-            Icon(Icons.Filled.ChevronRight, contentDescription = null)
+        Box(Modifier.size(8.dp).clip(CircleShape).background(KoshTheme.colors.accent))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "$count transaction${if (count == 1) "" else "s"} to review",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = KoshTheme.colors.ink,
+            modifier = Modifier.weight(1f),
+        )
+        Text("Review", style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.accent)
+        Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = KoshTheme.colors.accent, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun BillListRow(b: BillItem, hidden: Boolean, onClick: () -> Unit) {
+    val days = b.daysLeft
+    val urgent = days != null && days <= 3
+    val dueColor = when {
+        days != null && days < 0 -> KoshTheme.colors.alert
+        urgent -> KoshTheme.colors.warning
+        else -> KoshTheme.colors.subtleText
+    }
+    val bank = b.card?.bankEnum() ?: com.amitjha.kosh.model.Bank.OTHER
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BankBadge(bank, size = 32.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(b.card?.label() ?: "Card", style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(days?.let { Fmt.relativeDays(it) } ?: "No due date", style = MaterialTheme.typography.bodySmall, color = dueColor)
         }
+        AmountText(b.bill.totalDue, style = AmountStyles.medium, hidden = hidden)
+    }
+}
+
+@Composable
+private fun AccountListRow(a: AccountWithBalance, hidden: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BankBadge(a.bank, size = 32.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(a.account.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                if (a.isCard) "Outstanding" else a.account.type.label(),
+                style = MaterialTheme.typography.bodySmall,
+                color = KoshTheme.colors.subtleText,
+            )
+        }
+        AmountText(if (a.isCard) a.outstanding else a.balance, style = AmountStyles.medium, hidden = hidden)
     }
 }
 
 @Composable
 fun BillMiniCard(b: BillItem, hidden: Boolean, onClick: () -> Unit) {
-    val days = b.daysLeft
-    val urgency = when {
-        days == null -> KoshTheme.colors.subtleText
-        days < 0 -> KoshTheme.colors.alert
-        days <= 3 -> KoshTheme.colors.warning
-        else -> KoshTheme.colors.good
-    }
-    val bank = b.card?.bankEnum() ?: com.amitjha.kosh.model.Bank.OTHER
-    KoshCard(Modifier.width(220.dp), onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BankBadge(bank, size = 32.dp)
-            Spacer(Modifier.width(10.dp))
-            Text(b.card?.label() ?: "Card", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-        }
-        Spacer(Modifier.height(12.dp))
-        AmountText(b.bill.totalDue, style = AmountStyles.large, hidden = hidden)
-        Spacer(Modifier.height(6.dp))
-        Text(days?.let { Fmt.relativeDays(it) } ?: "No due date", color = urgency, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun AccountMiniCard(a: AccountWithBalance, hidden: Boolean, onClick: () -> Unit) {
-    KoshCard(Modifier.width(180.dp), onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BankBadge(a.bank, size = 30.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(a.account.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-        }
-        Spacer(Modifier.height(12.dp))
-        if (a.isCard) {
-            Text("Outstanding", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.subtleText)
-            AmountText(a.outstanding, style = AmountStyles.medium, hidden = hidden)
-            a.utilisation?.let {
-                Spacer(Modifier.height(8.dp))
-                ThinProgressBar(it.toFloat().coerceIn(0f, 1f), color = if (it > 0.3) KoshTheme.colors.warning else KoshTheme.colors.good)
-            }
-        } else {
-            Text("Balance", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.subtleText)
-            AmountText(a.balance, style = AmountStyles.medium, hidden = hidden)
-        }
+    KoshCard(Modifier.width(220.dp), onClick = onClick, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)) {
+        BillListRow(b, hidden, onClick)
     }
 }
 

@@ -2,7 +2,8 @@ package com.amitjha.kosh.designsystem.components
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -161,13 +162,13 @@ private fun KeypadKey(key: String, onKey: (String) -> Unit, modifier: Modifier) 
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed) 0.92f else 1f,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
+        if (pressed) 0.97f else 1f,
+        tween(120),
         label = "key-scale",
     )
     val isOp = key in setOf("+", "-", "×", "÷")
     val bg = when {
-        isOp -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        isOp -> KoshTheme.colors.fill
         else -> KoshTheme.colors.cardSurface
     }
     val label = when (key) {
@@ -181,10 +182,11 @@ private fun KeypadKey(key: String, onKey: (String) -> Unit, modifier: Modifier) 
     }
     Box(
         modifier = modifier
-            .height(58.dp)
+            .height(56.dp)
             .scale(scale)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(bg)
+            .border(1.dp, KoshTheme.colors.hairline, RoundedCornerShape(14.dp))
             .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), role = Role.Button) {
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onKey(key)
@@ -197,7 +199,7 @@ private fun KeypadKey(key: String, onKey: (String) -> Unit, modifier: Modifier) 
         } else {
             Text(
                 key,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal),
                 color = if (isOp) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
         }

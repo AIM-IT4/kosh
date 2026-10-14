@@ -81,6 +81,9 @@ object Fmt {
         }
     }
 
+    /** e.g. "Tuesday, 14 October". */
+    fun todayLong(): String = java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.ENGLISH).format(LocalDate.now())
+
     fun greeting(): String = when (java.time.LocalTime.now().hour) {
         in 5..11 -> "Good morning"
         in 12..16 -> "Good afternoon"

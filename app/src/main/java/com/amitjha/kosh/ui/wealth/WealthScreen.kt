@@ -1,5 +1,12 @@
 package com.amitjha.kosh.ui.wealth
 
+import com.amitjha.kosh.designsystem.components.SecondaryButton
+import com.amitjha.kosh.designsystem.components.BalanceHeroCard
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import com.amitjha.kosh.designsystem.theme.KoshText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,13 +15,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Savings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -101,9 +107,9 @@ class WealthViewModel(private val c: AppContainer) : ViewModel() {
 }
 
 fun InvestmentType.color(): Color = when (this) {
-    InvestmentType.FD -> BrandPalette.Teal500
-    InvestmentType.EPF -> BrandPalette.Indigo400
-    InvestmentType.NPS -> BrandPalette.Gold
+    InvestmentType.FD -> BrandPalette.Ink
+    InvestmentType.EPF -> BrandPalette.Emerald
+    InvestmentType.NPS -> BrandPalette.Blue
 }
 
 fun InvestmentType.title(): String = when (this) {
@@ -120,36 +126,62 @@ fun WealthScreen(nav: NavController) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var refreshing by remember { mutableStateOf(false) }
+    WealthContent(
+        state = state,
+        hidden = hidden,
+        refreshing = refreshing,
+        snackbar = snackbar,
+        onRefresh = {
+            refreshing = true
+            scope.launch {
+                val msg = vm.refresh()
+                refreshing = false
+                snackbar.showSnackbar(msg)
+            }
+        },
+        onAdd = { nav.navigate(Routes.addInvestment(it)) },
+        onOpen = { nav.navigate(Routes.investment(it)) },
+    )
+}
 
+/** Stateless Wealth screen; used by the app and by screenshot tests. */
+@Composable
+fun WealthContent(
+    state: WealthState,
+    hidden: Boolean,
+    refreshing: Boolean = false,
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
+    onRefresh: () -> Unit = {},
+    onAdd: (InvestmentType) -> Unit = {},
+    onOpen: (Long) -> Unit = {},
+) {
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
             item(key = "head") {
-                Row(Modifier.statusBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Wealth", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Wealth", style = KoshText.screenTitle, modifier = Modifier.weight(1f))
                     if (refreshing) {
-                        CircularProgressIndicator(Modifier.padding(12.dp).height(22.dp).width(22.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            Modifier.padding(12.dp).height(20.dp).width(20.dp),
+                            strokeWidth = 2.dp,
+                            color = KoshTheme.colors.ink,
+                        )
                     } else {
-                        IconButton(onClick = {
-                            refreshing = true
-                            scope.launch {
-                                val msg = vm.refresh()
-                                refreshing = false
-                                snackbar.showSnackbar(msg)
-                            }
-                        }) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh values") }
+                        IconButton(onClick = onRefresh) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = "Refresh values", tint = KoshTheme.colors.subtleText)
+                        }
                     }
                 }
             }
             state.netWorth?.let { nw ->
                 item(key = "hero") {
-                    GradientCard(Modifier.padding(horizontal = 20.dp)) {
-                        Text("Net worth", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelLarge)
-                        AmountText(nw.total, style = AmountStyles.hero, hidden = hidden, animate = true, color = Color.White)
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp)) {
+                        BalanceHeroCard(label = "Net worth", amount = nw.total, hidden = hidden)
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                             HeroPart("Cash & bank", nw.liquid, hidden)
                             HeroPart("Investments", nw.investments, hidden)
-                            HeroPart("Card dues", -nw.cardDebt, hidden)
+                            HeroPart("Card dues", nw.cardDebt, hidden)
                         }
                     }
                 }
@@ -157,28 +189,43 @@ fun WealthScreen(nav: NavController) {
                     item(key = "split") {
                         val slices = nw.investmentsByType.entries.sortedByDescending { it.value }
                             .map { ChartSlice(it.key.title(), it.value, it.key.color()) }
-                        KoshCard(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                            Text("Investments by type", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(10.dp))
-                            StackedBar(slices, hidden = hidden)
+                        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = KoshTheme.spacing.section)) {
+                            SectionHeader("Allocation")
+                            KoshCard {
+                                StackedBar(slices, height = 8.dp, showLegend = false, hidden = hidden)
+                                Spacer(Modifier.height(12.dp))
+                                slices.forEach { sl ->
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        androidx.compose.foundation.layout.Box(
+                                            Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(sl.color),
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(sl.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                        AmountText(sl.value, style = AmountStyles.small, compact = true, hidden = hidden)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
             if (state.history.size >= 2) {
                 item(key = "hist") {
-                    KoshCard(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                        Text("Net worth over time", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(8.dp))
-                        LineAreaChart(state.history, hidden = hidden, color = BrandPalette.Teal500)
+                    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = KoshTheme.spacing.section)) {
+                        SectionHeader("Net worth over time")
+                        KoshCard {
+                            LineAreaChart(state.history, hidden = hidden)
+                        }
                     }
                 }
             }
-            item(key = "inv-h") { SectionHeader("Investments", Modifier.padding(horizontal = 20.dp)) }
+            item(key = "inv-h") {
+                SectionHeader("Investments", Modifier.padding(start = 20.dp, end = 20.dp, top = KoshTheme.spacing.section))
+            }
             item(key = "add") {
                 Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     InvestmentType.entries.forEach { t ->
-                        OutlinedButton(onClick = { nav.navigate(Routes.addInvestment(t)) }, modifier = Modifier.weight(1f)) { Text("+ ${t.name}") }
+                        SecondaryButton("+ ${t.name}", onClick = { onAdd(t) }, modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -187,15 +234,15 @@ fun WealthScreen(nav: NavController) {
                     EmptyState(
                         "Track FD, EPF and NPS",
                         "Enter the details once. Kosh grows FDs with interest, adds EPF contributions monthly and updates NPS from live NAVs.",
-                        Modifier.padding(top = 24.dp),
-                        icon = Icons.Filled.Savings,
+                        Modifier.padding(top = 16.dp),
+                        icon = Icons.Outlined.Savings,
                     )
                 }
             }
             items(state.items.size, key = { state.items[it].id }) { i ->
                 val inv = state.items[i]
-                InvestmentRow(inv, hidden, Modifier.padding(horizontal = 20.dp, vertical = 5.dp).staggeredEntrance(i)) {
-                    nav.navigate(Routes.investment(inv.id))
+                InvestmentRow(inv, hidden, Modifier.padding(start = 20.dp, end = 20.dp, top = if (i == 0) 12.dp else 8.dp).staggeredEntrance(i)) {
+                    onOpen(inv.id)
                 }
             }
         }
@@ -206,8 +253,8 @@ fun WealthScreen(nav: NavController) {
 @Composable
 private fun HeroPart(label: String, value: Long, hidden: Boolean) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-        AmountText(value, style = AmountStyles.small, compact = true, hidden = hidden, color = Color.White)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+        AmountText(value, style = AmountStyles.small, compact = true, hidden = hidden, color = KoshTheme.colors.ink)
     }
 }
 

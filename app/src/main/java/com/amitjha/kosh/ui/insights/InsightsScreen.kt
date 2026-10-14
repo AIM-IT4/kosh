@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,7 +76,7 @@ fun InsightsScreen(nav: NavController) {
         title = "Insights",
         subtitle = "Worked out on your phone, from your own data",
         onBack = { nav.popBackStack() },
-        actions = { IconButton(onClick = vm::restoreDismissed) { Icon(Icons.Filled.Restore, contentDescription = "Show dismissed insights") } },
+        actions = { IconButton(onClick = vm::restoreDismissed) { Icon(Icons.Outlined.Restore, contentDescription = "Show dismissed insights") } },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = refreshing,
@@ -96,7 +96,7 @@ fun InsightsScreen(nav: NavController) {
                     "No insights right now",
                     "As you add transactions, budgets and goals, Kosh spots overspending, subscriptions, idle cash and more.",
                     Modifier.padding(top = 60.dp),
-                    icon = Icons.Filled.AutoAwesome,
+                    icon = Icons.Outlined.AutoAwesome,
                 )
                 return@PullToRefreshBox
             }

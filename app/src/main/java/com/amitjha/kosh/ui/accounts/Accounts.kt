@@ -20,11 +20,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -109,7 +109,7 @@ fun AccountsScreen(nav: NavController) {
     KoshScreen(
         title = "Accounts",
         onBack = { nav.popBackStack() },
-        actions = { IconButton(onClick = { nav.navigate(Routes.editAccount()) }) { Icon(Icons.Filled.Add, contentDescription = "Add account") } },
+        actions = { IconButton(onClick = { nav.navigate(Routes.editAccount()) }) { Icon(Icons.Outlined.Add, contentDescription = "Add account") } },
     ) { padding ->
         val list = accounts ?: return@KoshScreen
         if (list.isEmpty()) {
@@ -117,7 +117,7 @@ fun AccountsScreen(nav: NavController) {
                 "No accounts yet",
                 "Add your bank accounts and credit cards to track balances.",
                 Modifier.padding(padding).padding(top = 60.dp),
-                icon = Icons.Filled.AccountBalance,
+                icon = Icons.Outlined.AccountBalance,
                 actionLabel = "Add account",
                 onAction = { nav.navigate(Routes.editAccount()) },
             )
@@ -237,8 +237,8 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
         onBack = { nav.popBackStack() },
         actions = {
             if (a != null) {
-                IconButton(onClick = { nav.navigate(Routes.editAccount(id)) }) { Icon(Icons.Filled.Edit, contentDescription = "Edit") }
-                IconButton(onClick = { archive = true }) { Icon(Icons.Filled.Archive, contentDescription = "Archive") }
+                IconButton(onClick = { nav.navigate(Routes.editAccount(id)) }) { Icon(Icons.Outlined.Edit, contentDescription = "Edit") }
+                IconButton(onClick = { archive = true }) { Icon(Icons.Outlined.Archive, contentDescription = "Archive") }
             }
         },
     ) { padding ->
@@ -283,12 +283,12 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
             item(key = "actions") {
                 Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = { reconcile = true }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Filled.Tune, contentDescription = null)
+                        Icon(Icons.Outlined.Tune, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text(if (a.isCard) "Set outstanding" else "Set balance")
                     }
                     OutlinedButton(onClick = { nav.navigate(Routes.addTxn(TxnType.EXPENSE, id)) }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Icon(Icons.Outlined.Add, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Transaction")
                     }

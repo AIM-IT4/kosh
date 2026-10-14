@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.planning
 
+import androidx.compose.foundation.layout.size
+import com.amitjha.kosh.designsystem.theme.KoshText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,16 +12,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.PieChart
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -113,24 +114,17 @@ fun PlanningScreen(@Suppress("UNUSED_PARAMETER") nav: NavController) {
     var editGoal by remember { mutableStateOf<GoalEntity?>(null) }
     var newGoal by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.statusBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Plan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { if (tab == 0) addBudget = true else newGoal = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (tab == 0) "Budget" else "Goal")
-                }
-            }
-            SegmentedTabs(listOf("Budgets", "Goals"), tab, onSelect = { tab = it }, modifier = Modifier.padding(top = 8.dp))
-        }
-        if (tab == 0) {
-            BudgetsTab(state, onAdd = { addBudget = true }, onSet = vm::setBudget, onDelete = vm::deleteBudget)
-        } else {
-            GoalsTab(state, onAdd = { newGoal = true }, onOpen = { editGoal = it }, onContribute = vm::contribute)
-        }
-    }
+    PlanningContent(
+        state = state,
+        tab = tab,
+        onTab = { tab = it },
+        onAddBudget = { addBudget = true },
+        onNewGoal = { newGoal = true },
+        onSetBudget = vm::setBudget,
+        onDeleteBudget = vm::deleteBudget,
+        onOpenGoal = { editGoal = it },
+        onContribute = vm::contribute,
+    )
 
     if (addBudget) {
         AddBudgetSheet(
@@ -165,6 +159,39 @@ fun PlanningScreen(@Suppress("UNUSED_PARAMETER") nav: NavController) {
     }
 }
 
+/** Stateless Plan screen (header, tabs and lists, without sheets); used by the app and screenshot tests. */
+@Composable
+fun PlanningContent(
+    state: PlanningState,
+    tab: Int,
+    onTab: (Int) -> Unit = {},
+    onAddBudget: () -> Unit = {},
+    onNewGoal: () -> Unit = {},
+    onSetBudget: (String?, Long) -> Unit = { _, _ -> },
+    onDeleteBudget: (BudgetStatus) -> Unit = {},
+    onOpenGoal: (GoalEntity) -> Unit = {},
+    onContribute: (Long, Long) -> Unit = { _, _ -> },
+) {
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Plan", style = KoshText.screenTitle, modifier = Modifier.weight(1f))
+                TextButton(onClick = { if (tab == 0) onAddBudget() else onNewGoal() }) {
+                    Icon(Icons.Outlined.Add, contentDescription = null, tint = KoshTheme.colors.ink, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (tab == 0) "Budget" else "Goal", color = KoshTheme.colors.ink)
+                }
+            }
+            SegmentedTabs(listOf("Budgets", "Goals"), tab, onSelect = onTab, modifier = Modifier.padding(top = 8.dp, end = 8.dp))
+        }
+        if (tab == 0) {
+            BudgetsTab(state, onAdd = onAddBudget, onSet = onSetBudget, onDelete = onDeleteBudget)
+        } else {
+            GoalsTab(state, onAdd = onNewGoal, onOpen = onOpenGoal, onContribute = onContribute)
+        }
+    }
+}
+
 @Composable
 private fun BudgetsTab(
     state: PlanningState,
@@ -180,22 +207,22 @@ private fun BudgetsTab(
             "No budgets yet",
             "Set a monthly limit overall or per category. Kosh tracks your pace and warns you before you overspend.",
             Modifier.padding(top = 40.dp),
-            icon = Icons.Filled.PieChart,
+            icon = Icons.Outlined.PieChart,
             actionLabel = "Create a budget",
             onAction = onAdd,
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(state.budgets.size, key = { state.budgets[it].budget.id }) { i ->
             val s = state.budgets[i]
             val p = s.projection
             KoshCard(Modifier.staggeredEntrance(i), onClick = { editing = s }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (s.isOverall) {
-                        ProgressRing(p.usedFraction.toFloat().coerceIn(0f, 1f), size = 44.dp, thickness = 6.dp)
+                        ProgressRing(p.usedFraction.toFloat().coerceIn(0f, 1f), size = 36.dp, thickness = 4.dp)
                     } else {
-                        CategoryIcon(s.category?.icon, s.category.color(), size = 44.dp)
+                        CategoryIcon(s.category?.icon, s.category.color(), size = 36.dp)
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -208,11 +235,11 @@ private fun BudgetsTab(
                     }
                     Text(
                         Fmt.pct(p.usedFraction * 100, 0),
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         color = when {
                             p.isExceeded -> KoshTheme.colors.alert
                             p.willExceed -> KoshTheme.colors.warning
-                            else -> KoshTheme.colors.good
+                            else -> KoshTheme.colors.subtleText
                         },
                     )
                 }
@@ -325,13 +352,13 @@ private fun GoalsTab(
             "No goals yet",
             "An emergency fund, a trip, a new phone: set a target and a date, and Kosh tells you how much to save each month.",
             Modifier.padding(top = 40.dp),
-            icon = Icons.Filled.Flag,
+            icon = Icons.Outlined.Flag,
             actionLabel = "Create a goal",
             onAction = onAdd,
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(state.goals, key = { it.goal.id }) { g ->
             val plan = g.plan
             val hint = when {
@@ -349,8 +376,12 @@ private fun GoalsTab(
                     hidden = hidden,
                     onClick = { onOpen(g.goal) },
                 )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    OutlinedButton(onClick = { contributing = g }, enabled = !plan.reached) { Text("Add savings") }
+                if (!plan.reached) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { contributing = g }) {
+                            Text("+ Add savings", color = KoshTheme.colors.accent, style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
                 }
             }
         }
