@@ -30,12 +30,41 @@ data class ImportResult(
     val ignored: Int = 0,
     val permissionMissing: Boolean = false,
     val insertedTransactions: List<TransactionEntity> = emptyList(),
+    /** Diagnostics: transactions and bills the parser recognised (new or already known). */
+    val parsedTransactions: Int = 0,
+    val parsedBills: Int = 0,
+    val ignoredByReason: Map<String, Int> = emptyMap(),
+    /** Messages that looked like transactions but did not parse, masked (sender: start of body). */
+    val unparsedSamples: List<String> = emptyList(),
+    /** Set when the SMS store could not be read (for example a SecurityException). */
+    val readError: String? = null,
 ) {
+    /** Number of SMS read from the phone. */
+    val messagesRead: Int get() = scanned
+
+    /** Messages that passed the financial gate. */
+    val financialCandidates: Int get() = financial
+
     operator fun plus(o: ImportResult) = ImportResult(
         scanned + o.scanned, financial + o.financial, inserted + o.inserted, duplicates + o.duplicates,
         bills + o.bills, balancesUpdated + o.balancesUpdated, accountsCreated + o.accountsCreated, ignored + o.ignored,
         permissionMissing || o.permissionMissing, insertedTransactions + o.insertedTransactions,
+        parsedTransactions + o.parsedTransactions, parsedBills + o.parsedBills,
+        (ignoredByReason.keys + o.ignoredByReason.keys).associateWith { (ignoredByReason[it] ?: 0) + (o.ignoredByReason[it] ?: 0) },
+        (unparsedSamples + o.unparsedSamples).take(MAX_SAMPLES),
+        readError ?: o.readError,
     )
+
+    companion object {
+        const val MAX_SAMPLES = 10
+
+        /** Masks long digit runs (account/card/phone numbers) so samples are safe to share. */
+        fun mask(sender: String, body: String): String {
+            val masked = body.replace(Regex("\\s+"), " ").trim().take(80)
+                .replace(Regex("\\d{4,}")) { m -> "X".repeat(m.value.length - 2) + m.value.takeLast(2) }
+            return "$sender: $masked"
+        }
+    }
 }
 
 /**
@@ -61,11 +90,16 @@ class SmsImporter(
         val lastScan = settings.current().smsLastScanMillis
         val since = sinceMillis ?: if (lastScan > 0) lastScan - OVERLAP_MILLIS else System.currentTimeMillis() - FIRST_SCAN_DAYS * DAY_MILLIS
         val started = System.currentTimeMillis()
-        val messages = withContext(Dispatchers.IO) { readInbox(since) }
-        val result = importMessages(messages)
-        settings.setSmsLastScan(started)
-        return result.copy(scanned = messages.size)
+        val read = withContext(Dispatchers.IO) { readAll(since) }
+        val result = importMessages(read.first)
+        // Only move the scan cursor forward when something could actually be read.
+        if (read.second == null && read.first.isNotEmpty()) settings.setSmsLastScan(started)
+        return result.copy(scanned = read.first.size, readError = read.second)
     }
+
+    /** "Scan inbox now": always re-reads the last [FIRST_SCAN_DAYS] days; fingerprints prevent duplicates. */
+    suspend fun rescanAll(): ImportResult =
+        importInbox(System.currentTimeMillis() - FIRST_SCAN_DAYS * DAY_MILLIS)
 
     /** Imports already-read messages (used by the live SMS receiver and by tests). */
     suspend fun importMessages(messages: List<SmsMessage>): ImportResult = lock.withLock {
@@ -73,13 +107,24 @@ class SmsImporter(
             var result = ImportResult(scanned = messages.size)
             val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
             for (msg in messages.sortedBy { it.timestampMillis }) {
-                if (!isLikelyFinancialSender(msg.sender)) continue
+                if (!isFinancialMessage(msg.sender, msg.body)) continue
                 result = result.copy(financial = result.financial + 1)
                 result = when (val parsed = runCatching { SmsParser.parse(msg) }.getOrNull()) {
-                    is SmsParseResult.Transaction -> result + importTransaction(parsed.txn, rules)
-                    is SmsParseResult.CardBill -> result + importBill(parsed.bill)
+                    is SmsParseResult.Transaction ->
+                        result + importTransaction(parsed.txn, rules).copy(parsedTransactions = 1)
+                    is SmsParseResult.CardBill -> result + importBill(parsed.bill).copy(parsedBills = 1)
                     is SmsParseResult.BalanceUpdate -> result + importBalance(parsed.update)
-                    is SmsParseResult.Ignored, null -> result.copy(ignored = result.ignored + 1)
+                    is SmsParseResult.Ignored, null -> {
+                        val reason = (parsed as? SmsParseResult.Ignored)?.reason ?: "parse error"
+                        val sample = if (looksTransactional(msg.body) && result.unparsedSamples.size < ImportResult.MAX_SAMPLES &&
+                            reason in UNPARSED_REASONS
+                        ) {
+                            listOf(ImportResult.mask(msg.sender, msg.body))
+                        } else {
+                            emptyList()
+                        }
+                        result + ImportResult(ignored = 1, ignoredByReason = mapOf(reason to 1), unparsedSamples = sample)
+                    }
                 }
             }
             result
@@ -189,26 +234,45 @@ class SmsImporter(
         }
     }
 
-    private fun readInbox(sinceMillis: Long): List<SmsMessage> {
+    /**
+     * Reads received messages from the inbox and, as a fallback, from the whole SMS store (some phones file
+     * bank SMS under other folders). Returns the messages and an error description if reading failed.
+     */
+    private fun readAll(sinceMillis: Long): Pair<List<SmsMessage>, String?> {
+        val seen = HashSet<String>()
         val out = ArrayList<SmsMessage>()
+        var error: String? = null
+        val sources = listOf(
+            Telephony.Sms.Inbox.CONTENT_URI to "${Telephony.Sms.DATE} > ?",
+            // all received messages (type 1 = inbox) wherever the phone stored them
+            Telephony.Sms.CONTENT_URI to "${Telephony.Sms.DATE} > ? AND ${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX}",
+        )
+        for ((uri, selection) in sources) {
+            try {
+                readFrom(uri, selection, sinceMillis) { msg ->
+                    if (seen.add("${msg.sender}|${msg.timestampMillis}|${msg.body.hashCode()}")) out += msg
+                }
+            } catch (e: SecurityException) {
+                error = "SMS access was denied by the system"
+            } catch (e: Exception) {
+                if (error == null) error = "Could not read SMS (${e.javaClass.simpleName})"
+            }
+        }
+        return out to (if (out.isEmpty()) error else null)
+    }
+
+    private inline fun readFrom(uri: android.net.Uri, selection: String, sinceMillis: Long, sink: (SmsMessage) -> Unit) {
         val projection = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE)
-        context.contentResolver.query(
-            Telephony.Sms.Inbox.CONTENT_URI,
-            projection,
-            "${Telephony.Sms.DATE} > ?",
-            arrayOf(sinceMillis.toString()),
-            "${Telephony.Sms.DATE} ASC",
-        )?.use { c ->
+        context.contentResolver.query(uri, projection, selection, arrayOf(sinceMillis.toString()), "${Telephony.Sms.DATE} ASC")?.use { c ->
             val iAddr = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
             val iBody = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
             val iDate = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
             while (c.moveToNext()) {
                 val sender = c.getString(iAddr) ?: continue
                 val body = c.getString(iBody) ?: continue
-                out += SmsMessage(sender, body, c.getLong(iDate))
+                sink(SmsMessage(sender, body, c.getLong(iDate)))
             }
         }
-        return out
     }
 
     companion object {
@@ -216,5 +280,8 @@ class SmsImporter(
         private const val DAY_MILLIS = 86_400_000L
         /** Re-read a little before the last scan so messages delivered late are not missed. */
         private const val OVERLAP_MILLIS = 2 * DAY_MILLIS
+
+        /** Ignore reasons that mean "we could not understand it" rather than "deliberately skipped". */
+        private val UNPARSED_REASONS = setOf("no transaction found", "not a bank sender", "parse error")
     }
 }

@@ -101,6 +101,8 @@ data class HomeState(
     val trend: List<Float> = emptyList(),
     val summary: MonthSummary? = null,
     val unreviewed: Int = 0,
+    val reviewFromSms: Int = 0,
+    val reviewFromEmail: Int = 0,
     val bills: List<BillItem> = emptyList(),
     val insights: List<Insight> = emptyList(),
     val recent: List<TransactionItem> = emptyList(),
@@ -128,7 +130,14 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         c.insights.observeInsights(),
         c.transactions.observeRecent(8),
         c.accounts.observeAccounts(),
-    ) { unreviewed, bills, insights, recent, accounts -> Lists(unreviewed.size, bills, insights, recent, accounts) }
+    ) { unreviewed, bills, insights, recent, accounts ->
+        Lists(
+            unreviewed.size,
+            unreviewed.count { it.txn.source == com.amitjha.kosh.model.TxnSource.SMS },
+            unreviewed.count { it.txn.source == com.amitjha.kosh.model.TxnSource.EMAIL },
+            bills, insights, recent, accounts,
+        )
+    }
 
     val state: StateFlow<HomeState> = combine(money, lists) { (nw, trend, s), l ->
         HomeState(
@@ -137,6 +146,8 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             trend = trend,
             summary = s,
             unreviewed = l.unreviewed,
+            reviewFromSms = l.fromSms,
+            reviewFromEmail = l.fromEmail,
             bills = l.bills.take(6),
             insights = l.insights.take(5),
             recent = l.recent,
@@ -148,6 +159,8 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
     private data class Lists(
         val unreviewed: Int,
+        val fromSms: Int,
+        val fromEmail: Int,
         val bills: List<BillItem>,
         val insights: List<Insight>,
         val recent: List<TransactionItem>,
@@ -269,7 +282,7 @@ fun HomeContent(
 
         if (state.unreviewed > 0) {
             item(key = "review") {
-                ReviewBanner(state.unreviewed, pad.padding(top = 16.dp), onReview)
+                ReviewBanner(state.unreviewed, pad.padding(top = 16.dp), onReview, state.reviewFromSms, state.reviewFromEmail)
             }
         }
 
@@ -403,7 +416,7 @@ fun ListHairline(start: androidx.compose.ui.unit.Dp = 0.dp) {
 }
 
 @Composable
-private fun ReviewBanner(count: Int, modifier: Modifier, onClick: () -> Unit) {
+private fun ReviewBanner(count: Int, modifier: Modifier, onClick: () -> Unit, fromSms: Int = 0, fromEmail: Int = 0) {
     Row(
         modifier
             .fillMaxWidth()
@@ -415,13 +428,21 @@ private fun ReviewBanner(count: Int, modifier: Modifier, onClick: () -> Unit) {
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(KoshTheme.colors.accent))
         Spacer(Modifier.width(10.dp))
-        Text(
-            "$count transaction${if (count == 1) "" else "s"} to review",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = KoshTheme.colors.ink,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                "$count transaction${if (count == 1) "" else "s"} to review",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = KoshTheme.colors.ink,
+            )
+            if (fromSms + fromEmail > 0) {
+                Text(
+                    "Imported from SMS ($fromSms) & email ($fromEmail)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = KoshTheme.colors.subtleText,
+                )
+            }
+        }
         Text("Review", style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.accent)
         Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = KoshTheme.colors.accent, modifier = Modifier.size(18.dp))
     }

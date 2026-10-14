@@ -14,7 +14,10 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -94,6 +97,8 @@ import java.time.LocalDate
 
 fun ImportResult.describe(): String = when {
     permissionMissing -> "SMS permission is needed to scan your inbox"
+    readError != null -> readError
+    scanned == 0 -> "No SMS could be read from this phone"
     inserted == 0 && bills == 0 -> "Scanned $scanned messages · nothing new"
     else -> buildString {
         append("Added $inserted transaction${if (inserted == 1) "" else "s"}")
@@ -122,14 +127,17 @@ fun MoreScreen(nav: NavController) {
     var confirmErase by remember { mutableStateOf(false) }
     var backupUri by remember { mutableStateOf<Uri?>(null) }
     var restoreUri by remember { mutableStateOf<Uri?>(null) }
+    var lastScan by remember { mutableStateOf<ImportResult?>(null) }
+    val unpaidBills by c.bills.observeUnpaid().collectAsState(initial = emptyList())
 
     fun show(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
 
     fun scanSms() {
         busy = "Scanning SMS inbox…"
         scope.launch {
-            val r = runCatching { c.smsImporter.importInbox() }
+            val r = runCatching { c.smsImporter.rescanAll() }
             busy = null
+            lastScan = r.getOrNull()
             show(r.map { it.describe() }.getOrElse { "Scan failed: ${it.message}" })
         }
     }
@@ -149,7 +157,8 @@ fun MoreScreen(nav: NavController) {
                     r == null -> "Gmail sync failed"
                     r.needsReconnect -> "Please reconnect Gmail"
                     r.error != null -> r.error
-                    else -> "Checked ${r.scanned} emails · ${r.billsAdded} new bill${if (r.billsAdded == 1) "" else "s"}"
+                    else -> "Checked ${r.scanned} emails · ${r.billsAdded} bill${if (r.billsAdded == 1) "" else "s"} · " +
+                        "${r.transactionsAdded} transaction${if (r.transactionsAdded == 1) "" else "s"}"
                 },
             )
         }
@@ -207,10 +216,19 @@ fun MoreScreen(nav: NavController) {
                     }
                 }
             }
+            item(key = "bills") {
+                val due = unpaidBills.size
+                Section("Credit cards") {
+                    ActionRow(
+                        if (due > 0) "Card bills · $due due" else "Card bills",
+                        if (due > 0) "From SMS & Gmail statements — tap to see amounts and due dates" else "Bills from SMS & Gmail statements appear here",
+                        Icons.Outlined.CreditCard,
+                    ) { nav.navigate(Routes.BILLS) }
+                }
+            }
             item(key = "shortcuts") {
                 Section("Manage") {
                     ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Outlined.AccountBalance) { nav.navigate(Routes.ACCOUNTS) }
-                    ActionRow("Card bills", "Due dates and payments", Icons.Outlined.CreditCard) { nav.navigate(Routes.BILLS) }
                     ActionRow("Review imports", "Check SMS and email transactions", Icons.Outlined.Inbox) { nav.navigate(Routes.REVIEW) }
                     ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Outlined.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
                     ActionRow("Categories", null, Icons.Outlined.Category) { nav.navigate(Routes.CATEGORIES) }
@@ -256,6 +274,7 @@ fun MoreScreen(nav: NavController) {
                         if (context.hasSmsPermission()) scanSms()
                         else smsPermission.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
                     }
+                    lastScan?.let { ScanDetails(it) }
                     if (s.gmailConnected) {
                         ActionRow(
                             "Gmail: ${s.gmailAccountEmail}",
@@ -263,9 +282,21 @@ fun MoreScreen(nav: NavController) {
                             Icons.Outlined.Email,
                             enabled = busy == null,
                         ) { if (s.gmailReconnectNeeded) connectGmail() else syncGmail() }
+                        s.gmailLastSummary?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                        }
+                        ActionRow("View bills", "Card statements found in Gmail", Icons.Outlined.CreditCard) { nav.navigate(Routes.BILLS) }
+                        ActionRow("View email transactions", "Card spends read from alert emails", Icons.Outlined.Inbox) {
+                            com.amitjha.kosh.ui.transactions.ActivityFilterRequest.pending = com.amitjha.kosh.ui.transactions.F_EMAIL
+                            nav.navigate(Routes.TRANSACTIONS) {
+                                popUpTo(Routes.HOME) { saveState = false }
+                                launchSingleTop = true
+                            }
+                        }
                         ActionRow("Disconnect Gmail", null, null) { scope.launch { c.gmailAuth.disconnect() } }
                     } else {
-                        ActionRow("Connect Gmail", "Read credit card statements for bill amounts and due dates (read-only)", Icons.Outlined.Email,
+                        ActionRow("Connect Gmail", "Read card statements and transaction alerts (read-only)", Icons.Outlined.Email,
                             enabled = busy == null) { connectGmail() }
                     }
                 }
@@ -451,6 +482,50 @@ fun CategoriesScreen(nav: NavController) {
                         Spacer(Modifier.width(14.dp))
                         Text(cat.name, style = MaterialTheme.typography.bodyLarge)
                     }
+                }
+            }
+        }
+    }
+}
+
+
+/** What the last "Scan inbox now" found, so unparsed bank messages can be reported and fixed. */
+@Composable
+private fun ScanDetails(r: ImportResult) {
+    var open by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .background(KoshTheme.colors.cardSurfaceHigh, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .clickable { open = !open }
+            .padding(14.dp),
+    ) {
+        Text(
+            "Scan details  ${if (open) "▲" else "▼"}",
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            "${r.messagesRead} SMS read · ${r.financialCandidates} from banks · ${r.parsedTransactions} transactions · " +
+                "${r.parsedBills} bills · ${r.inserted} new",
+            style = MaterialTheme.typography.bodySmall,
+            color = KoshTheme.colors.subtleText,
+        )
+        if (open) {
+            r.readError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.alert) }
+            if (r.ignoredByReason.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Skipped", style = MaterialTheme.typography.labelMedium)
+                r.ignoredByReason.entries.sortedByDescending { it.value }.forEach { (reason, n) ->
+                    Text("$n · $reason", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                }
+            }
+            if (r.unparsedSamples.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Not understood (numbers masked) — share these to improve parsing", style = MaterialTheme.typography.labelMedium)
+                r.unparsedSamples.forEach {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText,
+                        modifier = Modifier.padding(top = 4.dp))
                 }
             }
         }

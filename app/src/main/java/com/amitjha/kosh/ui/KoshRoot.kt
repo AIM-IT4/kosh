@@ -231,7 +231,7 @@ private fun Splash() {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.graphicsLayer { this.alpha = alpha },
         ) {
-            KoshLogo(size = 72.dp, shape = LogoShape.None)
+            KoshLogo(size = 88.dp, shape = LogoShape.RoundedSquare)
             Spacer(Modifier.height(12.dp))
             Text("Kosh", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = KoshTheme.colors.ink)
         }
@@ -264,7 +264,7 @@ private fun LockScreen(onUnlocked: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            KoshLogo(size = 64.dp, shape = LogoShape.None)
+            KoshLogo(size = 72.dp, shape = LogoShape.RoundedSquare)
             Text("Kosh is locked", style = MaterialTheme.typography.titleLarge, color = KoshTheme.colors.ink)
             message?.let { Text(it, color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodyMedium) }
             Spacer(Modifier.height(8.dp))

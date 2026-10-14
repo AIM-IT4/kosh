@@ -156,6 +156,9 @@ interface TransactionDao {
     )
     suspend fun findAmountNear(accountId: Long, amount: Paise, from: Long, to: Long): List<TransactionEntity>
 
+    @Query("SELECT COUNT(*) FROM transactions WHERE referenceNo = :ref")
+    suspend fun countReference(ref: String): Int
+
     @Query("SELECT * FROM transactions WHERE timestamp >= :from ORDER BY timestamp")
     suspend fun since(from: Long): List<TransactionEntity>
 

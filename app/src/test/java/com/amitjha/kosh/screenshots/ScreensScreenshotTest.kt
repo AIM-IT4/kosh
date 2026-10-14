@@ -281,7 +281,7 @@ class ScreensScreenshotTest {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Spacer(Modifier.weight(1f))
-                KoshLogo(size = 72.dp, shape = LogoShape.None)
+                KoshLogo(size = 88.dp, shape = LogoShape.RoundedSquare)
                 Spacer(Modifier.height(12.dp))
                 Text("Kosh", fontSize = 20.sp, style = MaterialTheme.typography.titleLarge, color = KoshTheme.colors.ink)
                 Spacer(Modifier.weight(1f))

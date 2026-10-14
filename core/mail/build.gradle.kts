@@ -13,6 +13,7 @@ kotlin {
 
 dependencies {
     api(project(":core:model"))
+    api(project(":core:sms"))
     testImplementation(libs.junit)
     testImplementation(kotlin("test"))
 }

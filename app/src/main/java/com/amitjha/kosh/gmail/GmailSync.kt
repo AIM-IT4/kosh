@@ -21,6 +21,7 @@ data class GmailSyncResult(
     val billsAdded: Int = 0,
     val billsSettled: Int = 0,
     val failed: Int = 0,
+    val transactionsAdded: Int = 0,
     val error: String? = null,
     val needsReconnect: Boolean = false,
 )
@@ -32,7 +33,7 @@ class GmailSync(
     private val auth: GmailAuth,
 ) {
 
-    suspend fun sync(sinceDays: Int = 90): GmailSyncResult {
+    suspend fun sync(sinceDays: Int = 180): GmailSyncResult {
         val s = settings.current()
         if (!s.gmailConnected) return GmailSyncResult(error = "Gmail is not connected")
         var token = auth.accessTokenSilently() ?: return GmailSyncResult(error = "Reconnect Gmail", needsReconnect = true)
@@ -72,11 +73,43 @@ class GmailSync(
                 }
             }
         }
-        val processed = (result.bills.map { it.emailId } + result.payments.map { it.emailId })
+        var txnsAdded = 0
+        val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
+        for (t in result.transactions) {
+            if (importTransaction(t, rules)) txnsAdded++
+        }
+        val processed = result.processedIds.ifEmpty { result.bills.map { it.emailId } + result.payments.map { it.emailId } }
         settings.addProcessedEmailIds(processed)
         settings.setGmailLastSync(System.currentTimeMillis())
         settings.setGmailReconnectNeeded(false)
-        return GmailSyncResult(result.scannedMessages, added, settled, result.failedMessageIds.size)
+        settings.setGmailLastSummary(
+            "Scanned ${result.scannedMessages} new email${if (result.scannedMessages == 1) "" else "s"} · " +
+                "$added bill${if (added == 1) "" else "s"} · $txnsAdded transaction${if (txnsAdded == 1) "" else "s"}",
+        )
+        return GmailSyncResult(result.scannedMessages, added, settled, result.failedMessageIds.size, txnsAdded)
+    }
+
+    /**
+     * Stores a transaction from an alert e-mail unless the same spend is already known from SMS
+     * (same account and amount within [DEDUPE_WINDOW_MILLIS], or the same reference number).
+     */
+    private suspend fun importTransaction(p: com.amitjha.kosh.sms.ParsedTransaction, rules: Map<String, String>): Boolean {
+        val account = resolveAccount(p.bank, p.accountLast4, p.isCreditCard)
+        val near = db.transactions().findAmountNear(
+            account.id, p.amount, p.timestampMillis - DEDUPE_WINDOW_MILLIS, p.timestampMillis + DEDUPE_WINDOW_MILLIS,
+        )
+        if (near.any { it.type == p.type || it.type == com.amitjha.kosh.model.TxnType.TRANSFER }) return false
+        if (p.referenceNo != null && db.transactions().countReference(p.referenceNo!!) > 0) return false
+        val entity = SmsMapping.toTransaction(p, account.id, p.merchant?.let(rules::get))
+            .copy(source = TxnSource.EMAIL, reviewed = false)
+        return db.transactions().insertIgnore(entity) > 0
+    }
+
+    private suspend fun resolveAccount(bank: Bank, last4: String?, isCard: Boolean): AccountEntity {
+        val accounts = db.accounts().all()
+        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return it }
+        val fresh = SmsMapping.newAccountFor(bank, last4, isCard = isCard, now = System.currentTimeMillis())
+        return fresh.copy(id = db.accounts().insert(fresh))
     }
 
     private suspend fun fetch(token: String, banks: Set<Bank>, sinceDays: Int, skip: Set<String>) = withContext(Dispatchers.IO) {
@@ -85,9 +118,9 @@ class GmailSync(
 
     /** Banks of the user's cards, or the four supported issuers if no cards are set up yet. */
     private suspend fun cardBanks(): Set<Bank> {
-        val fromCards = db.accounts().all().filter { it.type == AccountType.CREDIT_CARD && !it.archived }
+        val fromAccounts = db.accounts().all().filter { !it.archived }
             .map { Bank.fromName(it.bank) }.filter { it != Bank.OTHER }.toSet()
-        return fromCards.ifEmpty { DEFAULT_BANKS }
+        return fromAccounts + DEFAULT_BANKS
     }
 
     private suspend fun resolveCard(bank: Bank, last4: String?): AccountEntity {
@@ -110,5 +143,6 @@ class GmailSync(
 
     companion object {
         val DEFAULT_BANKS = setOf(Bank.ICICI, Bank.HDFC, Bank.KOTAK, Bank.DBS)
+        const val DEDUPE_WINDOW_MILLIS = 10 * 60_000L
     }
 }

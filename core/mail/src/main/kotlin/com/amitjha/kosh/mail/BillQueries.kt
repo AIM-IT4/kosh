@@ -75,6 +75,31 @@ object BillQueries {
         return "newer_than:${sinceDays}d (($fromClause $statementWords) OR $fallback) -in:spam -in:trash"
     }
 
+    /** Known transaction-alert sender addresses per issuer. */
+    val alertSenders: Map<Bank, List<String>> = mapOf(
+        Bank.ICICI to listOf("credit_cards@icicibank.com", "customercare@icicibank.com", "alerts@icicibank.com"),
+        Bank.HDFC to listOf("alerts@hdfcbank.net", "alerts@hdfcbank.bank.in"),
+        Bank.KOTAK to listOf("creditcardalerts@kotak.com", "BankAlerts@kotak.com", "nach.alerts@kotak.com"),
+        Bank.DBS to listOf("alerts@dbs.com", "digibank@dbs.com"),
+        Bank.SBI to listOf("onlinesbicard@sbicard.com"),
+        Bank.AXIS to listOf("alerts@axisbank.com"),
+    )
+
+    /**
+     * A Gmail query for transaction alerts (card spends, debits, UPI) from [banks]: known alert senders and
+     * issuer domains with transaction words, plus a keyword fallback for any sender.
+     */
+    fun alertsForBanks(banks: Set<Bank>, sinceDays: Int): String {
+        require(sinceDays > 0) { "sinceDays must be positive" }
+        val selected = banks.filter { it != Bank.OTHER }.ifEmpty { IssuerDirectory.senderDomains.keys.toList() }
+        val senders = selected.flatMap { alertSenders[it].orEmpty() + IssuerDirectory.senderDomains[it].orEmpty() }.distinct()
+        val words = "(\"transaction alert\" OR alert OR debited OR spent OR \"credit card transaction\" OR " +
+            "\"used for a transaction\" OR \"UPI txn\" OR \"has been used\" OR \"thank you for using\")"
+        val fallback = "(subject:\"transaction alert\" OR \"has been debited\" OR \"used for a transaction\" OR " +
+            "\"thank you for using your\")"
+        return "newer_than:${sinceDays}d ((from:(${senders.joinToString(" OR ")}) $words) OR $fallback) -in:spam -in:trash"
+    }
+
     /** A Gmail query for credit-card payment acknowledgements. */
     fun paymentsForBanks(banks: Set<Bank>, sinceDays: Int): String {
         val selected = banks.filter { it != Bank.OTHER }.ifEmpty { IssuerDirectory.senderDomains.keys.toList() }

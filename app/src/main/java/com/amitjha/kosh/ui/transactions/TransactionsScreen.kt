@@ -67,10 +67,17 @@ import java.time.LocalDate
 private const val F_EXPENSE = "Expenses"
 private const val F_INCOME = "Income"
 private const val F_TRANSFER = "Transfers"
-private const val F_SMS = "From SMS"
-private const val F_EMAIL = "From email"
+internal const val F_SMS = "From SMS"
+internal const val F_EMAIL = "From email"
 private const val F_MANUAL = "Manual"
-private val FILTERS = listOf(F_EXPENSE, F_INCOME, F_TRANSFER, F_SMS, F_EMAIL, F_MANUAL)
+private val FILTERS = listOf(F_SMS, F_EMAIL, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL)
+
+/** One-shot filter requested by another screen (e.g. Settings → "View email transactions"). */
+object ActivityFilterRequest {
+    @Volatile var pending: String? = null
+
+    fun consume(): String? = pending.also { pending = null }
+}
 
 data class DayGroup(val date: LocalDate, val items: List<TransactionItem>, val net: Long)
 
@@ -133,6 +140,7 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     fun next() { period.value = period.value.next() }
     fun setQuery(q: String) { query.value = q }
     fun toggle(f: String) { filters.value = if (f in filters.value) filters.value - f else filters.value + f }
+    fun only(f: String) { filters.value = setOf(f) }
 
     suspend fun delete(id: Long): TransactionEntity? {
         val t = c.transactions.byId(id) ?: return null
@@ -148,6 +156,7 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
 fun TransactionsScreen(nav: NavController) {
     val vm = koshViewModel { TransactionsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(Unit) { ActivityFilterRequest.consume()?.let(vm::only) }
     val hidden = LocalHideAmounts.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()

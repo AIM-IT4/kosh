@@ -27,6 +27,8 @@ data class Settings(
     val gmailAccountEmail: String? = null,
     val gmailLastSyncMillis: Long = 0L,
     val gmailReconnectNeeded: Boolean = false,
+    /** Summary of the last Gmail sync, e.g. "Scanned 120 emails · 2 bills · 35 transactions". */
+    val gmailLastSummary: String? = null,
     val monthStartDay: Int = 1,
     val notifyTransactions: Boolean = true,
     val notifyBills: Boolean = true,
@@ -51,6 +53,7 @@ class SettingsStore(private val context: Context) {
         val gmailLastSync = longPreferencesKey("gmail_last_sync")
         val gmailReconnect = booleanPreferencesKey("gmail_reconnect")
         val processedEmailIds = stringSetPreferencesKey("processed_email_ids")
+        val gmailLastSummary = stringPreferencesKey("gmail_last_summary")
         val monthStartDay = intPreferencesKey("month_start_day")
         val notifyTransactions = booleanPreferencesKey("notify_transactions")
         val notifyBills = booleanPreferencesKey("notify_bills")
@@ -71,6 +74,7 @@ class SettingsStore(private val context: Context) {
             gmailAccountEmail = p[Keys.gmailEmail],
             gmailLastSyncMillis = p[Keys.gmailLastSync] ?: 0L,
             gmailReconnectNeeded = p[Keys.gmailReconnect] ?: false,
+            gmailLastSummary = p[Keys.gmailLastSummary],
             monthStartDay = p[Keys.monthStartDay] ?: 1,
             notifyTransactions = p[Keys.notifyTransactions] ?: true,
             notifyBills = p[Keys.notifyBills] ?: true,
@@ -105,13 +109,14 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setGmailReconnectNeeded(needed: Boolean) = edit { it[Keys.gmailReconnect] = needed }
     suspend fun setGmailLastSync(millis: Long) = edit { it[Keys.gmailLastSync] = millis }
+    suspend fun setGmailLastSummary(summary: String) = edit { it[Keys.gmailLastSummary] = summary }
 
     suspend fun processedEmailIds(): Set<String> = context.dataStore.data.first()[Keys.processedEmailIds] ?: emptySet()
 
     /** Remembers processed Gmail message ids, keeping only the most recent [MAX_IDS]. */
     suspend fun addProcessedEmailIds(ids: Collection<String>) = edit {
         val current = (it[Keys.processedEmailIds] ?: emptySet()).toList()
-        it[Keys.processedEmailIds] = (current + ids).distinct().takeLast(MAX_IDS).toSet()
+        it[Keys.processedEmailIds] = (current + ids).distinct().takeLast(MAX_EMAIL_IDS).toSet()
     }
 
     suspend fun dismissInsight(id: String) = edit {
@@ -142,5 +147,6 @@ class SettingsStore(private val context: Context) {
 
     companion object {
         const val MAX_IDS = 500
+        const val MAX_EMAIL_IDS = 4000
     }
 }

@@ -21,7 +21,7 @@ class SmsReceiver : BroadcastReceiver() {
             .map { (sender, pdus) ->
                 SmsMessage(sender, pdus.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }, pdus.first().timestampMillis)
             }
-            .filter { isLikelyFinancialSender(it.sender) }
+            .filter { isFinancialMessage(it.sender, it.body) }
         if (messages.isEmpty()) return
 
         val app = context.applicationContext as KoshApp
