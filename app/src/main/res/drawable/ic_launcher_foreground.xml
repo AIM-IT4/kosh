@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- stem of the K -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M37,33 a4,4 0 0 1 8,0 v42 a4,4 0 0 1 -8,0 z"/>
+    <!-- lower leg -->
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="8" android:strokeLineCap="round"
+        android:pathData="M50,55 L69,75"/>
+    <!-- upper arm: a rising arrow -->
+    <path android:strokeColor="#FFFFD166" android:strokeWidth="8" android:strokeLineCap="round"
+        android:pathData="M45,58 L66,37"/>
+    <path android:fillColor="#FFFFD166" android:pathData="M57,30 L74,29 L73,46 Z"/>
+</vector>
