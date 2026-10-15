@@ -116,6 +116,10 @@ data class HomeState(
     val recent: List<TransactionItem> = emptyList(),
     val accounts: List<AccountWithBalance> = emptyList(),
     val charts: HomeCharts = HomeCharts(),
+    /** Accounts found in SMS/e-mail waiting for the user's confirmation (not in net worth). */
+    val pendingAccounts: Int = 0,
+    /** Imported expenses this month still in "Other". */
+    val uncategorised: Int = 0,
 ) {
     val isEmpty: Boolean get() = !loading && accounts.isEmpty() && recent.isEmpty()
 }
@@ -159,8 +163,14 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         }
         .flowOn(Dispatchers.Default)
 
-    val state: StateFlow<HomeState> = combine(money, lists, charts) { (nw, trend, s), l, ch ->
+    private val uncategorised = combine(period, c.db.transactions().observeUncategorised()) { p, rows ->
+        rows.count { it.source != com.amitjha.kosh.model.TxnSource.MANUAL && Time.toDate(it.timestamp) in p }
+    }
+
+    val state: StateFlow<HomeState> = combine(money, lists, charts, uncategorised) { (nw, trend, s), l, ch, other ->
         HomeState(
+            pendingAccounts = nw.pending.size,
+            uncategorised = other,
             charts = ch,
             loading = false,
             netWorth = nw,
@@ -215,6 +225,9 @@ fun HomeScreen(nav: NavController) {
         onAccounts = { nav.navigate(Routes.ACCOUNTS) },
         onAccount = { nav.navigate(Routes.account(it)) },
         onAddAccount = { nav.navigate(Routes.editAccount()) },
+        onNetWorth = { nav.navigate(Routes.NET_WORTH) },
+        onPendingAccounts = { nav.navigate(Routes.PENDING_ACCOUNTS) },
+        onUncategorised = { nav.navigate(Routes.UNCATEGORISED) },
         onLoadDemo = {
             loadingDemo = true
             scope.launch {
@@ -225,6 +238,9 @@ fun HomeScreen(nav: NavController) {
         },
     )
 }
+
+/** Shown when more imported expenses than this are in "Other" this month. */
+const val UNCATEGORISED_BANNER_MIN = 5
 
 /** Stateless Home screen, rendered from [HomeState]; used by the app and by screenshot tests. */
 @Composable
@@ -244,6 +260,9 @@ fun HomeContent(
     onAccount: (Long) -> Unit = {},
     onAddAccount: () -> Unit = {},
     onLoadDemo: () -> Unit = {},
+    onNetWorth: () -> Unit = {},
+    onPendingAccounts: () -> Unit = {},
+    onUncategorised: () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     val pad = Modifier.padding(horizontal = 20.dp)
@@ -276,7 +295,11 @@ fun HomeContent(
 
         item(key = "hero") {
             val nw = state.netWorth
-            Column(pad.padding(top = 20.dp)) {
+            Column(
+                pad.padding(top = 20.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .clickable(onClick = onNetWorth),
+            ) {
                 BalanceHeroCard(
                     label = "Net worth",
                     amount = nw?.total ?: 0,
@@ -327,9 +350,21 @@ fun HomeContent(
             }
         }
 
+        if (state.pendingAccounts > 0) {
+            item(key = "pending-accounts") {
+                com.amitjha.kosh.ui.accounts.PendingAccountsBanner(state.pendingAccounts, onPendingAccounts, pad.padding(top = 16.dp))
+            }
+        }
+
         if (state.unreviewed > 0) {
             item(key = "review") {
                 ReviewBanner(state.unreviewed, pad.padding(top = 16.dp), onReview, state.reviewFromSms, state.reviewFromEmail)
+            }
+        }
+
+        if (state.uncategorised > UNCATEGORISED_BANNER_MIN) {
+            item(key = "uncategorised") {
+                com.amitjha.kosh.ui.transactions.UncategorisedBanner(state.uncategorised, onUncategorised, pad.padding(top = 12.dp))
             }
         }
 

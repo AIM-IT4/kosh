@@ -70,7 +70,10 @@ private const val F_TRANSFER = "Transfers"
 internal const val F_SMS = "From SMS"
 internal const val F_EMAIL = "From email"
 private const val F_MANUAL = "Manual"
-private val FILTERS = listOf(F_SMS, F_EMAIL, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL)
+
+/** Opens the fix-uncategorised screen rather than filtering the list. */
+internal const val F_OTHER = "Other"
+private val FILTERS = listOf(F_SMS, F_EMAIL, F_OTHER, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL)
 
 /** One-shot filter requested by another screen (e.g. Settings → "View email transactions"). */
 object ActivityFilterRequest {
@@ -97,6 +100,8 @@ data class TxnListState(
     val loaded: Boolean = false,
     /** Name of the category being filtered, if any; shown as a removable chip. */
     val categoryName: String? = null,
+    /** Imported expenses this period still in "Other". */
+    val uncategorised: Int = 0,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -124,7 +129,10 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
                     val groups = filtered.groupBy { it.date }.toSortedMap(compareByDescending { it })
                         .map { (d, items) -> DayGroup(d, items, items.sumOf { it.signedAmount }) }
                     val catName = cat?.let { key -> list.firstOrNull()?.category?.name ?: c.categories.byKey(key)?.name ?: key }
-                    TxnListState(p, q, f, groups, summary.income, summary.expense, loaded = true, categoryName = catName)
+                    val other = list.count {
+                        it.txn.type == TxnType.EXPENSE && it.txn.categoryKey == "other" && it.txn.source != TxnSource.MANUAL
+                    }
+                    TxnListState(p, q, f, groups, summary.income, summary.expense, loaded = true, categoryName = catName, uncategorised = other)
                 }
             }
         }
@@ -192,7 +200,8 @@ fun TransactionsScreen(nav: NavController) {
         onPrevious = vm::previous,
         onNext = vm::next,
         onQuery = vm::setQuery,
-        onToggleFilter = vm::toggle,
+        onToggleFilter = { f -> if (f == F_OTHER) nav.navigate(Routes.UNCATEGORISED) else vm.toggle(f) },
+        onFixUncategorised = { nav.navigate(Routes.UNCATEGORISED) },
         onDelete = { t ->
             haptic()
             scope.launch {
@@ -222,6 +231,7 @@ fun TransactionsContent(
     onDelete: (TransactionItem) -> Unit = {},
     onReviewed: (TransactionItem) -> Unit = {},
     onOpen: (TransactionItem) -> Unit = {},
+    onFixUncategorised: () -> Unit = {},
 ) {
     val canGoNext = !state.period.endExclusive.isAfter(Time.today())
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
@@ -259,6 +269,11 @@ fun TransactionsContent(
                     onToggle = onToggleFilter,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
+            }
+            if (state.uncategorised > com.amitjha.kosh.ui.home.UNCATEGORISED_BANNER_MIN) {
+                item(key = "uncategorised") {
+                    UncategorisedBanner(state.uncategorised, onFixUncategorised, Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+                }
             }
             if (state.loaded && state.groups.isEmpty()) {
                 item(key = "empty") {

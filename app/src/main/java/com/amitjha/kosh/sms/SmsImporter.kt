@@ -58,6 +58,26 @@ data class ImportResult(
     companion object {
         const val MAX_SAMPLES = 10
 
+        private val amountToken = Regex("(?i)(?:rs\\.?|inr|₹)\\s*[0-9][0-9,]*(?:\\.[0-9]{1,2})?")
+        private val longDigits = Regex("\\d{4,}")
+
+        /**
+         * Full message body with account, card, reference and phone digits (runs of 4+) replaced by X,
+         * keeping amounts (next to Rs/INR/₹) so the wording can be used to tune the parser.
+         */
+        fun maskForSharing(sender: String, body: String): String {
+            val text = body.replace(Regex("\\s+"), " ").trim()
+            val out = StringBuilder()
+            var last = 0
+            for (m in amountToken.findAll(text)) {
+                out.append(longDigits.replace(text.substring(last, m.range.first)) { "X".repeat(it.value.length) })
+                out.append(m.value)
+                last = m.range.last + 1
+            }
+            out.append(longDigits.replace(text.substring(last)) { "X".repeat(it.value.length) })
+            return "$sender: $out"
+        }
+
         /** Masks long digit runs (account/card/phone numbers) so samples are safe to share. */
         fun mask(sender: String, body: String): String {
             val masked = body.replace(Regex("\\s+"), " ").trim().take(80)
@@ -142,13 +162,20 @@ class SmsImporter(
             return ImportResult(duplicates = 1, accountsCreated = created)
         }
 
-        val entity = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
+        val base = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
+        val entity = base.copy(
+            suspicious = SmsMapping.isSuspicious(base.amount, base.categoryKey, txnDao.recentAmounts(account.id)),
+            // Messages for an account the user ignored are kept but never counted.
+            excludeFromStats = base.excludeFromStats || account.archived,
+        )
         val id = txnDao.insertIgnore(entity)
         var balances = 0
         if (id > 0) {
             val limit = p.availableCreditLimit
             val balance = p.availableBalance
-            if (p.isCreditCard && limit != null) {
+            if (entity.suspicious) {
+                // A doubtful message shouldn't anchor a balance either.
+            } else if (p.isCreditCard && limit != null) {
                 updateReported(account, limit, p.timestampMillis); balances++
             } else if (!p.isCreditCard && balance != null) {
                 updateReported(account, balance, p.timestampMillis); balances++
@@ -185,11 +212,19 @@ class SmsImporter(
 
     private suspend fun resolveAccount(bank: Bank, last4: String?, isCard: Boolean, onCreate: () -> Unit): AccountEntity {
         val accounts = db.accounts().all()
-        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return it }
+        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return fillDigits(it, last4) }
         val fresh = SmsMapping.newAccountFor(bank, last4, isCard, System.currentTimeMillis())
         val id = db.accounts().insert(fresh)
         onCreate()
         return fresh.copy(id = id)
+    }
+
+    /** Remembers the digits from a message on an account the user added without them. */
+    private suspend fun fillDigits(account: AccountEntity, last4: String?): AccountEntity {
+        if (last4 == null || account.last4 != null || account.archived) return account
+        val updated = account.copy(last4 = last4)
+        db.accounts().update(updated)
+        return updated
     }
 
     /** Only newer reports replace the stored balance. */
@@ -222,6 +257,25 @@ class SmsImporter(
                 return
             }
         }
+    }
+
+    /**
+     * Finds the original messages behind imported transactions (matched by fingerprint, within the last
+     * [FIRST_SCAN_DAYS] days) and returns up to [limit] of them masked for sharing: account, card and phone
+     * digits become X, amounts and merchant names stay. Nothing leaves the phone unless the user shares it.
+     */
+    suspend fun samplesFor(fingerprints: Set<String>, limit: Int = 15): List<String> = withContext(Dispatchers.IO) {
+        if (!hasPermission() || fingerprints.isEmpty()) return@withContext emptyList()
+        val (messages, _) = readAll(System.currentTimeMillis() - FIRST_SCAN_DAYS * DAY_MILLIS)
+        val out = ArrayList<String>()
+        for (msg in messages.asReversed()) {
+            val r = runCatching { SmsParser.parse(msg) }.getOrNull() as? SmsParseResult.Transaction ?: continue
+            if (r.txn.fingerprint in fingerprints) {
+                out += ImportResult.maskForSharing(msg.sender, msg.body)
+                if (out.size >= limit) break
+            }
+        }
+        out
     }
 
     /** Marks the card's bills paid when a payment covers them. */

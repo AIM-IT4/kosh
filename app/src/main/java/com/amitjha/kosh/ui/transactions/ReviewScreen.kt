@@ -114,6 +114,15 @@ fun ReviewScreen(nav: NavController) {
             ) {
                 items(state.items, key = { it.txn.id }) { t ->
                     KoshCard(Modifier.animateContentSize(), contentPadding = PaddingValues(12.dp)) {
+                        if (t.txn.suspicious) {
+                            Text(
+                                "This amount looks unusually large, maybe a reference number read as an amount. It isn't " +
+                                    "counted in balances or totals until you confirm it. \"Confirm all\" skips it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = KoshTheme.colors.warning,
+                                modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+                            )
+                        }
                         TxnRow(t, hidden) { nav.navigate(Routes.txn(t.txn.id)) }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
                             SourceBadge(t.txn.source)
@@ -126,7 +135,7 @@ fun ReviewScreen(nav: NavController) {
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            ReviewAction("Confirm", Icons.Outlined.Check, KoshTheme.colors.good) {
+                            ReviewAction(if (t.txn.suspicious) "Looks right" else "Confirm", Icons.Outlined.Check, KoshTheme.colors.good) {
                                 haptic()
                                 vm.confirm(t.txn.id)
                             }

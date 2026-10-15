@@ -131,16 +131,29 @@ class GmailSync(
         )
         if (near.any { it.type == p.type || it.type == com.amitjha.kosh.model.TxnType.TRANSFER }) return false
         if (p.referenceNo != null && db.transactions().countReference(p.referenceNo!!) > 0) return false
-        val entity = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
-            .copy(source = TxnSource.EMAIL, reviewed = false)
+        val base = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
+        val entity = base.copy(
+            source = TxnSource.EMAIL,
+            reviewed = false,
+            suspicious = SmsMapping.isSuspicious(base.amount, base.categoryKey, db.transactions().recentAmounts(account.id)),
+            excludeFromStats = base.excludeFromStats || account.archived,
+        )
         return db.transactions().insertIgnore(entity) > 0
     }
 
     private suspend fun resolveAccount(bank: Bank, last4: String?, isCard: Boolean): AccountEntity {
         val accounts = db.accounts().all()
-        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return it }
+        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return fillDigits(it, last4) }
         val fresh = SmsMapping.newAccountFor(bank, last4, isCard = isCard, now = System.currentTimeMillis())
         return fresh.copy(id = db.accounts().insert(fresh))
+    }
+
+    /** Remembers the card digits from an e-mail on a card the user added without them. */
+    private suspend fun fillDigits(account: AccountEntity, last4: String?): AccountEntity {
+        if (last4 == null || account.last4 != null || account.archived) return account
+        val updated = account.copy(last4 = last4)
+        db.accounts().update(updated)
+        return updated
     }
 
     private suspend fun fetch(token: String, banks: Set<Bank>, sinceDays: Int, skip: Set<String>, onProgress: (Int, Int) -> Unit) = withContext(Dispatchers.IO) {
@@ -163,7 +176,7 @@ class GmailSync(
 
     private suspend fun resolveCard(bank: Bank, last4: String?): AccountEntity {
         val accounts = db.accounts().all()
-        SmsMapping.matchAccount(accounts, bank, last4, isCard = true)?.let { return it }
+        SmsMapping.matchAccount(accounts, bank, last4, isCard = true)?.let { return fillDigits(it, last4) }
         val fresh = SmsMapping.newAccountFor(bank, last4, isCard = true, now = System.currentTimeMillis())
         return fresh.copy(id = db.accounts().insert(fresh))
     }

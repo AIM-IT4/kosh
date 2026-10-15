@@ -116,7 +116,7 @@ object BackupJson {
                 .put("type", t.type.name).put("amount", t.amount).put("categoryKey", t.categoryKey)
                 .putOpt("merchant", t.merchant).putOpt("note", t.note).put("timestamp", t.timestamp)
                 .put("channel", t.channel.name).put("source", t.source.name).putOpt("fingerprint", t.fingerprint)
-                .putOpt("referenceNo", t.referenceNo).put("reviewed", t.reviewed).put("excludeFromStats", t.excludeFromStats)
+                .putOpt("referenceNo", t.referenceNo).put("reviewed", t.reviewed).put("excludeFromStats", t.excludeFromStats).put("suspicious", t.suspicious)
         })
         .put("bills", arr(d.bills) { b ->
             JSONObject().put("id", b.id).put("accountId", b.accountId).put("totalDue", b.totalDue)
@@ -175,6 +175,7 @@ object BackupJson {
                     source = TxnSource.valueOf(t.optString("source", TxnSource.MANUAL.name)), fingerprint = t.str("fingerprint"),
                     referenceNo = t.str("referenceNo"), reviewed = t.optBoolean("reviewed", true),
                     excludeFromStats = t.optBoolean("excludeFromStats"),
+                    suspicious = t.optBoolean("suspicious"),
                 )
             },
             bills = list(o, "bills") { b ->

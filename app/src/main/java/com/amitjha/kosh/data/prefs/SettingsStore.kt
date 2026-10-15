@@ -62,6 +62,7 @@ class SettingsStore(private val context: Context) {
         val dismissedInsights = stringSetPreferencesKey("dismissed_insights")
         val notifiedInsights = stringSetPreferencesKey("notified_insights")
         val notifiedBills = stringSetPreferencesKey("notified_bills")
+        val repairVersion = intPreferencesKey("repair_version")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
@@ -110,6 +111,11 @@ class SettingsStore(private val context: Context) {
     suspend fun setGmailReconnectNeeded(needed: Boolean) = edit { it[Keys.gmailReconnect] = needed }
     suspend fun setGmailLastSync(millis: Long) = edit { it[Keys.gmailLastSync] = millis }
     suspend fun setGmailLastSummary(summary: String) = edit { it[Keys.gmailLastSummary] = summary }
+
+    /** Version of the last one-time data repair applied after an update (see `repo.DataRepairs`). */
+    suspend fun repairVersion(): Int = context.dataStore.data.first()[Keys.repairVersion] ?: 0
+
+    suspend fun setRepairVersion(version: Int) = edit { it[Keys.repairVersion] = version }
 
     suspend fun processedEmailIds(): Set<String> = context.dataStore.data.first()[Keys.processedEmailIds] ?: emptySet()
 

@@ -84,7 +84,8 @@ class InsightRepository(
             transactions = txns,
             budgets = db.budgets().all().map { BudgetInput(it.categoryKey, it.monthlyLimit) },
             goals = db.goals().all().map { GoalInput(it.name, it.target, it.saved, LocalDate.ofEpochDay(it.deadline)) },
-            accounts = accountList.map { a ->
+            // Accounts the user hasn't confirmed have no trustworthy balance, so balance rules ignore them.
+            accounts = accountList.filter { it.counted }.map { a ->
                 AccountInput(
                     id = a.id,
                     name = a.account.name,
@@ -106,12 +107,19 @@ class InsightRepository(
     }
 }
 
-/** Net worth split into its parts. */
+/**
+ * Net worth split into its parts: money in confirmed bank, cash and wallet accounts, minus amounts owed on
+ * confirmed credit cards, plus investments. [counted] lists the accounts behind [liquid] and [cardDebt];
+ * [pending] lists accounts found in SMS/e-mail that are not counted until the user confirms them.
+ */
 data class NetWorth(
     val liquid: Paise,
     val cardDebt: Paise,
     val investments: Paise,
     val investmentsByType: Map<InvestmentType, Paise>,
+    val counted: List<AccountWithBalance> = emptyList(),
+    val pending: List<AccountWithBalance> = emptyList(),
+    val investmentItems: List<Triple<String, InvestmentType, Paise>> = emptyList(),
 ) {
     val total: Paise get() = liquid - cardDebt + investments
 }
@@ -122,12 +130,14 @@ class NetWorthRepository(
 ) {
 
     fun observeNetWorth(): Flow<NetWorth> =
-        combine(accounts.observeAccounts(), db.investments().observeActive()) { accs, invs -> compute(accs, invs.map { it.type to it.currentValue }) }
+        combine(accounts.observeAccounts(), db.investments().observeActive()) { accs, invs ->
+            compute(accs, invs.map { Triple(it.name, it.type, it.currentValue) })
+        }
 
     fun observeHistory(): Flow<List<NetWorthSnapshotEntity>> = db.netWorth().observeAll()
 
     suspend fun current(): NetWorth =
-        compute(accounts.accounts(), db.investments().active().map { it.type to it.currentValue })
+        compute(accounts.accounts(), db.investments().active().map { Triple(it.name, it.type, it.currentValue) })
 
     /** Records today's net worth for the history chart (called by the daily worker). */
     suspend fun snapshot(today: LocalDate = Time.today()) {
@@ -135,14 +145,24 @@ class NetWorthRepository(
         db.netWorth().upsert(NetWorthSnapshotEntity(today.toEpochDay(), nw.liquid, nw.cardDebt, nw.investments, nw.total))
     }
 
-    private fun compute(accs: List<AccountWithBalance>, investments: List<Pair<InvestmentType, Paise>>): NetWorth {
-        val liquid = accs.filter { it.account.type != AccountType.CREDIT_CARD }.sumOf { it.balance }
-        val debt = accs.filter { it.isCard }.sumOf { it.outstanding.coerceAtLeast(0) }
+    /** Clears the recorded history (used once after the v1.4 balance-rule repair) and records today afresh. */
+    suspend fun resetHistory(today: LocalDate = Time.today()) {
+        db.netWorth().deleteAll()
+        snapshot(today)
+    }
+
+    private fun compute(accs: List<AccountWithBalance>, investments: List<Triple<String, InvestmentType, Paise>>): NetWorth {
+        val counted = accs.filter { it.counted }
+        val liquid = counted.filter { it.account.type != AccountType.CREDIT_CARD }.sumOf { it.balance }
+        val debt = counted.filter { it.isCard }.sumOf { it.outstanding.coerceAtLeast(0) }
         return NetWorth(
             liquid = liquid,
             cardDebt = debt,
-            investments = investments.sumOf { it.second },
-            investmentsByType = investments.groupBy { it.first }.mapValues { (_, v) -> v.sumOf { it.second } },
+            investments = investments.sumOf { it.third },
+            investmentsByType = investments.groupBy { it.second }.mapValues { (_, v) -> v.sumOf { it.third } },
+            counted = counted,
+            pending = accs.filter { it.isPending },
+            investmentItems = investments,
         )
     }
 }

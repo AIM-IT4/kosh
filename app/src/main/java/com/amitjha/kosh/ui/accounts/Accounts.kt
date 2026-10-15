@@ -123,7 +123,8 @@ fun AccountsScreen(nav: NavController) {
             )
             return@KoshScreen
         }
-        val groups = list.groupBy {
+        val pendingCount = list.count { it.isPending }
+        val groups = list.filter { it.counted }.groupBy {
             when (it.account.type) {
                 AccountType.BANK -> "Bank accounts"
                 AccountType.CREDIT_CARD -> "Credit cards"
@@ -131,6 +132,11 @@ fun AccountsScreen(nav: NavController) {
             }
         }
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 40.dp)) {
+            if (pendingCount > 0) {
+                item(key = "pending") {
+                    PendingAccountsBanner(pendingCount, { nav.navigate(Routes.PENDING_ACCOUNTS) }, Modifier.padding(vertical = 8.dp))
+                }
+            }
             listOf("Bank accounts", "Credit cards", "Cash & wallets").forEach { title ->
                 val items = groups[title].orEmpty()
                 if (items.isNotEmpty()) {
@@ -215,7 +221,6 @@ class AccountDetailViewModel(private val c: AppContainer, private val id: Long) 
         c.accounts.archive(id)
         onDone()
     }
-    fun confirmName(name: String) = viewModelScope.launch { c.accounts.confirmAutoCreated(id, name) }
     fun payBill(billId: Long, from: Long?, amount: Long?) = viewModelScope.launch { c.bills.markPaid(billId, from, amount) }
     fun unpay(billId: Long) = viewModelScope.launch { c.bills.markUnpaid(billId) }
 }
@@ -227,7 +232,6 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
     val hidden = LocalHideAmounts.current
     var reconcile by remember { mutableStateOf(false) }
     var archive by remember { mutableStateOf(false) }
-    var rename by remember { mutableStateOf(false) }
     var paying by remember { mutableStateOf<BillItem?>(null) }
     val a = state.account
 
@@ -250,13 +254,14 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
             if (a.account.autoCreated) {
                 item(key = "auto") {
                     KoshCard(Modifier.padding(bottom = 12.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
-                        Text("Created from your SMS", fontWeight = FontWeight.SemiBold)
+                        Text("Found in your SMS · not counted yet", fontWeight = FontWeight.SemiBold)
                         Text(
-                            "We spotted ${a.bank.shortName} ••${a.account.last4 ?: "?"} in your messages. Give it a name you recognise.",
+                            "Kosh spotted ${a.bank.shortName} ••${a.account.last4 ?: "?"} in your messages. Tell Kosh whether it's one of " +
+                                "your accounts, a new one (with today's balance), or not yours. Until then it isn't in net worth.",
                             style = MaterialTheme.typography.bodySmall,
                             color = KoshTheme.colors.subtleText,
                         )
-                        TextButton(onClick = { rename = true }) { Text("Confirm account") }
+                        TextButton(onClick = { nav.navigate(Routes.PENDING_ACCOUNTS) }) { Text("Sort it out") }
                     }
                 }
             }
@@ -354,21 +359,6 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
                 vm.archive { nav.popBackStack() }
             },
             onDismiss = { archive = false },
-        )
-    }
-    if (rename && a != null) {
-        var name by remember { mutableStateOf("${a.bank.shortName} ${if (a.isCard) "Card" else "Savings"}") }
-        AlertDialog(
-            onDismissRequest = { rename = false },
-            title = { Text("Name this account") },
-            text = { KoshTextField(name, { name = it }, "Account name") },
-            confirmButton = {
-                TextButton(enabled = name.isNotBlank(), onClick = {
-                    vm.confirmName(name.trim())
-                    rename = false
-                }) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = { rename = false }) { Text("Cancel") } },
         )
     }
     paying?.let { b ->

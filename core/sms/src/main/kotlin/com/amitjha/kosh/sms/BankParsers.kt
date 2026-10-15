@@ -85,6 +85,10 @@ internal object AxisParser : BankParser {
 internal object GenericParser : BankParser {
     override val bank = Bank.OTHER
     override val merchantPatterns = rx(
+        // "Info: UPI/P2M/412345678901/SWIGGY LIMITED/..." and "UPI/123456789012/Rahul Kumar/..."
+        "upi/p2[ma]/\\d+/([^/\\n]+?)(?=/|\\.\\s|\\s+avl|$)",
+        "upi/\\d{6,}/([^/\\n]+?)(?=/|\\.\\s|\\s+avl|$)",
+        "(?:paid|payment|sent|transferred)\\s+to\\s+(.+?)(?=\\s+on\\s|\\s+via\\s|\\s+ref|\\s+upi|\\.\\s|\\.$|$)",
         "\\bat\\s+(.+?)(?=\\s+on\\s|\\.\\s|\\.$|\\s+avl|\\s+avbl|\\s+ref|$)",
         "\\bto\\s+vpa\\s+(\\S+)",
         "\\bto\\s+([a-z0-9.\\-_]+@[a-z]+)",
@@ -95,6 +99,8 @@ internal object GenericParser : BankParser {
         "\\bfrom\\s+([a-z][a-z .&']{2,40}?)(?=\\.|\\s+on\\s|\\s+upi|\\s+has\\s|\\s+ref|$)",
         "\\bto\\s+([a-z][a-z .&']{2,40}?)(?=\\s+on\\s|\\.|\\s+ref|$)",
         "info:?\\s*(?:upi|neft|imps|rtgs)?[/\\-]?(.+?)(?=\\.\\s|\\s+avl|$)",
+        // last resort: "... for NETFLIX on 05-01-25"
+        "\\bfor\\s+(?!rs\\b|inr\\b|upi\\b|the\\b|your\\b|a\\b)([a-z][a-z0-9 .&'-]{2,40}?)(?=\\s+on\\s|\\.\\s|\\.$|\\s+ref|\\s+via\\s|$)",
     )
 
     fun forBank(bank: Bank): BankParser = when (bank) {

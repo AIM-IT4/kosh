@@ -364,7 +364,8 @@ private fun GoalsTab(
             val hint = when {
                 plan.reached -> "Goal reached 🎉"
                 plan.overdue -> "Deadline passed · ${Fmt.date(g.deadline)}"
-                else -> "Save ${if (hidden) "₹ ••••" else Money.format(plan.requiredMonthly, showPaise = false)}/month · ${plan.monthsLeft} months left"
+                else -> "Save ${if (hidden) "₹ ••••" else Money.format(plan.requiredMonthly, showPaise = false)}/month at " +
+                    "${Fmt.pct(g.goal.expectedReturnPct, 0)} a year · ${plan.monthsLeft} months left"
             }
             Column {
                 GoalCard(
@@ -413,8 +414,8 @@ private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEnt
                 AmountField("Target amount", target, { target = it }, allowZero = false)
                 AmountField("Already saved", saved, { saved = it })
                 DateField("Target date", deadline, { deadline = it })
-                KoshTextField(ret, { ret = it.filter { ch -> ch.isDigit() || ch == '.' } }, "Expected annual return", keyboardType = KeyboardType.Decimal,
-                    suffix = "%", supporting = "Used to compute the monthly saving needed (7% ≈ a balanced fund)")
+                ReturnField(ret, { ret = it })
+                RequiredSaving(target, saved, deadline, ret.toDoubleOrNull()?.coerceIn(0.0, 30.0) ?: 7.0)
                 PrimaryButton(
                     if (goal == null) "Create goal" else "Save",
                     enabled = name.isNotBlank() && (target ?: 0) > 0,
@@ -446,5 +447,69 @@ private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEnt
             confirmDelete = false
             onDelete()
         }, onDismiss = { confirmDelete = false }, destructive = true)
+    }
+}
+
+/** Typical yearly returns, offered as one-tap choices for a goal's savings. */
+private val RETURN_PRESETS = listOf("Savings account" to 3.0, "FD" to 7.0, "Debt fund" to 7.0, "Equity fund" to 12.0)
+
+/**
+ * The yearly return expected on the money set aside for a goal. Kosh assumes each monthly saving earns this
+ * return until the target date, so a higher return means a smaller monthly saving is needed.
+ */
+@Composable
+private fun ReturnField(value: String, onValue: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        KoshTextField(
+            value,
+            { onValue(it.filter { ch -> ch.isDigit() || ch == '.' }) },
+            "Expected return on your savings (% per year)",
+            keyboardType = KeyboardType.Decimal,
+            suffix = "%",
+        )
+        Text(
+            "The yearly return you expect on the money you put aside for this goal, depending on where you keep it. " +
+                "Kosh uses it to work out how much to save each month.",
+            style = MaterialTheme.typography.bodySmall,
+            color = KoshTheme.colors.subtleText,
+        )
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(RETURN_PRESETS.size) { i ->
+                val (label, pct) = RETURN_PRESETS[i]
+                androidx.compose.material3.FilterChip(
+                    selected = value.toDoubleOrNull() == pct,
+                    onClick = { onValue(pct.toInt().toString()) },
+                    label = { Text("$label ${pct.toInt()}%") },
+                )
+            }
+        }
+    }
+}
+
+/** Live "Required monthly saving" for the goal as the inputs change. */
+@Composable
+private fun RequiredSaving(target: Long?, saved: Long, deadline: LocalDate, returnPct: Double) {
+    val t = target ?: return
+    val plan = remember(t, saved, deadline, returnPct) {
+        com.amitjha.kosh.finance.Goals.plan(t, saved, deadline, Time.today(), returnPct)
+    }
+    KoshCard(contentPadding = PaddingValues(14.dp)) {
+        Text("Required monthly saving", style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.subtleText)
+        Text(
+            when {
+                plan.reached -> "Already reached"
+                plan.overdue -> "Pick a date in the future"
+                else -> Money.format(plan.requiredMonthly, showPaise = false) + " a month for ${plan.monthsLeft} months"
+            },
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (!plan.reached && !plan.overdue) {
+            Text(
+                "Assuming your savings earn ${Fmt.pct(returnPct, 0)} a year.",
+                style = MaterialTheme.typography.bodySmall,
+                color = KoshTheme.colors.subtleText,
+            )
+        }
     }
 }

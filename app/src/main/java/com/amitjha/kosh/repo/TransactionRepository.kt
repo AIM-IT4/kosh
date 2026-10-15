@@ -154,7 +154,8 @@ class TransactionRepository(private val db: KoshDatabase) {
     }
 
     suspend fun markReviewed(txnId: Long) {
-        dao.byId(txnId)?.let { dao.update(it.copy(reviewed = true)) }
+        // "Looks right" also confirms an amount that was held as suspicious.
+        dao.byId(txnId)?.let { dao.update(it.copy(reviewed = true, suspicious = false)) }
     }
 
     suspend fun markAllReviewed() = dao.markAllReviewed()

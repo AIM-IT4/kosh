@@ -42,8 +42,22 @@ class SmsMappingTest {
     }
 
     @Test
-    fun archivedAccountsAreIgnored() {
-        assertNull(SmsMapping.matchAccount(listOf(hdfcCard.copy(archived = true)), Bank.HDFC, "5678", isCard = true))
+    fun ignoredAccountKeepsItsMessagesSoItIsNotRecreated() {
+        val ignored = hdfcCard.copy(archived = true)
+        assertSame(ignored, SmsMapping.matchAccount(listOf(ignored), Bank.HDFC, "5678", isCard = true))
+        // Only an exact digit match reaches an ignored account.
+        assertNull(SmsMapping.matchAccount(listOf(ignored), Bank.HDFC, "9999", isCard = true))
+        assertNull(SmsMapping.matchAccount(listOf(ignored), Bank.HDFC, null, isCard = true))
+        // A live account with the same digits wins over an ignored one.
+        assertSame(hdfcCard, SmsMapping.matchAccount(listOf(ignored.copy(id = 7), hdfcCard), Bank.HDFC, "5678", isCard = true))
+    }
+
+    @Test
+    fun accountWithoutDigitsMatchesOnlyWhenItIsTheOnlyOne() {
+        val noDigits = hdfcSavings.copy(id = 5, last4 = null)
+        assertSame(noDigits, SmsMapping.matchAccount(listOf(noDigits), Bank.HDFC, "4521", isCard = false))
+        // With another HDFC account present, the message can't be safely assigned.
+        assertNull(SmsMapping.matchAccount(listOf(noDigits, hdfcSavings.copy(id = 6, last4 = "1111")), Bank.HDFC, "4521", isCard = false))
     }
 
     @Test

@@ -457,6 +457,9 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.INVESTMENT_DETAIL, arguments = idArg) { entry -> InvestmentDetailScreen(nav, entry.arguments!!.getLong("id")) }
         composable(Routes.INSIGHTS) { InsightsScreen(nav) }
         composable(Routes.CATEGORIES) { CategoriesScreen(nav) }
+        composable(Routes.PENDING_ACCOUNTS) { com.amitjha.kosh.ui.accounts.PendingAccountsScreen(nav) }
+        composable(Routes.NET_WORTH) { com.amitjha.kosh.ui.wealth.NetWorthBreakdownScreen(nav) }
+        composable(Routes.UNCATEGORISED) { com.amitjha.kosh.ui.transactions.UncategorisedScreen(nav) }
     }
 }
 

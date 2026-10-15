@@ -36,6 +36,9 @@ object Routes {
     const val INVESTMENT_DETAIL = "investment/{id}"
     const val INSIGHTS = "insights"
     const val CATEGORIES = "categories"
+    const val PENDING_ACCOUNTS = "accounts/pending"
+    const val NET_WORTH = "net-worth"
+    const val UNCATEGORISED = "uncategorised"
 
     fun addTxn(type: TxnType = TxnType.EXPENSE, accountId: Long? = null) = "txn/add?type=${type.name}&account=${accountId ?: -1}"
     fun editTxn(id: Long) = "txn/edit/$id"

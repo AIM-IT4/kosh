@@ -3,6 +3,7 @@ package com.amitjha.kosh.ui.wealth
 import com.amitjha.kosh.designsystem.components.SecondaryButton
 import com.amitjha.kosh.designsystem.components.BalanceHeroCard
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
@@ -141,6 +142,7 @@ fun WealthScreen(nav: NavController) {
         },
         onAdd = { nav.navigate(Routes.addInvestment(it)) },
         onOpen = { nav.navigate(Routes.investment(it)) },
+        onNetWorth = { nav.navigate(Routes.NET_WORTH) },
     )
 }
 
@@ -154,6 +156,7 @@ fun WealthContent(
     onRefresh: () -> Unit = {},
     onAdd: (InvestmentType) -> Unit = {},
     onOpen: (Long) -> Unit = {},
+    onNetWorth: () -> Unit = {},
 ) {
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
@@ -175,7 +178,10 @@ fun WealthContent(
             }
             state.netWorth?.let { nw ->
                 item(key = "hero") {
-                    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp)) {
+                    Column(
+                        Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp)
+                            .clickable(onClick = onNetWorth),
+                    ) {
                         BalanceHeroCard(label = "Net worth", amount = nw.total, hidden = hidden)
                         Spacer(Modifier.height(14.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {

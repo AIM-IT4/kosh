@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -18,7 +20,7 @@ import androidx.room.RoomDatabase
         MerchantRuleEntity::class,
         NetWorthSnapshotEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class KoshDatabase : RoomDatabase() {
@@ -33,7 +35,18 @@ abstract class KoshDatabase : RoomDatabase() {
     abstract fun netWorth(): NetWorthDao
 
     companion object {
+        /** v2 adds `transactions.suspicious`; existing rows keep their data and start unflagged. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN suspicious INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2)
+
         fun create(context: Context): KoshDatabase =
-            Room.databaseBuilder(context, KoshDatabase::class.java, "kosh.db").build()
+            Room.databaseBuilder(context, KoshDatabase::class.java, "kosh.db")
+                .addMigrations(*ALL_MIGRATIONS)
+                .build()
     }
 }

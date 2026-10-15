@@ -77,6 +77,12 @@ data class TransactionEntity(
     /** Auto-imported transactions start unreviewed so the user can confirm or fix them. */
     val reviewed: Boolean = true,
     val excludeFromStats: Boolean = false,
+    /**
+     * An imported amount that looks implausible (for example a reference number read as an amount).
+     * Suspicious rows don't move balances or count in stats until the user confirms them in Review.
+     */
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val suspicious: Boolean = false,
 )
 
 @Entity(

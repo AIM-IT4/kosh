@@ -68,6 +68,7 @@ import com.amitjha.kosh.ui.transactions.DayGroup
 import com.amitjha.kosh.ui.transactions.EditorRefs
 import com.amitjha.kosh.ui.transactions.TransactionsContent
 import com.amitjha.kosh.ui.transactions.TxnListState
+import com.amitjha.kosh.ui.wealth.NetWorthBreakdownContent
 import com.amitjha.kosh.ui.wealth.WealthContent
 import com.amitjha.kosh.ui.wealth.WealthState
 import com.amitjha.kosh.util.Period
@@ -294,5 +295,32 @@ class ScreensScreenshotTest {
                 Box(Modifier.fillMaxWidth())
             }
         }
+    }
+
+    @Test
+    fun net_worth_breakdown() = paparazzi.snapshot {
+        val day = java.time.LocalDate.of(2026, 10, 1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val sms = java.time.LocalDate.of(2026, 10, 13).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val counted = listOf(
+            FakeData.accounts[0].copy(source = com.amitjha.kosh.domain.BalanceSource.Entered(18_000_000, day), transactionsSinceAnchor = 12),
+            FakeData.accounts[1].copy(source = com.amitjha.kosh.domain.BalanceSource.Reported(9_230_000, sms), transactionsSinceAnchor = 2),
+            FakeData.accounts[2].copy(source = com.amitjha.kosh.domain.BalanceSource.Entered(1_500_000, day), transactionsSinceAnchor = 4),
+            FakeData.accounts[3].copy(source = com.amitjha.kosh.domain.BalanceSource.Entered(4_000_000, day), transactionsSinceAnchor = 3),
+        )
+        val pendingAcc = com.amitjha.kosh.data.AccountEntity(
+            id = 9, name = "HDFC Account ••7744", type = com.amitjha.kosh.model.AccountType.BANK, bank = "HDFC", last4 = "7744",
+            openingDate = 0, autoCreated = true,
+        )
+        val pending = com.amitjha.kosh.repo.AccountWithBalance(pendingAcc, 0, 0, null, source = com.amitjha.kosh.domain.BalanceSource.Unknown)
+        val nw = FakeData.netWorth.copy(
+            counted = counted,
+            pending = listOf(pending),
+            investmentItems = listOf(
+                Triple("HDFC FD", com.amitjha.kosh.model.InvestmentType.FD, 50_000_000L),
+                Triple("EPF", com.amitjha.kosh.model.InvestmentType.EPF, 61_200_000L),
+                Triple("NPS Tier I", com.amitjha.kosh.model.InvestmentType.NPS, 23_000_000L),
+            ),
+        )
+        Frame { NetWorthBreakdownContent(nw, onPending = {}, onAccount = {}) }
     }
 }

@@ -28,12 +28,23 @@ internal object Extract {
         for (m in moneyRe.findAll(body)) {
             val before = body.substring(maxOf(0, m.range.first - 22), m.range.first)
             if (nonTxnContext.containsMatchIn(before)) continue
+            if (!plausible(m.groupValues[1], MAX_RUPEE_DIGITS)) continue
             val v = Money.parse(m.groupValues[1]) ?: continue
             if (v > 0) return v
         }
-        bareAmountRe.find(body)?.let { return Money.parse(it.groupValues[1]) }
+        // Without a currency marker, only a modest number right after "debited by/for" counts, so a
+        // reference or account number can't be read as the amount.
+        bareAmountRe.find(body)?.let { if (plausible(it.groupValues[1], MAX_BARE_DIGITS)) return Money.parse(it.groupValues[1]) }
         return null
     }
+
+    /** More than 9 rupee digits (₹100 crore) is a reference or account number, not an amount. */
+    private const val MAX_RUPEE_DIGITS = 9
+
+    private const val MAX_BARE_DIGITS = 7
+
+    private fun plausible(number: String, maxDigits: Int): Boolean =
+        number.substringBefore('.').count { it.isDigit() } <= maxDigits
 
     private val balanceRes = listOf(
         Regex("(?i)\\b(?:avl|avbl|available|avail)\\.?\\s*bal(?:ance)?\\.?\\s*(?:is|:|-)?\\s*(?:$CUR)?\\s*:?\\s*$NUM"),

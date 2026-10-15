@@ -91,14 +91,14 @@ interface TransactionDao {
 
     @Query(
         """SELECT categoryKey, SUM(amount) AS total, COUNT(*) AS count FROM transactions
-           WHERE type = 'EXPENSE' AND excludeFromStats = 0 AND timestamp BETWEEN :from AND :to
+           WHERE type = 'EXPENSE' AND excludeFromStats = 0 AND suspicious = 0 AND timestamp BETWEEN :from AND :to
            GROUP BY categoryKey ORDER BY total DESC""",
     )
     fun observeExpenseByCategory(from: Long, to: Long): Flow<List<CategoryTotal>>
 
     @Query(
         """SELECT merchant, SUM(amount) AS total, COUNT(*) AS count FROM transactions
-           WHERE type = 'EXPENSE' AND merchant IS NOT NULL AND excludeFromStats = 0 AND timestamp BETWEEN :from AND :to
+           WHERE type = 'EXPENSE' AND merchant IS NOT NULL AND excludeFromStats = 0 AND suspicious = 0 AND timestamp BETWEEN :from AND :to
            GROUP BY merchant ORDER BY total DESC LIMIT :limit""",
     )
     fun observeTopMerchants(from: Long, to: Long, limit: Int): Flow<List<MerchantTotal>>
@@ -109,7 +109,7 @@ interface TransactionDao {
              COALESCE(SUM(CASE WHEN accountId = :accountId AND type = 'INCOME' THEN amount ELSE 0 END), 0)
            - COALESCE(SUM(CASE WHEN accountId = :accountId AND type IN ('EXPENSE','TRANSFER') THEN amount ELSE 0 END), 0)
            + COALESCE(SUM(CASE WHEN toAccountId = :accountId AND type = 'TRANSFER' THEN amount ELSE 0 END), 0)
-           FROM transactions WHERE (accountId = :accountId OR toAccountId = :accountId) AND timestamp >= :since""",
+           FROM transactions WHERE (accountId = :accountId OR toAccountId = :accountId) AND timestamp >= :since AND suspicious = 0""",
     )
     fun observeNetFlow(accountId: Long, since: Long): Flow<Paise>
 
@@ -118,7 +118,7 @@ interface TransactionDao {
              COALESCE(SUM(CASE WHEN accountId = :accountId AND type = 'INCOME' THEN amount ELSE 0 END), 0)
            - COALESCE(SUM(CASE WHEN accountId = :accountId AND type IN ('EXPENSE','TRANSFER') THEN amount ELSE 0 END), 0)
            + COALESCE(SUM(CASE WHEN toAccountId = :accountId AND type = 'TRANSFER' THEN amount ELSE 0 END), 0)
-           FROM transactions WHERE (accountId = :accountId OR toAccountId = :accountId) AND timestamp >= :since""",
+           FROM transactions WHERE (accountId = :accountId OR toAccountId = :accountId) AND timestamp >= :since AND suspicious = 0""",
     )
     suspend fun netFlow(accountId: Long, since: Long): Paise
 
@@ -137,8 +137,36 @@ interface TransactionDao {
     @Query("UPDATE transactions SET categoryKey = :categoryKey WHERE merchant = :merchant AND source != 'MANUAL'")
     suspend fun recategoriseMerchant(merchant: String, categoryKey: String)
 
-    @Query("UPDATE transactions SET reviewed = 1 WHERE reviewed = 0")
+    /** Confirms every unreviewed import except suspicious ones, which need an individual look. */
+    @Query("UPDATE transactions SET reviewed = 1 WHERE reviewed = 0 AND suspicious = 0")
     suspend fun markAllReviewed()
+
+    @Query("UPDATE transactions SET suspicious = :suspicious WHERE id = :id")
+    suspend fun setSuspicious(id: Long, suspicious: Boolean)
+
+    /** Number of transactions (not flagged suspicious) that move [accountId] after [since]. */
+    @Query("SELECT COUNT(*) FROM transactions WHERE (accountId = :accountId OR toAccountId = :accountId) AND timestamp >= :since AND suspicious = 0")
+    suspend fun countSince(accountId: Long, since: Long): Int
+
+    /** Recent amounts of an account, for spotting an implausibly large import. */
+    @Query("SELECT amount FROM transactions WHERE accountId = :accountId AND suspicious = 0 ORDER BY timestamp DESC LIMIT 200")
+    suspend fun recentAmounts(accountId: Long): List<Paise>
+
+    @Query("UPDATE transactions SET accountId = :to WHERE accountId = :from")
+    suspend fun moveAccount(from: Long, to: Long)
+
+    @Query("UPDATE transactions SET toAccountId = :to WHERE toAccountId = :from")
+    suspend fun moveToAccount(from: Long, to: Long)
+
+    @Query("UPDATE transactions SET excludeFromStats = 1 WHERE accountId = :accountId")
+    suspend fun excludeAccountFromStats(accountId: Long)
+
+    /** Imported expenses still in "other", for the fix-uncategorised screen. */
+    @Query("SELECT * FROM transactions WHERE type = 'EXPENSE' AND categoryKey = 'other' ORDER BY timestamp DESC")
+    fun observeUncategorised(): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions WHERE type = 'EXPENSE' AND categoryKey = 'other'")
+    suspend fun uncategorised(): List<TransactionEntity>
 
     @Query("SELECT COUNT(*) FROM transactions WHERE fingerprint = :fingerprint")
     suspend fun countFingerprint(fingerprint: String): Int
@@ -198,6 +226,9 @@ interface CardBillDao {
 
     @Query("SELECT * FROM card_bills WHERE id = :id")
     suspend fun byId(id: Long): CardBillEntity?
+
+    @Query("UPDATE card_bills SET accountId = :to WHERE accountId = :from")
+    suspend fun moveAccount(from: Long, to: Long)
 
     @Query("SELECT * FROM card_bills WHERE accountId = :accountId AND paid = 0 ORDER BY dueDate")
     suspend fun unpaidForCard(accountId: Long): List<CardBillEntity>
@@ -301,4 +332,7 @@ interface NetWorthDao {
 
     @Query("SELECT * FROM net_worth_history")
     suspend fun all(): List<NetWorthSnapshotEntity>
+
+    @Query("DELETE FROM net_worth_history")
+    suspend fun deleteAll()
 }
