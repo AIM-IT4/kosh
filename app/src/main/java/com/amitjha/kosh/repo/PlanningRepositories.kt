@@ -133,13 +133,16 @@ class BudgetRepository(private val db: KoshDatabase, private val settings: Setti
 
 data class GoalStatus(val goal: GoalEntity, val plan: GoalPlan) {
     val deadline: LocalDate get() = LocalDate.ofEpochDay(goal.deadline)
+    val hasLoan: Boolean get() = goal.loanAmount > 0
+    /** Monthly EMI of the purchase loan, or 0 without one. */
+    val loanEmi: Long get() = com.amitjha.kosh.domain.GoalLoan.emi(goal.loanAmount, goal.loanRatePct, goal.loanTenureMonths)
 }
 
 class GoalRepository(private val db: KoshDatabase) {
 
     fun observeStatuses(): Flow<List<GoalStatus>> = combine(db.goals().observeAll(), db.transactions().observeChanges()) { goals, _ ->
         val today = Time.today()
-        goals.map { g -> GoalStatus(g, Goals.plan(g.target, g.saved, LocalDate.ofEpochDay(g.deadline), today, g.expectedReturnPct)) }
+        goals.map { g -> GoalStatus(g, Goals.plan(com.amitjha.kosh.domain.GoalLoan.savingsTarget(g.target, g.loanAmount), g.saved, LocalDate.ofEpochDay(g.deadline), today, g.expectedReturnPct)) }
     }
 
     suspend fun upsert(goal: GoalEntity): Long = db.goals().upsert(goal)

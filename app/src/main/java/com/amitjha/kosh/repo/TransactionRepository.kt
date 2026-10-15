@@ -153,6 +153,36 @@ class TransactionRepository(private val db: KoshDatabase) {
         }
     }
 
+    /**
+     * Marks a transaction as money moved between the user's own accounts. With [otherAccountId], the
+     * opposite leg (same amount, within 2 days, on that account) is found and marked too.
+     */
+    suspend fun markSelfTransfer(txnId: Long, otherAccountId: Long?) {
+        val txn = dao.byId(txnId) ?: return
+        val accounts = db.accounts().all()
+        val names = accounts.associate { it.id to it.name }
+        val otherName = otherAccountId?.let(names::get)
+        val note = txn.note ?: otherName?.let { if (txn.type == TxnType.INCOME) "Transfer from $it" else "Transfer to $it" }
+        dao.update(txn.copy(categoryKey = SmsMapping.TRANSFER_CATEGORY, excludeFromStats = true, reviewed = true, note = note))
+        if (otherAccountId == null) return
+        val window = com.amitjha.kosh.domain.TransferPairing.WINDOW_MILLIS
+        val opposite = if (txn.type == TxnType.INCOME) TxnType.EXPENSE else TxnType.INCOME
+        val match = dao.findAmountNear(otherAccountId, txn.amount, txn.timestamp - window, txn.timestamp + window)
+            .filter { it.id != txn.id && it.accountId == otherAccountId && it.type == opposite }
+            .minByOrNull { kotlin.math.abs(it.timestamp - txn.timestamp) }
+        if (match != null) {
+            val fromName = names[txn.accountId]
+            dao.update(
+                match.copy(
+                    categoryKey = SmsMapping.TRANSFER_CATEGORY,
+                    excludeFromStats = true,
+                    reviewed = true,
+                    note = match.note ?: fromName?.let { if (opposite == TxnType.INCOME) "Transfer from $it" else "Transfer to $it" },
+                ),
+            )
+        }
+    }
+
     suspend fun markReviewed(txnId: Long) {
         // "Looks right" also confirms an amount that was held as suspicious.
         dao.byId(txnId)?.let { dao.update(it.copy(reviewed = true, suspicious = false)) }

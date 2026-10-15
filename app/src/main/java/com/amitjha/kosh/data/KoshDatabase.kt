@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MerchantRuleEntity::class,
         NetWorthSnapshotEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class KoshDatabase : RoomDatabase() {
@@ -42,7 +42,16 @@ abstract class KoshDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2)
+        /** v3 adds the optional purchase loan to goals; existing goals keep their data with no loan. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE goals ADD COLUMN loanAmount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE goals ADD COLUMN loanRatePct REAL NOT NULL DEFAULT 9.0")
+                db.execSQL("ALTER TABLE goals ADD COLUMN loanTenureMonths INTEGER NOT NULL DEFAULT 36")
+            }
+        }
+
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 
         fun create(context: Context): KoshDatabase =
             Room.databaseBuilder(context, KoshDatabase::class.java, "kosh.db")

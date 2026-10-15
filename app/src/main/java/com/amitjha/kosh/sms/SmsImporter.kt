@@ -131,7 +131,7 @@ class SmsImporter(
                 result = result.copy(financial = result.financial + 1)
                 result = when (val parsed = runCatching { SmsParser.parse(msg) }.getOrNull()) {
                     is SmsParseResult.Transaction ->
-                        result + importTransaction(parsed.txn, rules).copy(parsedTransactions = 1)
+                        result + importTransaction(parsed.txn, rules, msg.body).copy(parsedTransactions = 1)
                     is SmsParseResult.CardBill -> result + importBill(parsed.bill).copy(parsedBills = 1)
                     is SmsParseResult.BalanceUpdate -> result + importBalance(parsed.update)
                     is SmsParseResult.Ignored, null -> {
@@ -148,11 +148,12 @@ class SmsImporter(
                 }
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
+            runCatching { com.amitjha.kosh.repo.TransferPairer.run(db) }
             result
         }
     }
 
-    private suspend fun importTransaction(p: ParsedTransaction, rules: Map<String, String>): ImportResult {
+    private suspend fun importTransaction(p: ParsedTransaction, rules: Map<String, String>, body: String = ""): ImportResult {
         var created = 0
         val account = resolveAccount(p.bank, p.accountLast4, p.isCreditCard) { created++ }
         val txnDao = db.transactions()
@@ -162,7 +163,12 @@ class SmsImporter(
             return ImportResult(duplicates = 1, accountsCreated = created)
         }
 
-        val base = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
+        // "self", "own account" or "to a/c ..1234" (another own account) is a transfer, not spending.
+        val ownLast4s = db.accounts().all().mapNotNull { it.last4 }.toSet()
+        val selfTransfer = p.type == TxnType.EXPENSE && !p.isCreditCard &&
+            com.amitjha.kosh.domain.TransferPairing.looksLikeSelfTransfer(body, ownLast4s, account.last4)
+        val parsedBase = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
+        val base = if (selfTransfer) parsedBase.copy(categoryKey = SmsMapping.TRANSFER_CATEGORY, excludeFromStats = true) else parsedBase
         val entity = base.copy(
             suspicious = SmsMapping.isSuspicious(base.amount, base.categoryKey, txnDao.recentAmounts(account.id)),
             // Messages for an account the user ignored are kept but never counted.

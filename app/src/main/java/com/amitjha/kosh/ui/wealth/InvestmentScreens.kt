@@ -99,6 +99,7 @@ class InvestmentEditViewModel(private val c: AppContainer) : ViewModel() {
             spec is InvestmentSpec.Fd -> c.investments.addFd(name, institution, spec)
             spec is InvestmentSpec.Epf -> c.investments.addEpf(name, spec)
             spec is InvestmentSpec.Nps -> c.investments.addNps(name, spec)
+            spec is com.amitjha.kosh.domain.NpsSimple -> c.investments.addNpsSimple(name, spec)
         }
         c.netWorth.snapshot()
         onDone()
@@ -140,7 +141,7 @@ fun InvestmentEditScreen(nav: NavController, editId: Long?, type: InvestmentType
             when (kind) {
                 InvestmentType.FD -> FdForm(item, onSave = { name, inst, spec -> vm.save(editId, name, inst, spec, done) })
                 InvestmentType.EPF -> EpfForm(item, onSave = { name, spec -> vm.save(editId, name, "EPFO", spec, done) })
-                InvestmentType.NPS -> NpsForm(item, vm, onSave = { name, spec -> vm.save(editId, name, "NPS", spec, done) })
+                InvestmentType.NPS -> NpsEntry(item, vm, onSave = { name, spec -> vm.save(editId, name, "NPS", spec, done) })
             }
             Spacer(Modifier.height(32.dp))
         }
@@ -254,6 +255,73 @@ private fun EpfForm(item: InvestmentItem?, onSave: (String, InvestmentSpec.Epf) 
 }
 
 private data class HoldingDraft(val code: String, val name: String, val nav: Double, val navDate: LocalDate?, val units: String, val value: Long?, val allocation: String)
+
+/** NPS: the simple form by default; scheme/NAV tracking only behind "Advanced". */
+@Composable
+private fun NpsEntry(item: InvestmentItem?, vm: InvestmentEditViewModel, onSave: (String, InvestmentSpec) -> Unit) {
+    var advanced by remember { mutableStateOf(item?.spec is InvestmentSpec.Nps) }
+    Column {
+        if (advanced) NpsForm(item, vm, onSave = { n, sp -> onSave(n, sp) }) else NpsSimpleForm(item, onSave = { n, sp -> onSave(n, sp) })
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Advanced: track by scheme NAV", style = MaterialTheme.typography.bodyMedium)
+                Text("Enter units per scheme; value follows live NAVs.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+            }
+            androidx.compose.material3.Switch(checked = advanced, onCheckedChange = { advanced = it })
+        }
+    }
+}
+
+@Composable
+private fun NpsSimpleForm(item: InvestmentItem?, onSave: (String, com.amitjha.kosh.domain.NpsSimple) -> Unit) {
+    val spec = item?.spec as? com.amitjha.kosh.domain.NpsSimple
+    var name by remember { mutableStateOf(item?.entity?.name ?: "NPS") }
+    var value by remember { mutableStateOf(item?.entity?.currentValue ?: spec?.valueAsOf) }
+    var monthly by remember { mutableStateOf(spec?.monthlyContribution) }
+    var day by remember { mutableStateOf((spec?.contributionDay ?: 1).toString()) }
+    var returnText by remember { mutableStateOf((spec?.annualReturnPct ?: com.amitjha.kosh.domain.NpsSimple.DEFAULT_RETURN_PCT).let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }) }
+    val haptic = rememberHaptic()
+    val valid = name.isNotBlank() && (value ?: 0) > 0 && rate(returnText) != null
+    FormColumn {
+        KoshTextField(name, { name = it }, "Name")
+        AmountField("Total value today", value, { value = it })
+        Text("From your NPS statement or app, or the total you've contributed so far.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+        AmountField("Monthly contribution", monthly, { monthly = it })
+        KoshTextField(day, { day = it.filter(Char::isDigit).take(2) }, "Contribution day of month", keyboardType = KeyboardType.Number)
+        KoshTextField(returnText, { returnText = it }, "Expected return", keyboardType = KeyboardType.Decimal, suffix = "% per year")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("8", "10", "12").forEach { r ->
+                androidx.compose.material3.FilterChip(
+                    selected = returnText == r,
+                    onClick = { returnText = r },
+                    label = { Text("$r%") },
+                )
+            }
+        }
+        Text(
+            "Kosh adds your monthly contribution each month and grows the total at this return, so the value stays up to date on its own.",
+            style = MaterialTheme.typography.bodySmall,
+            color = KoshTheme.colors.subtleText,
+        )
+        PrimaryButton("Save", enabled = valid, modifier = Modifier.fillMaxWidth(), onClick = {
+            haptic()
+            onSave(
+                name.trim(),
+                com.amitjha.kosh.domain.NpsSimple(
+                    valueAsOf = value ?: 0,
+                    asOfDate = Time.today(),
+                    monthlyContribution = monthly ?: 0,
+                    contributionDay = day.toIntOrNull()?.coerceIn(1, 28) ?: 1,
+                    annualReturnPct = rate(returnText) ?: com.amitjha.kosh.domain.NpsSimple.DEFAULT_RETURN_PCT,
+                    investedAsOf = spec?.let { it.valueOn(Time.today()).second } ?: (value ?: 0),
+                ),
+            )
+        })
+    }
+}
 
 @Composable
 private fun NpsForm(item: InvestmentItem?, vm: InvestmentEditViewModel, onSave: (String, InvestmentSpec.Nps) -> Unit) {
@@ -462,6 +530,12 @@ fun InvestmentDetailScreen(nav: NavController, id: Long) {
                         }
                         if (s.monthlyContribution > 0) Info("Monthly contribution", Money.format(s.monthlyContribution) + " on day ${s.contributionDay}", hidden)
                         s.holdings.mapNotNull { it.lastNavDate }.maxOrNull()?.let { Info("NAV as of", Fmt.fullDate(it), false) }
+                    }
+                    is com.amitjha.kosh.domain.NpsSimple -> {
+                        Info("Monthly contribution", Money.format(s.monthlyContribution) + " on day ${s.contributionDay}", hidden)
+                        Info("Expected return", Fmt.pct(s.annualReturnPct, 1) + " per year", false)
+                        Info("Invested so far", Money.format(s.valueOn(Time.today()).second), hidden)
+                        Info("Projected in a year", Money.format(s.valueOn(Time.today().plusYears(1)).first), hidden)
                     }
                 }
             }

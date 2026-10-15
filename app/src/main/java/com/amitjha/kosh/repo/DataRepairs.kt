@@ -11,12 +11,14 @@ import com.amitjha.kosh.model.TxnSource
 object DataRepairs {
 
     /** Bump when adding a repair below. */
-    const val CURRENT = 1
+    const val CURRENT = 2
 
     suspend fun run(db: KoshDatabase, settings: SettingsStore, netWorth: NetWorthRepository) {
         val done = settings.repairVersion()
         if (done >= CURRENT) return
         if (done < 1) repairBalancesV1(db, netWorth)
+        // v1.5: money moved between own accounts was counted as expense and income.
+        if (done < 2) TransferPairer.run(db)
         settings.setRepairVersion(CURRENT)
     }
 

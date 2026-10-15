@@ -106,6 +106,7 @@ class GmailSync(
             if (importTransaction(t, rules)) txnsAdded++
         }
         runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
+        runCatching { com.amitjha.kosh.repo.TransferPairer.run(db) }
         val processed = result.processedIds.ifEmpty { result.bills.map { it.emailId } + result.payments.map { it.emailId } }
         settings.addProcessedEmailIds(processed)
         if (result.error == null && !result.moreAvailable && result.failedMessageIds.isEmpty()) {

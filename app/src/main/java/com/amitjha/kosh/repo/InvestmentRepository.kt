@@ -71,6 +71,10 @@ class InvestmentRepository(private val db: KoshDatabase, private val navSource: 
     suspend fun addNps(name: String, spec: InvestmentSpec.Nps, institution: String = "NPS"): Long =
         insert(InvestmentType.NPS, name, institution, spec.copy(contributionsAppliedTill = spec.contributionsAppliedTill ?: Time.today()))
 
+    /** Adds a simple NPS (value today + monthly contribution at an expected return). */
+    suspend fun addNpsSimple(name: String, spec: com.amitjha.kosh.domain.NpsSimple, institution: String = "NPS"): Long =
+        insert(InvestmentType.NPS, name, institution, spec)
+
     suspend fun update(id: Long, name: String, institution: String, spec: InvestmentSpec) {
         val existing = dao.byId(id) ?: return
         val today = Time.today()
@@ -194,6 +198,7 @@ class InvestmentRepository(private val db: KoshDatabase, private val navSource: 
             is InvestmentSpec.Fd -> spec.startDate
             is InvestmentSpec.Epf -> spec.asOfDate
             is InvestmentSpec.Nps -> null
+            is com.amitjha.kosh.domain.NpsSimple -> spec.asOfDate
         }
         val annualised = since?.let { PortfolioValuer.annualised(e.currentValue, e.investedAmount, it, Time.today()) }
         return InvestmentItem(e, spec, annualised)
@@ -214,6 +219,7 @@ class InvestmentRepository(private val db: KoshDatabase, private val navSource: 
                 val v = spec.toFinance().value()
                 v to (if (spec.investedAmount > 0) spec.investedAmount else v)
             }
+            is com.amitjha.kosh.domain.NpsSimple -> spec.valueOn(date)
         }
     }
 }

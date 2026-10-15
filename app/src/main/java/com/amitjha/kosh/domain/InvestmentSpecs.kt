@@ -55,6 +55,57 @@ sealed interface InvestmentSpec {
     }
 }
 
+/**
+ * Simple NPS: the value today plus a fixed monthly contribution, growing at an expected yearly return.
+ * No schemes or NAVs; the value is projected from [asOfDate] each day.
+ */
+data class NpsSimple(
+    val valueAsOf: Paise,
+    val asOfDate: LocalDate,
+    val monthlyContribution: Paise,
+    val contributionDay: Int = 1,
+    val annualReturnPct: Double = DEFAULT_RETURN_PCT,
+    /** Amount the user had put in by [asOfDate]; defaults to [valueAsOf] when unknown. */
+    val investedAsOf: Paise = valueAsOf,
+) : InvestmentSpec {
+    override val type get() = InvestmentType.NPS
+
+    /**
+     * Value and amount invested on [date]: the balance compounds monthly at [annualReturnPct] / 12 and each
+     * contribution is added on [contributionDay] of every month after [asOfDate].
+     */
+    fun valueOn(date: LocalDate): kotlin.Pair<Paise, Paise> {
+        if (!date.isAfter(asOfDate)) return valueAsOf to investedAsOf
+        val r = annualReturnPct / 100.0 / 12.0
+        var value = valueAsOf.toDouble()
+        var invested = investedAsOf
+        var cursor = asOfDate
+        var next = contributionDate(asOfDate.withDayOfMonth(1).plusMonths(if (asOfDate.dayOfMonth >= contributionDay.coerceIn(1, 28)) 1 else 0))
+        while (!next.isAfter(date)) {
+            value *= Math.pow(1 + r, months(cursor, next))
+            value += monthlyContribution
+            invested += monthlyContribution
+            cursor = next
+            next = contributionDate(next.withDayOfMonth(1).plusMonths(1))
+        }
+        value *= Math.pow(1 + r, months(cursor, date))
+        return Math.round(value) to invested
+    }
+
+    private fun contributionDate(monthStart: LocalDate): LocalDate = monthStart.withDayOfMonth(contributionDay.coerceIn(1, 28))
+
+    /** Whole months between the dates plus the leftover days as a fraction of a month. */
+    private fun months(from: LocalDate, to: LocalDate): Double {
+        val whole = java.time.temporal.ChronoUnit.MONTHS.between(from, to)
+        val rest = java.time.temporal.ChronoUnit.DAYS.between(from.plusMonths(whole), to)
+        return whole + rest / 30.436875
+    }
+
+    companion object {
+        const val DEFAULT_RETURN_PCT = 10.0
+    }
+}
+
 /** JSON codec for [InvestmentSpec], using Android's org.json. */
 object SpecCodec {
 
@@ -94,6 +145,15 @@ object SpecCodec {
             .put("day", spec.contributionDay)
             .put("invested", spec.investedAmount)
             .putOpt("appliedTill", spec.contributionsAppliedTill?.toString())
+        is NpsSimple -> JSONObject()
+            .put("type", "NPS")
+            .put("mode", "simple")
+            .put("value", spec.valueAsOf)
+            .put("asOf", spec.asOfDate.toString())
+            .put("monthly", spec.monthlyContribution)
+            .put("day", spec.contributionDay)
+            .put("return", spec.annualReturnPct)
+            .put("invested", spec.investedAsOf)
     }.toString()
 
     fun decode(json: String): InvestmentSpec {
@@ -115,7 +175,16 @@ object SpecCodec {
                 annualRatePct = o.optDouble("rate", EpfAccount.DEFAULT_EPF_RATE_PCT),
                 contributionDay = o.optInt("day", 15),
             )
-            "NPS" -> {
+            "NPS" -> if (o.optString("mode") == "simple") {
+                NpsSimple(
+                    valueAsOf = o.getLong("value"),
+                    asOfDate = LocalDate.parse(o.getString("asOf")),
+                    monthlyContribution = o.optLong("monthly", 0),
+                    contributionDay = o.optInt("day", 1),
+                    annualReturnPct = o.optDouble("return", NpsSimple.DEFAULT_RETURN_PCT),
+                    investedAsOf = o.optLong("invested", o.getLong("value")),
+                )
+            } else {
                 val arr = o.getJSONArray("holdings")
                 val holdings = (0 until arr.length()).map { i ->
                     val h = arr.getJSONObject(i)

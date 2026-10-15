@@ -126,6 +126,10 @@ data class GoalEntity(
     val icon: String = "flag",
     val expectedReturnPct: Double = 7.0,
     val createdAt: Long = System.currentTimeMillis(),
+    /** Loan the user is willing to take at purchase; 0 means no loan. */
+    val loanAmount: Paise = 0,
+    val loanRatePct: Double = 9.0,
+    val loanTenureMonths: Int = 36,
 )
 
 /**

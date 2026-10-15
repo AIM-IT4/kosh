@@ -72,6 +72,7 @@ class TransactionDetailViewModel(private val c: AppContainer, private val id: Lo
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TxnDetailState())
 
     fun recategorise(key: String, all: Boolean) = viewModelScope.launch { c.transactions.recategorise(id, key, all) }
+    fun markSelfTransfer(otherAccountId: Long?) = viewModelScope.launch { c.transactions.markSelfTransfer(id, otherAccountId) }
     fun markReviewed() = viewModelScope.launch { c.transactions.markReviewed(id) }
     fun delete(onDone: () -> Unit) = viewModelScope.launch {
         c.transactions.delete(id)
@@ -85,6 +86,7 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
     val state by vm.state.collectAsStateWithLifecycle()
     val hidden = LocalHideAmounts.current
     var recategorise by remember { mutableStateOf(false) }
+    var selfTransfer by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val item = state.item
 
@@ -164,10 +166,25 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
                     Divider()
                     DetailRow("Stats", "Not counted in spending")
                 }
+                if (t.type != com.amitjha.kosh.model.TxnType.TRANSFER && t.categoryKey != com.amitjha.kosh.domain.SmsMapping.TRANSFER_CATEGORY) {
+                    Divider()
+                    DetailRow("Moved to my own account?", "Mark as transfer", onClick = { selfTransfer = true }, accent = true)
+                }
             }
         }
     }
 
+    if (selfTransfer && item != null) {
+        SelfTransferSheet(
+            currentAccountId = item.txn.accountId,
+            isIncome = item.txn.type == com.amitjha.kosh.model.TxnType.INCOME,
+            onDismiss = { selfTransfer = false },
+            onPick = { other ->
+                vm.markSelfTransfer(other)
+                selfTransfer = false
+            },
+        )
+    }
     if (recategorise && item != null) {
         RecategoriseSheet(
             categories = state.categories.filter { it.type == item.txn.type },

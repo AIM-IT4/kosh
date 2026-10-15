@@ -364,6 +364,9 @@ private fun GoalsTab(
             val hint = when {
                 plan.reached -> "Goal reached 🎉"
                 plan.overdue -> "Deadline passed · ${Fmt.date(g.deadline)}"
+                g.hasLoan -> "Save ${if (hidden) "₹ ••••" else Money.format(plan.requiredMonthly, showPaise = false)}/month + loan " +
+                    "${if (hidden) "₹ ••••" else Money.format(g.goal.loanAmount, showPaise = false)} (EMI " +
+                    "${if (hidden) "₹ ••••" else Money.format(g.loanEmi, showPaise = false)} for ${g.goal.loanTenureMonths} months)"
                 else -> "Save ${if (hidden) "₹ ••••" else Money.format(plan.requiredMonthly, showPaise = false)}/month at " +
                     "${Fmt.pct(g.goal.expectedReturnPct, 0)} a year · ${plan.monthsLeft} months left"
             }
@@ -404,6 +407,10 @@ private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEnt
     var saved by remember { mutableStateOf(goal?.saved ?: 0L) }
     var deadline by remember { mutableStateOf(goal?.deadline?.let(LocalDate::ofEpochDay) ?: Time.today().plusYears(1)) }
     var ret by remember { mutableStateOf((goal?.expectedReturnPct ?: 7.0).toString()) }
+    var loanOn by remember { mutableStateOf((goal?.loanAmount ?: 0) > 0) }
+    var loanAmount by remember { mutableStateOf(goal?.loanAmount?.takeIf { it > 0 }) }
+    var loanRate by remember { mutableStateOf((goal?.loanRatePct ?: 9.0).toString()) }
+    var loanMonths by remember { mutableStateOf((goal?.loanTenureMonths ?: 36).toString()) }
     var confirmDelete by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding().verticalScroll(rememberScrollState())) {
@@ -415,7 +422,22 @@ private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEnt
                 AmountField("Already saved", saved, { saved = it })
                 DateField("Target date", deadline, { deadline = it })
                 ReturnField(ret, { ret = it })
-                RequiredSaving(target, saved, deadline, ret.toDoubleOrNull()?.coerceIn(0.0, 30.0) ?: 7.0)
+                LoanSection(
+                    target = target,
+                    enabled = loanOn,
+                    onEnabled = { loanOn = it },
+                    amount = loanAmount,
+                    onAmount = { loanAmount = it },
+                    rate = loanRate,
+                    onRate = { loanRate = it },
+                    months = loanMonths,
+                    onMonths = { loanMonths = it },
+                )
+                val loanForPlan = if (loanOn) (loanAmount ?: 0) else 0
+                RequiredSaving(
+                    target?.let { com.amitjha.kosh.domain.GoalLoan.savingsTarget(it, loanForPlan) },
+                    saved, deadline, ret.toDoubleOrNull()?.coerceIn(0.0, 30.0) ?: 7.0,
+                )
                 PrimaryButton(
                     if (goal == null) "Create goal" else "Save",
                     enabled = name.isNotBlank() && (target ?: 0) > 0,
@@ -429,6 +451,9 @@ private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEnt
                                 saved = saved,
                                 deadline = deadline.toEpochDay(),
                                 expectedReturnPct = ret.toDoubleOrNull()?.coerceIn(0.0, 30.0) ?: 7.0,
+                                loanAmount = if (loanOn) (loanAmount ?: 0).coerceIn(0, target!!) else 0,
+                                loanRatePct = loanRate.toDoubleOrNull()?.coerceIn(0.0, 40.0) ?: 9.0,
+                                loanTenureMonths = loanMonths.toIntOrNull()?.coerceIn(1, 360) ?: 36,
                             ),
                         )
                     },
@@ -481,6 +506,66 @@ private fun ReturnField(value: String, onValue: (String) -> Unit) {
                     onClick = { onValue(pct.toInt().toString()) },
                     label = { Text("$label ${pct.toInt()}%") },
                 )
+            }
+        }
+    }
+}
+
+/**
+ * The loan the user is willing to take at purchase: amount (or % of the target), rate and tenure, with the
+ * EMI and total interest. The goal's savings target becomes target − loan.
+ */
+@Composable
+private fun LoanSection(
+    target: Long?,
+    enabled: Boolean,
+    onEnabled: (Boolean) -> Unit,
+    amount: Long?,
+    onAmount: (Long) -> Unit,
+    rate: String,
+    onRate: (String) -> Unit,
+    months: String,
+    onMonths: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Loan at purchase", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text("Part of the cost you're OK to borrow when you buy", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+            }
+            androidx.compose.material3.Switch(checked = enabled, onCheckedChange = onEnabled)
+        }
+        if (!enabled) return@Column
+        val t = target ?: 0L
+        val pct = if (t > 0) ((amount ?: 0).toDouble() / t * 100).coerceIn(0.0, 80.0) else 0.0
+        AmountField("Loan amount", amount, onAmount)
+        if (t > 0) {
+            Text("${pct.toInt()}% of the target", style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.subtleText)
+            androidx.compose.material3.Slider(
+                value = pct.toFloat(),
+                onValueChange = { onAmount((t * it / 100.0).toLong() / 100 * 100) },
+                valueRange = 0f..80f,
+                steps = 15,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KoshTextField(rate, { onRate(it.filter { ch -> ch.isDigit() || ch == '.' }) }, "Interest", Modifier.weight(1f),
+                keyboardType = KeyboardType.Decimal, suffix = "% p.a.")
+            KoshTextField(months, { onMonths(it.filter(Char::isDigit).take(3)) }, "Tenure", Modifier.weight(1f),
+                keyboardType = KeyboardType.Number, suffix = "months")
+        }
+        val principal = (amount ?: 0).coerceAtMost(t)
+        val r = rate.toDoubleOrNull() ?: 9.0
+        val n = months.toIntOrNull() ?: 36
+        if (principal > 0 && n > 0) {
+            val emi = com.amitjha.kosh.domain.GoalLoan.emi(principal, r, n)
+            val interest = com.amitjha.kosh.domain.GoalLoan.totalInterest(principal, r, n)
+            KoshCard(contentPadding = PaddingValues(14.dp)) {
+                Text("EMI after purchase", style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.subtleText)
+                Text("${Money.format(emi, showPaise = false)} a month for $n months", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Total interest ${Money.format(interest, showPaise = false)} · you save the remaining " +
+                    "${Money.format(com.amitjha.kosh.domain.GoalLoan.savingsTarget(t, principal), showPaise = false)}",
+                    style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
             }
         }
     }

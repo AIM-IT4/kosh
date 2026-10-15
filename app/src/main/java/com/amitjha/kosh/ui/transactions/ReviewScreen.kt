@@ -69,7 +69,7 @@ class ReviewViewModel(private val c: AppContainer) : ViewModel() {
     fun confirmAll() = viewModelScope.launch { c.transactions.markAllReviewed() }
     fun delete(id: Long) = viewModelScope.launch { c.transactions.delete(id) }
     fun recategorise(id: Long, key: String, all: Boolean) = viewModelScope.launch { c.transactions.recategorise(id, key, all) }
-    fun markTransfer(id: Long) = viewModelScope.launch { c.transactions.recategorise(id, SmsMapping.TRANSFER_CATEGORY, applyToSimilar = false) }
+    fun markTransfer(id: Long, otherAccountId: Long?) = viewModelScope.launch { c.transactions.markSelfTransfer(id, otherAccountId) }
 }
 
 @Composable
@@ -79,6 +79,7 @@ fun ReviewScreen(nav: NavController) {
     val hidden = LocalHideAmounts.current
     val haptic = rememberHaptic()
     var editing by remember { mutableStateOf<TransactionItem?>(null) }
+    var transferring by remember { mutableStateOf<TransactionItem?>(null) }
 
     KoshScreen(
         title = "Review",
@@ -140,13 +141,25 @@ fun ReviewScreen(nav: NavController) {
                                 vm.confirm(t.txn.id)
                             }
                             ReviewAction("Category", Icons.Outlined.Category, MaterialTheme.colorScheme.primary) { editing = t }
-                            ReviewAction("Transfer", Icons.Outlined.SwapHoriz, KoshTheme.colors.transfer) { vm.markTransfer(t.txn.id) }
+                            ReviewAction("Transfer", Icons.Outlined.SwapHoriz, KoshTheme.colors.transfer) { transferring = t }
                             ReviewAction("Delete", Icons.Outlined.DeleteOutline, KoshTheme.colors.alert) { vm.delete(t.txn.id) }
                         }
                     }
                 }
             }
         }
+    }
+
+    transferring?.let { t ->
+        SelfTransferSheet(
+            currentAccountId = t.txn.accountId,
+            isIncome = t.txn.type == com.amitjha.kosh.model.TxnType.INCOME,
+            onDismiss = { transferring = null },
+            onPick = { other ->
+                vm.markTransfer(t.txn.id, other)
+                transferring = null
+            },
+        )
     }
 
     editing?.let { t ->
