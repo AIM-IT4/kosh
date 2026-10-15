@@ -34,7 +34,8 @@ data class SavingsRateCard(
     }
 
     /** Rate of the slab the whole balance falls in (the headline rate for display). */
-    fun headlineRatePct(balance: Paise = 0): Double = slabs.last { balance >= it.minBalance }.ratePct
+    fun headlineRatePct(balance: Paise = 0): Double =
+        (slabs.lastOrNull { balance >= it.minBalance } ?: slabs.first()).ratePct
 
     /** True when every balance earns the same rate. */
     val isFlat: Boolean get() = slabs.map { it.ratePct }.distinct().size == 1

@@ -49,8 +49,17 @@ data class BillInput(
     val paid: Boolean = false,
     /** The card account the bill belongs to, when known (links new card spends to the bill). */
     val accountId: Long? = null,
+    /** Statement date of the bill, when known; spends after it belong to the next bill. */
+    val statementDate: LocalDate? = null,
 )
-data class InvestmentInput(val name: String, val type: InvestmentType, val value: Paise, val maturityDate: LocalDate? = null)
+data class InvestmentInput(
+    val name: String,
+    val type: InvestmentType,
+    val value: Paise,
+    val maturityDate: LocalDate? = null,
+    /** What an FD pays out at maturity, when known (today's value is used otherwise). */
+    val maturityValue: Paise? = null,
+)
 
 data class InsightInput(
     val today: LocalDate,
@@ -151,18 +160,25 @@ object InsightEngine {
     const val BUDGET_ON_TRACK_FROM_DAY = 20
     const val SPENDING_DOWN_FROM_DAY = 15
 
+    /** A period is named after the month its start date plus this many days falls in (its 15th day). */
+    const val PERIOD_LABEL_DAY_OFFSET = 14L
+
+    /** Assumed gap between a card's statement date and its due date when the statement date is unknown. */
+    const val ASSUMED_STATEMENT_TO_DUE_DAYS = 20L
+
     fun generate(input: InsightInput): List<Insight> {
         val startDay = input.monthStartDay.coerceIn(1, 28)
         val shift = (startDay - 1).toLong()
         // A period from day S of month M to day S-1 of M+1 has exactly as many days as M, so moving
         // every date back by S-1 days maps budgeting periods exactly onto calendar months.
         dateShift.set(shift)
-        labelOffset.set(if (startDay > 15) 1L else 0L)
         val shifted = if (shift == 0L) input else input.copy(
             today = input.today.minusDays(shift),
             transactions = input.transactions.map { it.copy(date = it.date.minusDays(shift)) },
             goals = input.goals.map { it.copy(deadline = it.deadline.minusDays(shift), createdAt = it.createdAt?.minusDays(shift)) },
-            upcomingBills = input.upcomingBills.map { it.copy(dueDate = it.dueDate.minusDays(shift)) },
+            upcomingBills = input.upcomingBills.map {
+                it.copy(dueDate = it.dueDate.minusDays(shift), statementDate = it.statementDate?.minusDays(shift))
+            },
             investments = input.investments.map { it.copy(maturityDate = it.maturityDate?.minusDays(shift)) },
         )
         val ctx = Context(shifted)
@@ -208,7 +224,7 @@ object InsightEngine {
         fun lastMonths(n: Int = 6): List<YearMonth> = (n - 1 downTo 0).map { month.minusMonths(it.toLong()) }
 
         fun monthLabel(m: YearMonth): String =
-            m.plusMonths(labelOffset.get()).month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
+            periodLabel(m).month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
 
         /** Spending this month accumulated day by day, up to today. */
         fun cumulativeThisMonth(category: String? = null): List<Long> {
@@ -222,7 +238,13 @@ object InsightEngine {
     }
 
     private val dateShift = ThreadLocal.withInitial { 0L }
-    private val labelOffset = ThreadLocal.withInitial { 0L }
+
+    /**
+     * The month a budgeting period is named after. The period behind engine month [m] really starts on day
+     * `monthStartDay` of [m]; like the app's `Period.label`, it is named after the month of its 15th day.
+     */
+    internal fun periodLabel(m: YearMonth, monthStartDay: Int = (dateShift.get() + 1).toInt()): YearMonth =
+        YearMonth.from(m.atDay(1).plusDays(monthStartDay.coerceIn(1, 28) - 1L + PERIOD_LABEL_DAY_OFFSET))
 
     /** The real calendar date of a (shifted) engine date. */
     private fun real(d: LocalDate): LocalDate = d.plusDays(dateShift.get())
@@ -271,14 +293,16 @@ object InsightEngine {
     private fun categorySpikes(c: Context): List<Insight> {
         val categories = c.expensesIn(c.month).map { it.category }.distinct()
         return categories.mapNotNull { cat ->
-            val past = (1..3).map { c.spent(c.month.minusMonths(it.toLong()), cat) }
-            val avg = past.sum() / 3
+            // New users have little history: average only the months that had spending in this category.
+            val past = (1..3).map { c.spent(c.month.minusMonths(it.toLong()), cat) }.filter { it > 0 }
+            if (past.isEmpty()) return@mapNotNull null
+            val avg = past.sum() / past.size
             val now = c.spent(c.month, cat)
             if (avg >= SPIKE_MIN_BASE && now > avg * SPIKE_FACTOR) {
                 Insight(
                     "spike_${slug(cat)}_${c.month}", Severity.WARNING, "${c.label(cat)} spending is up",
                     "You've spent ${fmt(now)} on ${c.label(cat)} this month, ${((now.toDouble() / avg - 1) * 100).roundToInt()}% more than " +
-                        "your 3-month average of ${fmt(avg)}.",
+                        "your ${if (past.size == 1) "previous month's" else "${past.size}-month average of"} ${fmt(avg)}.",
                     cat, 60,
                 )
             } else null
@@ -399,6 +423,11 @@ object InsightEngine {
                     basics, 80,
                 )
             }
+            plan.requiredMonthly <= 0 -> insight(
+                Severity.GOOD, "${g.name} is on track",
+                "What you've saved should grow to ${fmt(toSave)} by $dateText$loanNote without adding more.",
+                "$basics At ${"%.1f".format(g.expectedReturnPct)}% a year your savings reach the target on their own.", 15,
+            )
             surplus == null -> insight(
                 Severity.TIP, "${g.name}: save ${fmt(plan.requiredMonthly)} a month",
                 "Saving ${fmt(plan.requiredMonthly)} a month gets you ${fmt(toSave)} by $dateText$loanNote.",
@@ -522,12 +551,12 @@ object InsightEngine {
             when {
                 days in 0..FD_MATURITY_DAYS -> Insight(
                     "fd_maturing_${slug(fd.name)}", Severity.TIP, "${fd.name} matures ${if (days == 0L) "today" else "in $days days"}",
-                    "It will be worth about ${fmt(fd.value)}. Decide whether to renew, reinvest or move it before ${day(fd.maturityDate!!)}.",
+                    "It will pay about ${fmt(fd.maturityValue ?: fd.value)}. Decide whether to renew, reinvest or move it before ${day(fd.maturityDate!!)}.",
                     null, 50,
                 )
                 days < 0 && days >= -FD_MATURITY_DAYS -> Insight(
                     "fd_matured_${slug(fd.name)}", Severity.TIP, "${fd.name} has matured",
-                    "${fmt(fd.value)} matured on ${day(fd.maturityDate!!)}. Make sure it's been renewed or reinvested.", null, 45,
+                    "${fmt(fd.maturityValue ?: fd.value)} matured on ${day(fd.maturityDate!!)}. Make sure it's been renewed or reinvested.", null, 45,
                 )
                 else -> null
             }
@@ -673,7 +702,7 @@ object InsightEngine {
         val id = i.id
         return when {
             id.startsWith("budget_") -> {
-                val b = c.input.budgets.firstOrNull { id.startsWith("budget_${slug(c.label(it.category))}_") } ?: return i
+                val b = c.input.budgets.firstOrNull { id == "budget_${slug(c.label(it.category))}_${c.month}" } ?: return i
                 val spent = c.spent(c.month, b.category)
                 val p = Budgets.project(b.monthlyLimit, spent, c.today)
                 i.copy(
@@ -802,7 +831,7 @@ object InsightEngine {
         val top = c.expensesIn(c.month).groupBy { it.category }.mapValues { (_, t) -> t.sumOf { it.amount } }
             .entries.sortedByDescending { it.value }.take(3)
         val projected = Budgets.project(Long.MAX_VALUE, spent, c.today).projected
-        val monthName = c.month.plusMonths(labelOffset.get()).month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
+        val monthName = periodLabel(c.month).month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
         val share = if (income > 0) " (${pct(spent.toDouble() / income)} of income)" else ""
         val topText = if (top.isEmpty()) "" else " Biggest categories: " + top.joinToString(", ") { "${c.label(it.key)} ${fmt(it.value)}" } + "."
         val score = monthScore(c)
@@ -885,9 +914,13 @@ object InsightEngine {
 
     private fun cashFlowForecast(c: Context): List<Insight> {
         if (c.input.accounts.none { it.type != AccountType.CREDIT_CARD } || c.daysLeft <= 0) return emptyList()
-        val spent = c.spent(c.month)
+        // Card spends leave the bank only when the bill is paid (counted below as bills due), so the daily
+        // run-rate uses bank, cash and wallet spending only.
+        fun bankSpent(m: YearMonth) = c.expensesIn(m).filter { !it.isCreditCard }.sumOf { it.amount }
+        val spent = bankSpent(c.month)
         val dailyNow = if (c.today.dayOfMonth > 0) spent.toDouble() / c.today.dayOfMonth else 0.0
-        val dailyAvg = c.avgMonthlyExpense.toDouble() / 30.0
+        val pastBank = (1..3).map { bankSpent(c.month.minusMonths(it.toLong())) }.filter { it > 0 }
+        val dailyAvg = if (pastBank.isEmpty()) 0.0 else pastBank.average() / 30.0
         val daily = if (c.today.dayOfMonth >= 7 || dailyAvg == 0.0) dailyNow else dailyAvg
         val expectedIncome = if (c.income(c.month) == 0L) c.income(c.month.minusMonths(1)) else 0L
         val monthEnd = c.month.atEndOfMonth()
@@ -899,7 +932,7 @@ object InsightEngine {
         return listOf(
             Insight(
                 "forecast_${c.month}", severity, "Month-end balance: about ${fmt(endBalance)}",
-                "If you keep spending about ${fmt(daily.roundToLong())} a day, bank and cash should be near ${fmt(endBalance)} on ${monthEnd.dayOfMonth} ${c.monthLabel(c.month)}.",
+                "If you keep spending about ${fmt(daily.roundToLong())} a day, bank and cash should be near ${fmt(endBalance)} on ${day(monthEnd)}.",
                 null, if (endBalance < 0) 58 else 14,
                 detail = "Starting from ${fmt(c.liquid)} today, this assumes ${fmt(daily.roundToLong())} of spending per day for the " +
                     "${c.daysLeft} remaining days" +
@@ -912,7 +945,7 @@ object InsightEngine {
                     if (billsDue > 0) m("Bills due", compact(billsDue)) else null,
                     m("Month end", compact(endBalance)),
                 ),
-                chart = InsightChart(InsightChart.Kind.LINE, (0..c.daysLeft).map { "${c.today.plusDays(it.toLong()).dayOfMonth}" }, path,
+                chart = InsightChart(InsightChart.Kind.LINE, (0..c.daysLeft).map { "${real(c.today.plusDays(it.toLong())).dayOfMonth}" }, path,
                     caption = "Projected balance before income and bills"),
                 action = InsightAction("Open accounts", InsightRoute.ACCOUNTS),
             ),
@@ -951,11 +984,13 @@ object InsightEngine {
     private fun cardSpendVsBill(c: Context): List<Insight> = c.input.upcomingBills
         .filter { !it.paid && it.accountId != null }
         .mapNotNull { b ->
-            val newSpend = c.expensesIn(c.month).filter { it.accountId == b.accountId }.sumOf { it.amount }
+            val statement = b.statementDate ?: b.dueDate.minusDays(ASSUMED_STATEMENT_TO_DUE_DAYS)
+            val newSpend = c.expenses.filter { it.accountId == b.accountId && it.date.isAfter(statement) && !it.date.isAfter(c.today) }
+                .sumOf { it.amount }
             if (newSpend <= 0) return@mapNotNull null
             Insight(
                 "card_vs_bill_${slug(b.cardName)}_${b.dueDate}", Severity.TIP, "${b.cardName}: bill plus new spends",
-                "${fmt(b.amount)} is due on ${day(b.dueDate)}, and you've added ${fmt(newSpend)} of new spends this month that will appear on the next bill.",
+                "${fmt(b.amount)} is due on ${day(b.dueDate)}, and you've added ${fmt(newSpend)} of new spends since the statement that will appear on the next bill.",
                 null, 21,
                 metrics = listOf(m("Bill due", compact(b.amount)), m("New spends", compact(newSpend)), m("Total owed", compact(b.amount + newSpend))),
                 action = InsightAction("Open card bills", InsightRoute.BILLS),

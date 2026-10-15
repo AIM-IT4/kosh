@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing financial leaves the phone through Android backup or device-to-device transfer. Settings are excluded
+  too: copied without the database they would skip onboarding on the new phone and open an empty app.
+-->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="database" path="."/>
         <exclude domain="sharedpref" path="."/>
+        <exclude domain="file" path="datastore/"/>
     </cloud-backup>
     <device-transfer>
         <exclude domain="database" path="."/>
+        <exclude domain="sharedpref" path="."/>
+        <exclude domain="file" path="datastore/"/>
     </device-transfer>
 </data-extraction-rules>

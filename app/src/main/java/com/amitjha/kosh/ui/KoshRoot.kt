@@ -13,6 +13,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -121,8 +122,7 @@ import com.amitjha.kosh.ui.wealth.InvestmentEditScreen
 import com.amitjha.kosh.ui.wealth.WealthScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private const val RELOCK_AFTER_MILLIS = 60_000L
+import com.amitjha.kosh.ui.nav.navigateToTab
 
 /** Root of the UI: theme, splash, app lock, onboarding and navigation. */
 @Composable
@@ -158,25 +158,23 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
             LocalSettings provides (settings ?: Settings()),
             LocalHideAmounts provides (settings?.hideAmounts ?: false),
         ) {
-            var splashDone by remember { mutableStateOf(false) }
+            var splashDone by remember { mutableStateOf(AppLock.splashShown) }
             LaunchedEffect(Unit) {
-                delay(700)
+                if (!AppLock.splashShown) {
+                    delay(700)
+                    AppLock.splashShown = true
+                }
                 splashDone = true
             }
             val lockEnabled = settings?.biometricLockEnabled == true
-            var unlocked by remember { mutableStateOf(false) }
-            var backgroundedAt by remember { mutableLongStateOf(0L) }
+            val unlocked by AppLock.unlocked.collectAsStateWithLifecycle()
 
             val owner = LocalLifecycleOwner.current
             DisposableEffect(owner, lockEnabled) {
                 val obs = LifecycleEventObserver { _, e ->
                     when (e) {
-                        Lifecycle.Event.ON_STOP -> backgroundedAt = System.currentTimeMillis()
-                        Lifecycle.Event.ON_START -> if (lockEnabled && backgroundedAt > 0 &&
-                            System.currentTimeMillis() - backgroundedAt > RELOCK_AFTER_MILLIS
-                        ) {
-                            unlocked = false
-                        }
+                        Lifecycle.Event.ON_STOP -> AppLock.onBackground()
+                        Lifecycle.Event.ON_START -> AppLock.onForeground(lockEnabled)
                         else -> Unit
                     }
                 }
@@ -186,10 +184,10 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
 
             val stage = when {
                 settings == null || !splashDone -> Stage.Splash
-                lockEnabled && !unlocked -> Stage.Locked
                 !settings.onboardingDone -> Stage.Onboarding
                 else -> Stage.Main
             }
+            val locked = lockEnabled && !unlocked && stage != Stage.Splash
 
             Box(
                 Modifier
@@ -197,24 +195,33 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
                     .background(MaterialTheme.colorScheme.background)
                     .windowInsetsPadding(WindowInsets.statusBars),
             ) {
-                AnimatedContent(
-                    targetState = stage,
-                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
-                    label = "stage",
-                ) { s ->
-                    when (s) {
-                        Stage.Splash -> Splash()
-                        Stage.Locked -> LockScreen(onUnlocked = { unlocked = true })
-                        Stage.Onboarding -> OnboardingScreen()
-                        Stage.Main -> MainShell(initialRoute, onRouteConsumed)
+                // The lock is drawn over the app instead of replacing it, so re-locking after a minute away keeps
+                // the back stack and any half-filled form. While locked the app underneath is invisible to the eye
+                // and to accessibility services.
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .then(if (locked) Modifier.graphicsLayer { alpha = 0f }.clearAndSetSemantics { } else Modifier),
+                ) {
+                    AnimatedContent(
+                        targetState = stage,
+                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                        label = "stage",
+                    ) { s ->
+                        when (s) {
+                            Stage.Splash -> Splash()
+                            Stage.Onboarding -> OnboardingScreen()
+                            Stage.Main -> MainShell(initialRoute, onRouteConsumed)
+                        }
                     }
                 }
+                if (locked) LockScreen(onUnlocked = { AppLock.markUnlocked() })
             }
         }
     }
 }
 
-private enum class Stage { Splash, Locked, Onboarding, Main }
+private enum class Stage { Splash, Onboarding, Main }
 
 @Composable
 private fun Splash() {
@@ -243,16 +250,19 @@ private fun LockScreen(onUnlocked: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
-    val unlock: () -> Unit = {
-        val activity = context as? FragmentActivity
-        if (activity == null || !BiometricGate.isAvailable(context)) {
-            onUnlocked()
-        } else {
-            scope.launch {
-                when (val r = BiometricGate.authenticate(activity)) {
-                    UnlockResult.Success -> onUnlocked()
-                    is UnlockResult.Error -> message = r.message
-                }
+    var available by remember { mutableStateOf(BiometricGate.isAvailable(context)) }
+    val unlock: () -> Unit = unlock@{
+        val activity = context as? FragmentActivity ?: return@unlock
+        available = BiometricGate.isAvailable(context)
+        if (!available) {
+            // Fail closed: with no screen lock on the phone there is nothing to verify the user with.
+            message = "Set a screen lock (PIN, pattern or fingerprint) on your phone to unlock Kosh."
+            return@unlock
+        }
+        scope.launch {
+            when (val r = BiometricGate.authenticate(activity)) {
+                UnlockResult.Success -> onUnlocked()
+                is UnlockResult.Error -> message = r.message
             }
         }
     }
@@ -260,7 +270,8 @@ private fun LockScreen(onUnlocked: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -269,6 +280,16 @@ private fun LockScreen(onUnlocked: () -> Unit) {
             message?.let { Text(it, color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodyMedium) }
             Spacer(Modifier.height(8.dp))
             PrimaryButton(text = "Unlock", onClick = unlock, icon = Icons.Outlined.Fingerprint, modifier = Modifier.padding(horizontal = 48.dp).fillMaxWidth())
+            if (!available) {
+                androidx.compose.material3.TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }) { Text("Open security settings") }
+            }
         }
     }
 }
@@ -289,7 +310,7 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
             else -> null
         }
         if (target != null) {
-            nav.navigate(target)
+            if (target in TabRoutes) nav.navigateToTab(target) else nav.navigate(target) { launchSingleTop = true }
             onRouteConsumed()
         }
     }
@@ -337,13 +358,7 @@ private fun AddFab(onClick: () -> Unit) {
 
 @Composable
 private fun BottomBar(nav: NavHostController, current: String?) {
-    KoshBottomBar(current) { route ->
-        nav.navigate(route) {
-            popUpTo(Routes.HOME) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
-    }
+    KoshBottomBar(current) { route -> nav.navigateToTab(route) }
 }
 
 /** Five evenly spaced tabs on a white bar with a top hairline; the selected tab is ink with an emerald dot. */

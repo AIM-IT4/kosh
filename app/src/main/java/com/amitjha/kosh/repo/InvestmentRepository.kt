@@ -67,9 +67,12 @@ class InvestmentRepository(private val db: KoshDatabase, private val navSource: 
     suspend fun addEpf(name: String, spec: InvestmentSpec.Epf, institution: String = "EPFO"): Long =
         insert(InvestmentType.EPF, name, institution, spec)
 
-    /** Adds an NPS account; monthly contributions are applied from today onwards. */
+    /**
+     * Adds an NPS account; monthly contributions are applied from today onwards. When the amount invested is
+     * left blank it starts at today's value, so later contributions add to it rather than replace it.
+     */
     suspend fun addNps(name: String, spec: InvestmentSpec.Nps, institution: String = "NPS"): Long =
-        insert(InvestmentType.NPS, name, institution, spec.copy(contributionsAppliedTill = spec.contributionsAppliedTill ?: Time.today()))
+        insert(InvestmentType.NPS, name, institution, seedInvested(spec).copy(contributionsAppliedTill = spec.contributionsAppliedTill ?: Time.today()))
 
     /** Adds a simple NPS (value today + monthly contribution at an expected return). */
     suspend fun addNpsSimple(name: String, spec: com.amitjha.kosh.domain.NpsSimple, institution: String = "NPS"): Long =
@@ -109,42 +112,53 @@ class InvestmentRepository(private val db: KoshDatabase, private val navSource: 
         var navsFetched = 0
         var contributions = 0
         val all = dao.active()
-        val codes = all.mapNotNull { e -> (decode(e) as? InvestmentSpec.Nps)?.holdings?.map { it.schemeCode } }.flatten().toSet()
+        val codes = all.mapNotNull { e -> (runCatching { decode(e) }.getOrNull() as? InvestmentSpec.Nps)?.holdings?.map { it.schemeCode } }
+            .flatten().toSet()
         val navs: Map<String, NavQuote> = if (fetchNavs && codes.isNotEmpty()) {
-            withContext(Dispatchers.IO) { codes.mapNotNull { navSource.latestNav(it) }.associateBy { it.schemeCode } }
+            withContext(Dispatchers.IO) {
+                codes.mapNotNull { runCatching { navSource.latestNav(it) }.getOrNull() }
+                    .filter { it.nav.isFinite() && it.nav > 0 }
+                    .associateBy { it.schemeCode }
+            }
         } else {
             emptyMap()
         }
         navsFetched = navs.size
 
+        var updated = 0
         for (e in all) {
-            var spec = decode(e)
-            if (spec is InvestmentSpec.Nps) {
-                val navMap = navs.mapValues { it.value.nav }
-                var account = spec.toFinance().withNavs(navMap, today)
-                val from = spec.contributionsAppliedTill ?: today
-                var invested = spec.investedAmount
-                if (spec.monthlyContribution > 0) {
-                    for (event in account.contributionsDue(from, today)) {
-                        account = account.applyContribution(event.amount, navMap, event.date).account
-                        invested += event.amount
-                        contributions++
+            // One bad entry must not stop the others from being revalued.
+            val ok = runCatching {
+                var spec = decode(e)
+                if (spec is InvestmentSpec.Nps) {
+                    spec = seedInvested(spec)
+                    val navMap = navs.mapValues { it.value.nav }
+                    var account = spec.toFinance().withQuotes(navs, today)
+                    val from = spec.contributionsAppliedTill ?: today
+                    var invested = spec.investedAmount
+                    if (spec.monthlyContribution > 0) {
+                        for (event in account.contributionsDue(from, today)) {
+                            account = account.applyContribution(event.amount, navMap, event.date).account
+                            invested += event.amount
+                            contributions++
+                        }
                     }
+                    spec = spec.copy(holdings = account.holdings, investedAmount = invested, contributionsAppliedTill = today)
                 }
-                spec = spec.copy(holdings = account.holdings, investedAmount = invested, contributionsAppliedTill = today)
-            }
-            val (value, invested) = valuation(spec, e.name, e.institution, today)
-            dao.update(
-                e.copy(
-                    specJson = SpecCodec.encode(spec),
-                    currentValue = value,
-                    investedAmount = invested,
-                    lastUpdated = System.currentTimeMillis(),
-                ),
-            )
-            snapshot(e.id, today, value)
+                val (value, invested) = valuation(spec, e.name, e.institution, today)
+                dao.update(
+                    e.copy(
+                        specJson = SpecCodec.encode(spec),
+                        currentValue = value,
+                        investedAmount = invested,
+                        lastUpdated = System.currentTimeMillis(),
+                    ),
+                )
+                snapshot(e.id, today, value)
+            }.isSuccess
+            if (ok) updated++
         }
-        return RevalueResult(all.size, navsFetched, contributions)
+        return RevalueResult(updated, navsFetched, contributions)
     }
 
     /** Searches NPS schemes by name or code (the full list is cached for 12 hours). */
@@ -194,17 +208,29 @@ class InvestmentRepository(private val db: KoshDatabase, private val navSource: 
 
     private fun toItem(e: InvestmentEntity): InvestmentItem {
         val spec = decode(e)
-        val since = when (spec) {
-            is InvestmentSpec.Fd -> spec.startDate
-            is InvestmentSpec.Epf -> spec.asOfDate
-            is InvestmentSpec.Nps -> null
-            is com.amitjha.kosh.domain.NpsSimple -> spec.asOfDate
-        }
-        val annualised = since?.let { PortfolioValuer.annualised(e.currentValue, e.investedAmount, it, Time.today()) }
-        return InvestmentItem(e, spec, annualised)
+        return InvestmentItem(e, spec, annualisedReturn(spec, e.currentValue, e.investedAmount, Time.today()))
     }
 
+    /** NPS entered with a blank amount invested starts from today's value. */
+    private fun seedInvested(spec: InvestmentSpec.Nps): InvestmentSpec.Nps =
+        if (spec.investedAmount > 0) spec else spec.copy(investedAmount = spec.toFinance().value())
+
     companion object {
+        /**
+         * Yearly return to show for an investment. Value-over-cost growth is only meaningful for a cumulative FD;
+         * other kinds use the rate they actually earn, because contributions or interest payouts distort it.
+         */
+        fun annualisedReturn(spec: InvestmentSpec, value: Paise, invested: Paise, today: LocalDate): Double? = when (spec) {
+            is InvestmentSpec.Fd -> if (spec.payout == com.amitjha.kosh.finance.FdPayout.CUMULATIVE) {
+                PortfolioValuer.annualised(value, invested, spec.startDate, today)
+            } else {
+                spec.annualRatePct
+            }
+            is InvestmentSpec.Epf -> spec.annualRatePct
+            is com.amitjha.kosh.domain.NpsSimple -> spec.annualReturnPct
+            is InvestmentSpec.Nps -> null
+        }
+
         /** Current value and amount invested for a spec on [date]. */
         fun valuation(spec: InvestmentSpec, name: String, institution: String, date: LocalDate): Pair<Paise, Paise> = when (spec) {
             is InvestmentSpec.Fd -> {

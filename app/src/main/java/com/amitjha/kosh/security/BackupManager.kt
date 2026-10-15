@@ -7,6 +7,7 @@ import com.amitjha.kosh.data.AccountEntity
 import com.amitjha.kosh.data.BudgetEntity
 import com.amitjha.kosh.data.CardBillEntity
 import com.amitjha.kosh.data.CategoryEntity
+import com.amitjha.kosh.data.DeletedFingerprintEntity
 import com.amitjha.kosh.data.GoalEntity
 import com.amitjha.kosh.data.InvestmentEntity
 import com.amitjha.kosh.data.InvestmentSnapshotEntity
@@ -20,11 +21,18 @@ import com.amitjha.kosh.model.TxnChannel
 import com.amitjha.kosh.model.TxnSource
 import com.amitjha.kosh.model.TxnType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 data class BackupStats(val accounts: Int, val transactions: Int, val bills: Int, val investments: Int)
+
+/** What [BackupManager.restore] restored, plus the file's metadata the caller uses to finish the restore. */
+data class RestoreResult(val stats: BackupStats, val meta: BackupMeta)
+
+/** Header fields of a backup file. Files from format 1 have no [repairVersion] (null). */
+data class BackupMeta(val format: Int, val exportedAt: Long?, val repairVersion: Int?)
 
 /**
  * Encrypted export/import of everything in the database. Files are written and read through Storage Access
@@ -32,52 +40,68 @@ data class BackupStats(val accounts: Int, val transactions: Int, val bills: Int,
  */
 class BackupManager(private val context: Context, private val db: KoshDatabase) {
 
-    suspend fun export(uri: Uri, password: CharArray): BackupStats = withContext(Dispatchers.IO) {
-        val json = BackupJson.encode(snapshot())
+    suspend fun export(uri: Uri, password: CharArray, repairVersion: Int? = null): BackupStats = withContext(Dispatchers.IO) {
+        val json = BackupJson.encode(snapshot(), repairVersion = repairVersion)
         val bytes = BackupCrypto.encrypt(json.toByteArray(Charsets.UTF_8), password)
         context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error("Can't write the backup file")
         statsOf(json)
     }
 
-    /** Replaces all data with the backup's contents. Throws [BackupCrypto.WrongPasswordException] on a bad password. */
-    suspend fun restore(uri: Uri, password: CharArray): BackupStats = withContext(Dispatchers.IO) {
+    /**
+     * Replaces all data with the backup's contents. Throws [BackupCrypto.WrongPasswordException] on a bad password.
+     *
+     * The file is fully read, decrypted and parsed before anything is touched. The delete and the re-insert then
+     * run in one transaction that is not cancelled with the caller, so leaving the screen, rotating the phone or an
+     * SMS arriving mid-restore can't leave the database empty or half-restored.
+     */
+    suspend fun restore(uri: Uri, password: CharArray): RestoreResult = withContext(Dispatchers.IO) {
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Can't read the backup file")
         val json = BackupCrypto.decrypt(bytes, password).toString(Charsets.UTF_8)
         val data = BackupJson.decode(json)
-        // clearAllTables runs its own transaction, so it can't be nested inside withTransaction.
-        db.clearAllTables()
-        db.withTransaction {
-            db.categories().insertAll(data.categories)
-            data.accounts.forEach { db.accounts().insert(it) }
-            data.transactions.forEach { db.transactions().insert(it) }
-            data.bills.forEach { db.bills().insertIgnore(it) }
-            data.budgets.forEach { db.budgets().upsert(it) }
-            data.goals.forEach { db.goals().upsert(it) }
-            data.investments.forEach { db.investments().insert(it) }
-            data.snapshots.forEach { db.investments().upsertSnapshot(it) }
-            data.rules.forEach { db.merchantRules().upsert(it) }
-            data.netWorth.forEach { db.netWorth().upsert(it) }
+        val meta = BackupJson.meta(json)
+        withContext(NonCancellable) {
+            db.withTransaction {
+                val r = db.restore()
+                r.clearTransactions(); r.clearBills(); r.clearSnapshots()
+                r.clearAccounts(); r.clearInvestments(); r.clearCategories(); r.clearBudgets()
+                r.clearGoals(); r.clearRules(); r.clearNetWorth(); r.clearTombstones()
+                r.insertCategories(data.categories)
+                r.insertAccounts(data.accounts)
+                r.insertTransactions(data.transactions)
+                r.insertBills(data.bills)
+                r.insertBudgets(data.budgets)
+                r.insertGoals(data.goals)
+                r.insertInvestments(data.investments)
+                r.insertSnapshots(data.snapshots)
+                r.insertRules(data.rules)
+                r.insertNetWorth(data.netWorth)
+                r.insertTombstones(data.tombstones)
+            }
         }
-        statsOf(json)
+        RestoreResult(statsOf(data), meta)
     }
 
-    private suspend fun snapshot() = BackupData(
-        accounts = db.accounts().all(),
-        categories = db.categories().all(),
-        transactions = db.transactions().all(),
-        bills = db.bills().all(),
-        budgets = db.budgets().all(),
-        goals = db.goals().all(),
-        investments = db.investments().all(),
-        snapshots = db.investments().allSnapshots(),
-        rules = db.merchantRules().all(),
-        netWorth = db.netWorth().all(),
-    )
-
-    private fun statsOf(json: String): BackupStats {
-        val d = BackupJson.decode(json)
-        return BackupStats(d.accounts.size, d.transactions.size, d.bills.size, d.investments.size)
+    /** Reads every table in one transaction, so an SMS imported mid-export can't produce an inconsistent file. */
+    private suspend fun snapshot(): BackupData = db.withTransaction {
+        val r = db.restore()
+        BackupData(
+            accounts = r.accounts(),
+            categories = r.categories(),
+            transactions = r.transactions(),
+            bills = r.bills(),
+            budgets = r.budgets(),
+            goals = r.goals(),
+            investments = r.investments(),
+            snapshots = r.snapshots(),
+            rules = r.rules(),
+            netWorth = r.netWorth(),
+            tombstones = r.tombstones(),
+        )
     }
+
+    private fun statsOf(json: String): BackupStats = statsOf(BackupJson.decode(json))
+
+    private fun statsOf(d: BackupData) = BackupStats(d.accounts.size, d.transactions.size, d.bills.size, d.investments.size)
 }
 
 data class BackupData(
@@ -91,21 +115,37 @@ data class BackupData(
     val snapshots: List<InvestmentSnapshotEntity>,
     val rules: List<MerchantRuleEntity>,
     val netWorth: List<NetWorthSnapshotEntity>,
+    val tombstones: List<DeletedFingerprintEntity> = emptyList(),
 )
 
 /** JSON form of [BackupData]; nullable fields are omitted when null. */
 object BackupJson {
-    const val FORMAT_VERSION = 1
+    /**
+     * 1: original format. 2: adds goal loans, per-account savings interest settings, deleted-import fingerprints
+     * and the data-repair version. Older files still restore; missing fields take the migrations' defaults.
+     */
+    const val FORMAT_VERSION = 2
 
-    fun encode(d: BackupData): String = JSONObject()
+    fun meta(json: String): BackupMeta {
+        val o = JSONObject(json)
+        return BackupMeta(
+            format = o.optInt("format", 0),
+            exportedAt = if (o.has("exportedAt")) o.optLong("exportedAt") else null,
+            repairVersion = if (o.has("repairVersion")) o.optInt("repairVersion") else null,
+        )
+    }
+
+    fun encode(d: BackupData, exportedAt: Long = System.currentTimeMillis(), repairVersion: Int? = null): String = JSONObject()
         .put("format", FORMAT_VERSION)
-        .put("exportedAt", System.currentTimeMillis())
+        .put("exportedAt", exportedAt)
+        .putOpt("repairVersion", repairVersion)
         .put("accounts", arr(d.accounts) { a ->
             JSONObject().put("id", a.id).put("name", a.name).put("type", a.type.name).put("bank", a.bank)
                 .putOpt("last4", a.last4).put("openingBalance", a.openingBalance).put("openingDate", a.openingDate)
                 .putOpt("reportedBalance", a.reportedBalance).putOpt("reportedAt", a.reportedAt)
                 .putOpt("creditLimit", a.creditLimit).putOpt("statementDay", a.statementDay).putOpt("dueDay", a.dueDay)
                 .putOpt("colorArgb", a.colorArgb).put("archived", a.archived).put("autoCreated", a.autoCreated)
+                .putOpt("interestRatePct", a.interestRatePct).put("interestCreditFrequency", a.interestCreditFrequency)
         })
         .put("categories", arr(d.categories) { c ->
             JSONObject().put("id", c.id).put("key", c.key).put("name", c.name).put("type", c.type.name)
@@ -130,7 +170,8 @@ object BackupJson {
         .put("goals", arr(d.goals) { g ->
             JSONObject().put("id", g.id).put("name", g.name).put("target", g.target).put("saved", g.saved)
                 .put("deadline", g.deadline).put("icon", g.icon).put("expectedReturnPct", g.expectedReturnPct)
-                .put("createdAt", g.createdAt)
+                .put("createdAt", g.createdAt).put("loanAmount", g.loanAmount).put("loanRatePct", g.loanRatePct)
+                .put("loanTenureMonths", g.loanTenureMonths)
         })
         .put("investments", arr(d.investments) { i ->
             JSONObject().put("id", i.id).put("type", i.type.name).put("name", i.name).put("institution", i.institution)
@@ -145,6 +186,7 @@ object BackupJson {
             JSONObject().put("epochDay", n.epochDay).put("liquid", n.liquid).put("cardDebt", n.cardDebt)
                 .put("investments", n.investments).put("total", n.total)
         })
+        .put("deletedFingerprints", arr(d.tombstones) { t -> JSONObject().put("fingerprint", t.fingerprint).put("deletedAt", t.deletedAt) })
         .toString()
 
     fun decode(json: String): BackupData {
@@ -158,6 +200,8 @@ object BackupJson {
                     openingDate = a.getLong("openingDate"), reportedBalance = a.long("reportedBalance"), reportedAt = a.long("reportedAt"),
                     creditLimit = a.long("creditLimit"), statementDay = a.int("statementDay"), dueDay = a.int("dueDay"),
                     colorArgb = a.long("colorArgb"), archived = a.optBoolean("archived"), autoCreated = a.optBoolean("autoCreated"),
+                    interestRatePct = a.double("interestRatePct"),
+                    interestCreditFrequency = a.optString("interestCreditFrequency", "QUARTERLY"),
                 )
             },
             categories = list(o, "categories") { c ->
@@ -192,6 +236,8 @@ object BackupJson {
                     id = g.getLong("id"), name = g.getString("name"), target = g.getLong("target"), saved = g.getLong("saved"),
                     deadline = g.getLong("deadline"), icon = g.optString("icon", "flag"),
                     expectedReturnPct = g.optDouble("expectedReturnPct", 7.0), createdAt = g.optLong("createdAt"),
+                    loanAmount = g.optLong("loanAmount", 0), loanRatePct = g.optDouble("loanRatePct", 9.0),
+                    loanTenureMonths = g.optInt("loanTenureMonths", 36),
                 )
             },
             investments = list(o, "investments") { i ->
@@ -209,6 +255,9 @@ object BackupJson {
             netWorth = list(o, "netWorth") { n ->
                 NetWorthSnapshotEntity(n.getLong("epochDay"), n.getLong("liquid"), n.getLong("cardDebt"), n.getLong("investments"), n.getLong("total"))
             },
+            tombstones = list(o, "deletedFingerprints") { t ->
+                DeletedFingerprintEntity(t.getString("fingerprint"), t.optLong("deletedAt"))
+            },
         )
     }
 
@@ -222,4 +271,5 @@ object BackupJson {
     private fun JSONObject.str(key: String): String? = if (has(key) && !isNull(key)) getString(key) else null
     private fun JSONObject.long(key: String): Long? = if (has(key) && !isNull(key)) getLong(key) else null
     private fun JSONObject.int(key: String): Int? = if (has(key) && !isNull(key)) getInt(key) else null
+    private fun JSONObject.double(key: String): Double? = if (has(key) && !isNull(key)) getDouble(key) else null
 }

@@ -7,6 +7,7 @@ import com.amitjha.kosh.model.TxnType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RecategoriseTest {
@@ -34,10 +35,27 @@ class RecategoriseTest {
     }
 
     @Test
-    fun legacyPhonePayeeTransfersBecomePeopleAndCountInStats() {
-        val updated = SmsMapping.recategorised(txn("UPI XXXXXX3210", category = "transfer").copy(excludeFromStats = true), emptyMap())
-        assertEquals("people", updated?.categoryKey)
-        assertFalse(updated!!.excludeFromStats)
+    fun transfersAreNeverRecategorised() {
+        // A self-transfer to a phone-number UPI ID must stay a transfer (audit: it used to revert to "people").
+        assertNull(SmsMapping.recategorised(txn("UPI XXXXXX3210", category = "transfer").copy(excludeFromStats = true), emptyMap()))
+    }
+
+    @Test
+    fun reviewedOtherIsAChoiceAndIgnoredAccountsStayHidden() {
+        assertNull(SmsMapping.recategorised(txn("Zomato", reviewed = true), emptyMap()))
+        val hidden = SmsMapping.recategorised(txn("Zomato").copy(excludeFromStats = true), emptyMap())
+        assertEquals("food", hidden?.categoryKey)
+        assertTrue("a row from an ignored account must stay out of stats", hidden!!.excludeFromStats)
+    }
+
+    @Test
+    fun recategoriseFlagRules() {
+        // moving a paired transfer leg out of "transfer" makes it count again
+        assertFalse(SmsMapping.excludeAfterRecategorise(txn("X", category = "transfer").copy(excludeFromStats = true), "food"))
+        // a row hidden because its account is ignored stays hidden
+        assertTrue(SmsMapping.excludeAfterRecategorise(txn("X", category = "other").copy(excludeFromStats = true), "food"))
+        assertTrue(SmsMapping.excludeAfterRecategorise(txn("X", category = "food"), "transfer"))
+        assertFalse(SmsMapping.excludeAfterRecategorise(txn("X", category = "food"), "shopping"))
     }
 
     @Test

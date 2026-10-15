@@ -135,20 +135,22 @@ class TransactionRepository(private val db: KoshDatabase) {
             txn.copy(
                 categoryKey = categoryKey,
                 reviewed = true,
-                excludeFromStats = categoryKey == SmsMapping.TRANSFER_CATEGORY,
+                excludeFromStats = SmsMapping.excludeAfterRecategorise(txn, categoryKey),
             ),
         )
         val merchant = txn.merchant
         if (applyToSimilar && merchant != null) {
             db.merchantRules().upsert(MerchantRuleEntity(merchant = merchant, categoryKey = categoryKey))
-            dao.recategoriseMerchant(merchant, categoryKey)
+            // Same type only (an Amazon refund keeps its income category) and never paired transfer legs.
+            dao.recategoriseMerchant(merchant, categoryKey, txn.type.name)
             // Also catch the same merchant spelled differently ("SWIGGY", "Swiggy Ltd").
             val key = SmsMapping.merchantKey(merchant)
             if (key.isNotEmpty()) {
                 dao.all().filter {
-                    it.source != com.amitjha.kosh.model.TxnSource.MANUAL && it.id != txnId && it.categoryKey != categoryKey &&
+                    it.source != com.amitjha.kosh.model.TxnSource.MANUAL && it.id != txnId && it.type == txn.type &&
+                        it.categoryKey != categoryKey && it.categoryKey != SmsMapping.TRANSFER_CATEGORY &&
                         it.merchant?.let(SmsMapping::merchantKey) == key
-                }.forEach { dao.update(it.copy(categoryKey = categoryKey, excludeFromStats = categoryKey == SmsMapping.TRANSFER_CATEGORY)) }
+                }.forEach { dao.update(it.copy(categoryKey = categoryKey, excludeFromStats = SmsMapping.excludeAfterRecategorise(it, categoryKey))) }
             }
         }
     }

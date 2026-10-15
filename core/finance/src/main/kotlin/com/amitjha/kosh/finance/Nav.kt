@@ -58,7 +58,8 @@ object NavJson {
     private fun parseObject(obj: String): NavQuote? {
         val fields = fieldRegex.findAll(obj).associate { it.groupValues[1] to it.groupValues[2] }
         val code = fields["Scheme Code"] ?: return null
-        val nav = fields["NAV"]?.toDoubleOrNull() ?: return null
+        // A zero or garbled NAV would turn a contribution into infinite units.
+        val nav = fields["NAV"]?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } ?: return null
         val date = fields["Last Updated"]?.let { runCatching { LocalDate.parse(it, dateFormat) }.getOrNull() }
         return NavQuote(code, fields["Scheme Name"] ?: code, nav, date)
     }

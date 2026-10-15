@@ -57,7 +57,7 @@ class CodecAndCryptoTest {
     @Test
     fun backupCryptoRoundTripsAndRejectsWrongPassword() {
         val plain = "{\"hello\":\"₹1,23,456\"}".toByteArray()
-        val enc = BackupCrypto.encrypt(plain, "correct horse".toCharArray(), iterations = 1_000)
+        val enc = BackupCrypto.encrypt(plain, "correct horse".toCharArray(), iterations = BackupCrypto.MIN_ITERATIONS)
         assertNotEquals(plain.toList(), enc.toList())
         assertArrayEquals(plain, BackupCrypto.decrypt(enc, "correct horse".toCharArray()))
         try {

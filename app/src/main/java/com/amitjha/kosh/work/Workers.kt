@@ -34,23 +34,39 @@ class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : Corout
 
         if (settings.notifyInsights) {
             runCatching {
-                val alerts = c.insights.generate().filter { it.severity == Severity.ALERT }
-                val fresh = c.settings.claimNewInsightNotifications(alerts.map { it.id })
-                alerts.filter { it.id in fresh }.take(3).forEach { c.notifications.insight(it.id.hashCode() and 0xFFFF, it.title, it.message) }
+                // Card bills have their own reminders (and their own on/off switch), so bill insights aren't
+                // posted here. Alerts are claimed one at a time so those beyond the daily limit stay unclaimed
+                // and can be posted on a later run.
+                val alerts = c.insights.generate().filter { it.severity == Severity.ALERT && !it.id.startsWith("bill_") }
+                var posted = 0
+                for (alert in alerts) {
+                    if (posted >= MAX_INSIGHT_NOTIFICATIONS) break
+                    if (alert.id !in c.settings.claimNewInsightNotifications(listOf(alert.id))) continue
+                    val text = if (settings.hideAmounts) "Open Kosh to see the details." else alert.message
+                    c.notifications.insight(alert.id.hashCode() and 0xFFFF, alert.title, text)
+                    posted++
+                }
             }
             runCatching {
                 val maturing = c.investments.items().filter { it.type == InvestmentType.FD && it.daysToMaturity(today) in 0L..7L }
                 val fresh = c.settings.claimNewInsightNotifications(maturing.map { "fd-maturity-${it.id}-${it.entity.maturityDate}" })
                 maturing.filter { "fd-maturity-${it.id}-${it.entity.maturityDate}" in fresh }.forEach { fd ->
+                    val payout = com.amitjha.kosh.repo.maturityValue(fd.entity) ?: fd.value
+                    val body = if (settings.hideAmounts) "Decide whether to renew or move it."
+                    else "It pays about ${Money.format(payout, showPaise = false)}. Decide whether to renew or move it."
                     c.notifications.maturity(
                         fd.id.toInt(),
                         "${fd.entity.name} matures ${if (fd.daysToMaturity(today) == 0L) "today" else "in ${fd.daysToMaturity(today)} days"}",
-                        "Maturity value about ${Money.format(fd.value, showPaise = false)}. Decide whether to renew or move it.",
+                        body,
                     )
                 }
             }
         }
         return Result.success()
+    }
+
+    companion object {
+        const val MAX_INSIGHT_NOTIFICATIONS = 3
     }
 }
 

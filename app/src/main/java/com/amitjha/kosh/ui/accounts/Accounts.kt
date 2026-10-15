@@ -74,6 +74,7 @@ import com.amitjha.kosh.repo.TxnFilter
 import com.amitjha.kosh.ui.bills.BillRow
 import com.amitjha.kosh.ui.bills.PayBillDialog
 import com.amitjha.kosh.ui.common.AmountField
+import com.amitjha.kosh.ui.common.launchGuarded
 import com.amitjha.kosh.ui.common.AmountSheet
 import com.amitjha.kosh.ui.common.ConfirmDialog
 import com.amitjha.kosh.ui.common.Fmt
@@ -92,6 +93,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 // ---------------------------------------------------------------- list
 
@@ -108,7 +110,7 @@ fun AccountsScreen(nav: NavController) {
     val hidden = LocalHideAmounts.current
     KoshScreen(
         title = "Accounts",
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         actions = { IconButton(onClick = { nav.navigate(Routes.editAccount()) }) { Icon(Icons.Outlined.Add, contentDescription = "Add account") } },
     ) { padding ->
         val list = accounts ?: return@KoshScreen
@@ -226,7 +228,8 @@ class AccountDetailViewModel(private val c: AppContainer, private val id: Long) 
         c.accounts.archive(id)
         onDone()
     }
-    fun payBill(billId: Long, from: Long?, amount: Long?) = viewModelScope.launch { c.bills.markPaid(billId, from, amount) }
+    private val payGuard = com.amitjha.kosh.ui.common.ActionGuard()
+    fun payBill(billId: Long, from: Long?, amount: Long?) = launchGuarded(payGuard) { c.bills.markPaid(billId, from, amount) }
     fun unpay(billId: Long) = viewModelScope.launch { c.bills.markUnpaid(billId) }
 }
 
@@ -244,7 +247,7 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
     KoshScreen(
         title = a?.account?.name ?: "Account",
         subtitle = a?.account?.type?.label(),
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         actions = {
             if (a != null) {
                 IconButton(onClick = { nav.navigate(Routes.editAccount(id)) }) { Icon(Icons.Outlined.Edit, contentDescription = "Edit") }
@@ -378,7 +381,7 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
             "Archive",
             onConfirm = {
                 archive = false
-                vm.archive { nav.popBackStack() }
+                vm.archive { nav.popBackSafely() }
             },
             onDismiss = { archive = false },
         )
@@ -412,7 +415,9 @@ fun ordinal(day: Int): String = day.toString() + when {
 class AccountEditViewModel(private val c: AppContainer) : ViewModel() {
     suspend fun load(id: Long): AccountWithBalance? = c.accounts.byId(id)?.let { c.accounts.withBalance(it) }
 
-    fun save(existing: AccountEntity?, draft: AccountEntity, currentAmount: Long, onDone: (Long) -> Unit) = viewModelScope.launch {
+    private val guard = com.amitjha.kosh.ui.common.ActionGuard()
+
+    fun save(existing: AccountEntity?, draft: AccountEntity, currentAmount: Long, onDone: (Long) -> Unit) = launchGuarded(guard) {
         if (existing == null) {
             // For cards the opening balance is the amount owed; for others, money held.
             val id = c.accounts.add(draft.copy(openingBalance = currentAmount, openingDate = System.currentTimeMillis()))
@@ -421,8 +426,9 @@ class AccountEditViewModel(private val c: AppContainer) : ViewModel() {
             c.accounts.update(
                 existing.copy(
                     name = draft.name, type = draft.type, bank = draft.bank, last4 = draft.last4,
+                    // Renaming an account found in SMS doesn't confirm it: it stays pending (and out of net worth)
+                    // until the user answers the "is this yours?" prompt with a balance.
                     creditLimit = draft.creditLimit, statementDay = draft.statementDay, dueDay = draft.dueDay,
-                    autoCreated = false,
                 ),
             )
             onDone(existing.id)
@@ -464,7 +470,7 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
     val needsBank = type == AccountType.BANK || isCard
     val valid = name.isNotBlank() && (last4.isEmpty() || last4.length == 4)
 
-    KoshScreen(title = if (existing == null) (if (isCard) "Add credit card" else "Add account") else "Edit account", onBack = { nav.popBackStack() }) { padding ->
+    KoshScreen(title = if (existing == null) (if (isCard) "Add credit card" else "Add account") else "Edit account", onBack = { nav.popBackSafely() }) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -527,7 +533,7 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
                             statementDay = if (isCard) statementDay.toIntOrNull()?.coerceIn(1, 31) else null,
                             dueDay = if (isCard) dueDay.toIntOrNull()?.coerceIn(1, 31) else null,
                         )
-                        vm.save(existing, draft, amount ?: 0) { nav.popBackStack() }
+                        vm.save(existing, draft, amount ?: 0) { nav.popBackSafely() }
                     },
                 )
                 Spacer(Modifier.height(24.dp))

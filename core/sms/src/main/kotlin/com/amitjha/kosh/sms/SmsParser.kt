@@ -16,9 +16,21 @@ object SmsParser {
     )
     private val creditWords = Regex("\\b(credited|received|deposited|refund(?:ed)?|reversed|reversal|cashback|added to|cr\\.?)\\b")
 
+    // "amount of ... credited" is deliberately not here: refunds and reversals to a card are phrased that way.
     private val cardPayment = Regex(
-        "(?:payment|amount) of\\s*$CUR\\s*$NUM.{0,80}?(?:received|credited|has been received|successfully)|" +
+        "payment of\\s*$CUR\\s*$NUM.{0,80}?(?:received|credited|has been received|successfully)|" +
             "(?:received|thank you for)(?: your)? payment of\\s*$CUR\\s*$NUM",
+    )
+
+    private val refundWords = Regex("\\brefund|\\breversal|\\breversed|cashback|cash back")
+
+    /**
+     * A bank account was debited ("Acct XX123 debited", "debited from A/c XX4521"). When such a message also
+     * mentions a credit card it is the bank side of a card bill payment, not a card spend.
+     */
+    private val accountDebited = Regex(
+        "(?:a/?c|acct|account)\\s*(?:no\\.?\\s*)?[x*.\\d]{0,12}\\s*(?:is\\s+|has been\\s+)?debited|" +
+            "debited\\s+(?:from|in)\\s+(?:your\\s+)?(?:a/?c|acct|account)",
     )
 
     fun parse(msg: SmsMessage): SmsParseResult {
@@ -29,14 +41,18 @@ object SmsParser {
         Filters.hardReject(lower)?.let { return SmsParseResult.Ignored(it) }
 
         val mentionsCard = Regex("\\bcard\\b").containsMatchIn(lower)
-        val creditCard = lower.contains("credit card") ||
-            (mentionsCard && !lower.contains("debit card") && Extract.creditLimit(body) != null)
+        val bankPaysCard = lower.contains("credit card") && accountDebited.containsMatchIn(lower)
+        val creditCard = !bankPaysCard && (
+            lower.contains("credit card") ||
+                (mentionsCard && !lower.contains("debit card") && Extract.creditLimit(body) != null)
+            )
 
         // credit card payment received (before bills, which also mention "payment")
-        if (creditCard || lower.contains("card")) {
+        if (!bankPaysCard && (creditCard || lower.contains("card"))) {
             cardPayment.find(lower)?.let { m ->
                 val amt = Money.parse(m.groupValues[1].ifEmpty { m.groupValues[2] }) ?: return@let
                 if (!lower.contains("credit card") && !lower.contains("card account")) return@let
+                if (refundWords.containsMatchIn(lower)) return@let
                 return SmsParseResult.Transaction(buildTxn(msg, body, lower, bank, TxnType.INCOME, amt, true, true))
             }
         }
@@ -56,6 +72,12 @@ object SmsParser {
                 )
             }
             return SmsParseResult.Ignored("no transaction found")
+        }
+        if (bankPaysCard) {
+            // The bank side of a card bill payment: money moves between the user's own accounts.
+            return SmsParseResult.Transaction(
+                buildTxn(msg, body, lower, bank, type, amount, false, false, forcedCategory = "transfer"),
+            )
         }
         val isCc = creditCard || isCardSpend(lower)
         return SmsParseResult.Transaction(buildTxn(msg, body, lower, bank, type, amount, isCc, false))
@@ -89,6 +111,7 @@ object SmsParser {
         amount: Paise,
         isCreditCard: Boolean,
         isCardPayment: Boolean,
+        forcedCategory: String? = null,
     ): ParsedTransaction {
         val channel = if (isCardPayment) TxnChannel.OTHER else Extract.channel(lower).let {
             if (isCreditCard && it == TxnChannel.OTHER) TxnChannel.CARD else it
@@ -101,7 +124,7 @@ object SmsParser {
         val last4 = Extract.last4(body)
         val ref = Extract.reference(body)
         val time = Dates.transactionTime(Dates.first(body), msg.timestampMillis)
-        val category = if (isCardPayment) "transfer" else CategoryGuesser.guess(merchant, body, type, channel)
+        val category = forcedCategory ?: if (isCardPayment) "transfer" else CategoryGuesser.guess(merchant, body, type, channel)
         return ParsedTransaction(
             bank = bank,
             accountLast4 = last4,

@@ -3,6 +3,7 @@ package com.amitjha.kosh.domain
 import com.amitjha.kosh.data.AccountEntity
 import com.amitjha.kosh.data.TransactionEntity
 import com.amitjha.kosh.model.AccountType
+import com.amitjha.kosh.model.TxnSource
 import com.amitjha.kosh.model.TxnType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,8 +23,12 @@ class TransfersNpsLoanTest {
     private val card = AccountEntity(id = 3, name = "Kotak Card", type = AccountType.CREDIT_CARD, bank = "KOTAK", last4 = "7731")
     private val accounts = listOf(hdfc, icici, card)
 
+    // Pairing only rewrites unreviewed imports, so the fixtures are fresh SMS imports.
     private fun txn(id: Long, account: Long, type: TxnType, amount: Long, at: Long, category: String = "other") =
-        TransactionEntity(id = id, accountId = account, type = type, amount = amount, categoryKey = category, timestamp = at)
+        TransactionEntity(
+            id = id, accountId = account, type = type, amount = amount, categoryKey = category, timestamp = at,
+            source = TxnSource.SMS, reviewed = false,
+        )
 
     @Test
     fun pairsSameAmountAcrossOwnAccounts() {
@@ -105,7 +110,8 @@ class TransfersNpsLoanTest {
             annualReturnPct = 10.0,
         )
         val (value, invested) = spec.valueOn(LocalDate.of(2026, 1, 1))
-        val r = 0.10 / 12
+        // The entered return is the effective yearly rate: monthly growth of 1.10^(1/12).
+        val r = 1.10.pow(1.0 / 12) - 1
         val expected = 1_00_000_00 * (1 + r).pow(12) + 5_000_00 * ((1 + r).pow(12) - 1) / r
         assertEquals(expected, value.toDouble(), 2.0) // within 2 paise
         assertEquals(1_60_000_00L, invested)

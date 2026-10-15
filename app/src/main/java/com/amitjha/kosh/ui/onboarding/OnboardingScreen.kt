@@ -288,29 +288,35 @@ private fun AccountsStep(card: Boolean, onNext: () -> Unit) {
                     KoshTextField(dueDay, { dueDay = it.filter(Char::isDigit).take(2) }, "Due day", Modifier.weight(1f), keyboardType = KeyboardType.Number)
                 }
             }
+            val addGuard = remember { com.amitjha.kosh.ui.common.ActionGuard() }
             OutlinedButton(
-                onClick = {
+                onClick = onClick@{
+                    if (!addGuard.tryStart()) return@onClick
                     haptic()
                     scope.launch {
-                        c.accounts.add(
-                            AccountEntity(
-                                name = name.trim().ifEmpty { defaultName },
-                                type = if (card) AccountType.CREDIT_CARD else AccountType.BANK,
-                                bank = bank.name,
-                                last4 = last4.takeIf { it.length == 4 },
-                                openingBalance = amount ?: 0,
-                                creditLimit = if (card) limit else null,
-                                statementDay = statementDay.toIntOrNull()?.coerceIn(1, 31),
-                                dueDay = dueDay.toIntOrNull()?.coerceIn(1, 31),
-                                colorArgb = bank.brandColor,
-                            ),
-                        )
-                        name = ""
-                        last4 = ""
-                        amount = null
-                        limit = null
-                        statementDay = ""
-                        dueDay = ""
+                        try {
+                            c.accounts.add(
+                                AccountEntity(
+                                    name = name.trim().ifEmpty { defaultName },
+                                    type = if (card) AccountType.CREDIT_CARD else AccountType.BANK,
+                                    bank = bank.name,
+                                    last4 = last4.takeIf { it.length == 4 },
+                                    openingBalance = amount ?: 0,
+                                    creditLimit = if (card) limit else null,
+                                    statementDay = statementDay.toIntOrNull()?.coerceIn(1, 31),
+                                    dueDay = dueDay.toIntOrNull()?.coerceIn(1, 31),
+                                    colorArgb = bank.brandColor,
+                                ),
+                            )
+                            name = ""
+                            last4 = ""
+                            amount = null
+                            limit = null
+                            statementDay = ""
+                            dueDay = ""
+                        } finally {
+                            addGuard.finish()
+                        }
                     }
                 },
                 enabled = last4.isEmpty() || last4.length == 4,
@@ -365,17 +371,29 @@ private fun InvestmentsStep(onNext: () -> Unit) {
                     DateField("Maturity", fdMaturity, { fdMaturity = it }, Modifier.weight(1f))
                 }
                 val rate = fdRate.toDoubleOrNull()
+                val fdGuard = remember { com.amitjha.kosh.ui.common.ActionGuard() }
                 PrimaryButton("Add FD", enabled = (fdAmount ?: 0) > 0 && rate != null && fdMaturity.isAfter(fdStart), modifier = Modifier.fillMaxWidth(),
-                    onClick = {
+                    onClick = onClick@{
+                        // Capture the inputs now: a second tap after the fields reset must not crash or add twice.
+                        val amount = fdAmount ?: return@onClick
+                        val pct = rate ?: return@onClick
+                        val bank = fdBank
+                        val start = fdStart
+                        val maturity = fdMaturity
+                        if (!fdGuard.tryStart()) return@onClick
                         scope.launch {
-                            c.investments.addFd(
-                                "${fdBank.shortName} FD",
-                                fdBank.shortName,
-                                InvestmentSpec.Fd(fdAmount!!, rate!!, fdStart, fdMaturity, Compounding.QUARTERLY),
-                            )
-                            added = added + "${fdBank.shortName} FD"
-                            mode = null
-                            fdAmount = null
+                            try {
+                                c.investments.addFd(
+                                    "${bank.shortName} FD",
+                                    bank.shortName,
+                                    InvestmentSpec.Fd(amount, pct, start, maturity, Compounding.QUARTERLY),
+                                )
+                                added = added + "${bank.shortName} FD"
+                                mode = null
+                                fdAmount = null
+                            } finally {
+                                fdGuard.finish()
+                            }
                         }
                     })
             }
@@ -383,11 +401,20 @@ private fun InvestmentsStep(onNext: () -> Unit) {
                 AmountField("Current EPF balance", epfBalance, { epfBalance = it })
                 AmountField("Your monthly contribution", epfEmployee, { epfEmployee = it })
                 AmountField("Employer's EPF share per month", epfEmployer, { epfEmployer = it })
-                PrimaryButton("Add EPF", enabled = epfBalance != null, modifier = Modifier.fillMaxWidth(), onClick = {
+                val epfGuard = remember { com.amitjha.kosh.ui.common.ActionGuard() }
+                PrimaryButton("Add EPF", enabled = epfBalance != null, modifier = Modifier.fillMaxWidth(), onClick = onClick@{
+                    val balance = epfBalance ?: return@onClick
+                    val employee = epfEmployee ?: 0
+                    val employer = epfEmployer ?: 0
+                    if (!epfGuard.tryStart()) return@onClick
                     scope.launch {
-                        c.investments.addEpf("EPF", InvestmentSpec.Epf(epfBalance!!, Time.today(), epfEmployee ?: 0, epfEmployer ?: 0))
-                        added = added + "EPF"
-                        mode = null
+                        try {
+                            c.investments.addEpf("EPF", InvestmentSpec.Epf(balance, Time.today(), employee, employer))
+                            added = added + "EPF"
+                            mode = null
+                        } finally {
+                            epfGuard.finish()
+                        }
                     }
                 })
             }

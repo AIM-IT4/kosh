@@ -38,6 +38,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.amitjha.kosh.data.CategoryEntity
+import com.amitjha.kosh.data.tombstones
+import com.amitjha.kosh.ui.common.launchGuarded
 import com.amitjha.kosh.designsystem.components.AmountText
 import com.amitjha.kosh.designsystem.components.CategoryIcon
 import com.amitjha.kosh.designsystem.components.EmptyState
@@ -61,6 +63,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 data class TxnDetailState(val item: TransactionItem? = null, val categories: List<CategoryEntity> = emptyList(), val loaded: Boolean = false)
 
@@ -74,8 +77,10 @@ class TransactionDetailViewModel(private val c: AppContainer, private val id: Lo
     fun recategorise(key: String, all: Boolean) = viewModelScope.launch { c.transactions.recategorise(id, key, all) }
     fun markSelfTransfer(otherAccountId: Long?) = viewModelScope.launch { c.transactions.markSelfTransfer(id, otherAccountId) }
     fun markReviewed() = viewModelScope.launch { c.transactions.markReviewed(id) }
-    fun delete(onDone: () -> Unit) = viewModelScope.launch {
-        c.transactions.delete(id)
+    private val deleteGuard = com.amitjha.kosh.ui.common.ActionGuard()
+
+    fun delete(onDone: () -> Unit) = launchGuarded(deleteGuard) {
+        c.tombstones.deleteTransaction(id)
         onDone()
     }
 }
@@ -92,7 +97,7 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
 
     KoshScreen(
         title = "Transaction",
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         actions = {
             if (item != null) {
                 IconButton(onClick = { nav.navigate(Routes.editTxn(id)) }) { Icon(Icons.Outlined.Edit, contentDescription = "Edit") }
@@ -139,7 +144,10 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
                 }
             }
             KoshCard {
-                DetailRow("Category", item.category?.name ?: t.categoryKey, onClick = { recategorise = true }, accent = true)
+                DetailRow("Category", item.category?.name ?: t.categoryKey, accent = true, onClick = {
+                    if (t.type == com.amitjha.kosh.model.TxnType.TRANSFER) nav.navigate(Routes.editTxn(id)) { launchSingleTop = true }
+                    else recategorise = true
+                })
                 Divider()
                 DetailRow(if (t.toAccountId != null) "From" else "Account", item.account?.label() ?: "—")
                 item.toAccount?.let {
@@ -205,7 +213,7 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
             destructive = true,
             onConfirm = {
                 confirmDelete = false
-                vm.delete { nav.popBackStack() }
+                vm.delete { nav.popBackSafely() }
             },
             onDismiss = { confirmDelete = false },
         )

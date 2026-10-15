@@ -60,6 +60,7 @@ import com.amitjha.kosh.ui.common.LocalHideAmounts
 import com.amitjha.kosh.ui.common.Pill
 import com.amitjha.kosh.ui.common.bankEnum
 import com.amitjha.kosh.ui.common.koshViewModel
+import com.amitjha.kosh.ui.common.launchGuarded
 import com.amitjha.kosh.ui.common.label
 import com.amitjha.kosh.ui.common.rememberHaptic
 import com.amitjha.kosh.util.Time
@@ -69,6 +70,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 data class BillsState(
     val bills: List<BillItem> = emptyList(),
@@ -87,8 +89,10 @@ class BillsViewModel(private val c: AppContainer) : ViewModel() {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BillsState())
 
-    fun pay(billId: Long, from: Long?, amount: Long?) = viewModelScope.launch { c.bills.markPaid(billId, from, amount) }
-    fun add(cardId: Long, total: Long, min: Long?, due: LocalDate) = viewModelScope.launch { c.bills.addManual(cardId, total, min, due) }
+    private val guard = com.amitjha.kosh.ui.common.ActionGuard()
+
+    fun pay(billId: Long, from: Long?, amount: Long?) = launchGuarded(guard) { c.bills.markPaid(billId, from, amount) }
+    fun add(cardId: Long, total: Long, min: Long?, due: LocalDate) = launchGuarded(guard) { c.bills.addManual(cardId, total, min, due) }
     fun delete(id: Long) = viewModelScope.launch { c.bills.delete(id) }
 }
 
@@ -104,7 +108,7 @@ fun BillsScreen(nav: NavController) {
     BillsContent(
         state = state,
         hidden = hidden,
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         onAdd = { adding = true },
         onPay = { paying = it },
         onDelete = { vm.delete(it.bill.id) },

@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.wealth
 
+import com.amitjha.kosh.ui.nav.popBackSafely
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -126,7 +127,7 @@ fun InvestmentEditScreen(nav: NavController, editId: Long?, type: InvestmentType
             InvestmentType.EPF -> "EPF"
             InvestmentType.NPS -> "NPS"
         },
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
     ) { padding ->
         if (!loaded) return@KoshScreen
         Column(
@@ -137,7 +138,7 @@ fun InvestmentEditScreen(nav: NavController, editId: Long?, type: InvestmentType
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            val done: () -> Unit = { nav.popBackStack() }
+            val done: () -> Unit = { nav.popBackSafely() }
             when (kind) {
                 InvestmentType.FD -> FdForm(item, onSave = { name, inst, spec -> vm.save(editId, name, inst, spec, done) })
                 InvestmentType.EPF -> EpfForm(item, onSave = { name, spec -> vm.save(editId, name, "EPFO", spec, done) })
@@ -216,10 +217,11 @@ private fun EpfForm(item: InvestmentItem?, onSave: (String, InvestmentSpec.Epf) 
     var employer by remember { mutableStateOf(spec?.monthlyEmployer) }
     var rateText by remember { mutableStateOf((spec?.annualRatePct ?: EpfAccount.DEFAULT_EPF_RATE_PCT).toString()) }
     var day by remember { mutableStateOf((spec?.contributionDay ?: 15).toString()) }
+    var includesInterest by remember { mutableStateOf(spec?.includesCurrentYearInterest ?: false) }
     val haptic = rememberHaptic()
     val r = rate(rateText)
     val draft = if (balance != null && r != null) {
-        InvestmentSpec.Epf(balance!!, asOf, employee ?: 0, employer ?: 0, r, day.toIntOrNull()?.coerceIn(1, 28) ?: 15)
+        InvestmentSpec.Epf(balance!!, asOf, employee ?: 0, employer ?: 0, r, day.toIntOrNull()?.coerceIn(1, 28) ?: 15, includesInterest)
     } else {
         null
     }
@@ -237,6 +239,17 @@ private fun EpfForm(item: InvestmentItem?, onSave: (String, InvestmentSpec.Epf) 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             KoshTextField(rateText, { rateText = it }, "Interest rate", Modifier.weight(1f), keyboardType = KeyboardType.Decimal, suffix = "%")
             KoshTextField(day, { day = it.filter(Char::isDigit).take(2) }, "Credited on day", Modifier.weight(1f), keyboardType = KeyboardType.Number)
+        }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Balance includes this year's interest", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Usually off: the passbook shows this year's interest only after it's credited (after 31 March), so Kosh adds it from 1 April.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = KoshTheme.colors.subtleText,
+                )
+            }
+            androidx.compose.material3.Switch(checked = includesInterest, onCheckedChange = { includesInterest = it })
         }
         if (draft != null) {
             val p = draft.toFinance().projectBalance(Time.today().plusYears(1))
@@ -279,7 +292,8 @@ private fun NpsEntry(item: InvestmentItem?, vm: InvestmentEditViewModel, onSave:
 private fun NpsSimpleForm(item: InvestmentItem?, onSave: (String, com.amitjha.kosh.domain.NpsSimple) -> Unit) {
     val spec = item?.spec as? com.amitjha.kosh.domain.NpsSimple
     var name by remember { mutableStateOf(item?.entity?.name ?: "NPS") }
-    var value by remember { mutableStateOf(item?.entity?.currentValue ?: spec?.valueAsOf) }
+    // Today's projected value, not the last stored one: the worker may not have run since a contribution.
+    var value by remember { mutableStateOf(spec?.valueOn(Time.today())?.first ?: item?.entity?.currentValue) }
     var monthly by remember { mutableStateOf(spec?.monthlyContribution) }
     var day by remember { mutableStateOf((spec?.contributionDay ?: 1).toString()) }
     var returnText by remember { mutableStateOf((spec?.annualReturnPct ?: com.amitjha.kosh.domain.NpsSimple.DEFAULT_RETURN_PCT).let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }) }
@@ -461,7 +475,7 @@ fun InvestmentDetailScreen(nav: NavController, id: Long) {
     KoshScreen(
         title = inv?.entity?.name ?: "Investment",
         subtitle = inv?.entity?.institution,
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         actions = {
             if (inv != null) {
                 IconButton(onClick = { nav.navigate(Routes.editInvestment(id)) }) { Icon(Icons.Outlined.Edit, contentDescription = "Edit") }
@@ -546,7 +560,7 @@ fun InvestmentDetailScreen(nav: NavController, id: Long) {
     if (confirmDelete) {
         ConfirmDialog("Delete investment?", "Its value history will be removed too.", "Delete", onConfirm = {
             confirmDelete = false
-            vm.delete { nav.popBackStack() }
+            vm.delete { nav.popBackSafely() }
         }, onDismiss = { confirmDelete = false }, destructive = true)
     }
 }

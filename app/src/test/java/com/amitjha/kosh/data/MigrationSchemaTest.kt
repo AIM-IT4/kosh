@@ -62,4 +62,36 @@ class MigrationSchemaTest {
         assertTrue(freq.getBoolean("notNull"))
         assertEquals("'QUARTERLY'", freq.getString("defaultValue"))
     }
+
+    private fun tables(db: JSONObject): Set<String> {
+        val entities = db.getJSONArray("entities")
+        return (0 until entities.length()).map { entities.getJSONObject(it).getString("tableName") }.toSet()
+    }
+
+    @Test
+    fun version5AddsOnlyTheTombstoneAndDemoTables() {
+        assertEquals(setOf("deleted_fingerprints", "demo_rows"), tables(schema(5)) - tables(schema(4)))
+        tables(schema(4)).forEach { table ->
+            assertEquals(table, columns(schema(4), table).keys, columns(schema(5), table).keys)
+        }
+        val tomb = columns(schema(5), "deleted_fingerprints")
+        assertEquals(setOf("fingerprint", "deletedAt"), tomb.keys)
+        assertTrue(tomb.values.all { it.getBoolean("notNull") })
+        assertEquals(setOf("kind", "rowKey"), columns(schema(5), "demo_rows").keys)
+    }
+
+    @Test
+    fun migration4To5CreatesTheSameTablesRoomExpects() {
+        val sql = mutableListOf<String>()
+        val db = java.lang.reflect.Proxy.newProxyInstance(
+            javaClass.classLoader, arrayOf(androidx.sqlite.db.SupportSQLiteDatabase::class.java),
+        ) { _, m, args -> if (m.name == "execSQL") sql += args[0] as String; null } as androidx.sqlite.db.SupportSQLiteDatabase
+        KoshDatabase.MIGRATION_4_5.migrate(db)
+        val entities = schema(5).getJSONArray("entities")
+        val expected = (0 until entities.length()).map { entities.getJSONObject(it) }
+            .filter { it.getString("tableName") in setOf("deleted_fingerprints", "demo_rows") }
+            .map { it.getString("createSql").replace("\${TABLE_NAME}", it.getString("tableName")) }
+        fun norm(s: String) = s.replace("IF NOT EXISTS", "").replace(Regex("\\s+"), " ").trim()
+        assertEquals(expected.map(::norm).toSet(), sql.map(::norm).toSet())
+    }
 }

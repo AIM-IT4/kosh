@@ -39,8 +39,13 @@ data class Period(val start: LocalDate, val endExclusive: LocalDate) {
 
     fun next(): Period = Period(endExclusive, endExclusive.plusMonths(1))
 
-    /** The "month" this period is labelled with (the month containing most of its days). */
-    val label: YearMonth get() = YearMonth.from(start.plusDays(lengthDays / 2L))
+    /**
+     * The month this period is labelled with. One rule everywhere (Activity, Home charts, insights):
+     * a period starting on day 1–15 is labelled with its starting month, one starting on day 16–28 with
+     * the next month (25 Sep – 24 Oct is "October"). It depends only on the start day, so every period of
+     * a given setup gets a distinct, consecutive label.
+     */
+    val label: YearMonth get() = labelFor(start)
 
     companion object {
         fun containing(date: LocalDate, monthStartDay: Int = 1): Period {
@@ -50,10 +55,17 @@ data class Period(val start: LocalDate, val endExclusive: LocalDate) {
             return Period(start, start.plusMonths(1))
         }
 
+        /** The period labelled [month] (the inverse of [label]). */
         fun of(month: YearMonth, monthStartDay: Int = 1): Period {
             val day = monthStartDay.coerceIn(1, 28)
-            val start = if (day == 1) month.atDay(1) else month.minusMonths(1).atDay(day)
+            val start = if (day > LABEL_NEXT_MONTH_AFTER_DAY) month.minusMonths(1).atDay(day) else month.atDay(day)
             return Period(start, start.plusMonths(1))
         }
+
+        /** Start days above this label the period with the following month. Insights use the same rule. */
+        const val LABEL_NEXT_MONTH_AFTER_DAY = 15
+
+        fun labelFor(start: LocalDate): YearMonth =
+            YearMonth.from(start).let { if (start.dayOfMonth > LABEL_NEXT_MONTH_AFTER_DAY) it.plusMonths(1) else it }
     }
 }

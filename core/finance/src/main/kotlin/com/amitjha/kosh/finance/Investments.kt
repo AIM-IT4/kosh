@@ -107,6 +107,11 @@ data class EpfProjection(
  * (rate / 12 per month) and credited once a year at the fiscal-year end (31 March). [balanceAsOf] is the
  * credited balance on [asOfDate]; interest accrues for every month that ends after [asOfDate]. Contributions
  * (employee + employer EPF share; the EPS part is excluded) arrive on [contributionDayOfMonth].
+ *
+ * A passbook balance taken mid-year normally excludes the current fiscal year's interest, which EPFO credits
+ * only after 31 March. Unless [balanceIncludesCurrentYearInterest] is set, interest for the months of the
+ * current fiscal year that ended on or before [asOfDate] is accrued on [balanceAsOf] and credited with the rest
+ * at the year end.
  */
 data class EpfAccount(
     val balanceAsOf: Paise,
@@ -115,17 +120,33 @@ data class EpfAccount(
     val monthlyEmployerEpfContribution: Paise,
     val annualRatePct: Double = DEFAULT_EPF_RATE_PCT,
     val contributionDayOfMonth: Int = 15,
+    val balanceIncludesCurrentYearInterest: Boolean = false,
 ) {
     init {
         require(contributionDayOfMonth in 1..31) { "contribution day must be 1-31" }
     }
 
+    /** Interest earned this fiscal year up to [asOfDate] that the entered balance does not yet include. */
+    val interestBeforeAsOf: Double get() {
+        if (balanceIncludesCurrentYearInterest) return 0.0
+        // A balance dated 31 March is the year-end figure; its year's interest is credited separately.
+        if (asOfDate.monthValue == 3 && asOfDate.dayOfMonth == 31) return 0.0
+        val fyStart = if (asOfDate.monthValue >= 4) YearMonth.of(asOfDate.year, 4) else YearMonth.of(asOfDate.year - 1, 4)
+        var months = 0
+        var m = fyStart
+        while (!m.atEndOfMonth().isAfter(asOfDate)) {
+            months++
+            m = m.plusMonths(1)
+        }
+        return balanceAsOf * annualRatePct / 100.0 / 12.0 * months
+    }
+
     val monthlyContribution: Paise get() = monthlyEmployeeContribution + monthlyEmployerEpfContribution
 
     fun projectBalance(onDate: LocalDate): EpfProjection {
-        if (!onDate.isAfter(asOfDate)) return EpfProjection(balanceAsOf, 0, 0)
+        if (!onDate.isAfter(asOfDate)) return EpfProjection(balanceAsOf, interestBeforeAsOf.roundToLong(), 0)
         var credited = balanceAsOf.toDouble()
-        var accrued = 0.0
+        var accrued = interestBeforeAsOf
         var contributions = 0L
         var month = YearMonth.from(asOfDate)
         val last = YearMonth.from(onDate)
@@ -196,7 +217,7 @@ data class NpsAccount(
         val bought = mutableMapOf<String, Double>()
         val byCode = holdings.associateBy { it.schemeCode }.toMutableMap()
         for ((code, fraction) in split) {
-            val nav = navs[code] ?: byCode[code]?.lastNav ?: error("no NAV for $code")
+            val nav = navs[code]?.takeIf { it > 0 } ?: byCode[code]?.lastNav?.takeIf { it > 0 } ?: error("no NAV for $code")
             val units = amount / 100.0 * fraction / nav
             bought[code] = units
             val h = byCode[code]
@@ -208,9 +229,16 @@ data class NpsAccount(
         return NpsContributionResult(copy(holdings = ordered, investedAmount = investedAmount + amount), bought)
     }
 
-    /** Updates every holding's last NAV from [navs]. */
+    /** Updates every holding's last NAV from [navs]; non-positive NAVs are ignored. */
     fun withNavs(navs: Map<String, Double>, date: LocalDate): NpsAccount = copy(
-        holdings = holdings.map { h -> navs[h.schemeCode]?.let { h.copy(lastNav = it, lastNavDate = date) } ?: h },
+        holdings = holdings.map { h -> navs[h.schemeCode]?.takeIf { it > 0 }?.let { h.copy(lastNav = it, lastNavDate = date) } ?: h },
+    )
+
+    /** Updates every holding from fetched [quotes], keeping each NAV's own publish date. */
+    fun withQuotes(quotes: Map<String, NavQuote>, fallbackDate: LocalDate): NpsAccount = copy(
+        holdings = holdings.map { h ->
+            quotes[h.schemeCode]?.takeIf { it.nav > 0 }?.let { q -> h.copy(lastNav = q.nav, lastNavDate = q.date ?: fallbackDate) } ?: h
+        },
     )
 
     fun contributionsDue(from: LocalDate, to: LocalDate): List<ContributionEvent> =

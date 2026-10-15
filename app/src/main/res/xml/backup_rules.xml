@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Financial data never goes to Android's cloud backup; Kosh has its own encrypted backup. -->
 <full-backup-content>
     <exclude domain="database" path="."/>
     <exclude domain="sharedpref" path="."/>
+    <exclude domain="file" path="datastore/"/>
 </full-backup-content>

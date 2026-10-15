@@ -74,6 +74,7 @@ import com.amitjha.kosh.ui.common.KoshTextField
 import com.amitjha.kosh.ui.common.LocalHideAmounts
 import com.amitjha.kosh.ui.common.color
 import com.amitjha.kosh.ui.common.koshViewModel
+import com.amitjha.kosh.ui.common.launchGuarded
 import com.amitjha.kosh.ui.common.rememberHaptic
 import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.flow.SharingStarted
@@ -100,8 +101,10 @@ class PlanningViewModel(private val c: AppContainer) : ViewModel() {
 
     fun setBudget(categoryKey: String?, limit: Long) = viewModelScope.launch { c.budgets.upsert(categoryKey, limit) }
     fun deleteBudget(s: BudgetStatus) = viewModelScope.launch { c.budgets.delete(s.budget) }
-    fun saveGoal(goal: GoalEntity) = viewModelScope.launch { c.goals.upsert(goal) }
-    fun contribute(id: Long, amount: Long) = viewModelScope.launch { c.goals.contribute(id, amount) }
+    private val guard = com.amitjha.kosh.ui.common.ActionGuard()
+
+    fun saveGoal(goal: GoalEntity) = launchGuarded(guard) { c.goals.upsert(goal) }
+    fun contribute(id: Long, amount: Long) = launchGuarded(guard) { c.goals.contribute(id, amount) }
     fun deleteGoal(goal: GoalEntity) = viewModelScope.launch { c.goals.delete(goal) }
 }
 

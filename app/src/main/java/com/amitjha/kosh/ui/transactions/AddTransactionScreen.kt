@@ -57,7 +57,10 @@ import com.amitjha.kosh.ui.common.KoshScreen
 import com.amitjha.kosh.ui.common.KoshTextField
 import com.amitjha.kosh.ui.common.bankEnum
 import com.amitjha.kosh.ui.common.color
+import com.amitjha.kosh.data.tombstones
 import com.amitjha.kosh.ui.common.koshViewModel
+import com.amitjha.kosh.ui.common.launchGuarded
+import com.amitjha.kosh.ui.nav.popPast
 import com.amitjha.kosh.ui.common.label
 import com.amitjha.kosh.ui.common.rememberHaptic
 import com.amitjha.kosh.ui.common.toRupeeInput
@@ -69,6 +72,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 data class EditorRefs(val accounts: List<AccountEntity> = emptyList(), val categories: List<CategoryEntity> = emptyList())
 
@@ -79,13 +83,23 @@ class AddTransactionViewModel(private val c: AppContainer) : ViewModel() {
 
     suspend fun load(id: Long): TransactionEntity? = c.transactions.byId(id)
 
-    fun save(existing: TransactionEntity?, draft: TransactionEntity, onDone: () -> Unit) = viewModelScope.launch {
+    private val guard = com.amitjha.kosh.ui.common.ActionGuard()
+
+    fun save(existing: TransactionEntity?, draft: TransactionEntity, onDone: () -> Unit) = launchGuarded(guard) {
         if (draft.type == TxnType.TRANSFER) {
-            val to = draft.toAccountId ?: return@launch
+            val to = draft.toAccountId ?: return@launchGuarded
             if (existing == null) {
                 c.transactions.addTransfer(draft.accountId, to, draft.amount, draft.timestamp, draft.note)
             } else {
-                c.transactions.update(draft.copy(id = existing.id, categoryKey = SmsMapping.TRANSFER_CATEGORY, excludeFromStats = true, reviewed = true))
+                // Keep the imported row's fingerprint, reference and channel, so the original SMS is still
+                // recognised as already imported and isn't added again as a new expense.
+                c.transactions.update(
+                    existing.copy(
+                        accountId = draft.accountId, toAccountId = to, type = TxnType.TRANSFER, amount = draft.amount,
+                        categoryKey = SmsMapping.TRANSFER_CATEGORY, merchant = draft.merchant, note = draft.note,
+                        timestamp = draft.timestamp, excludeFromStats = true, reviewed = true,
+                    ),
+                )
             }
         } else if (existing == null) {
             c.transactions.add(draft)
@@ -102,8 +116,9 @@ class AddTransactionViewModel(private val c: AppContainer) : ViewModel() {
         onDone()
     }
 
-    fun delete(id: Long, onDone: () -> Unit) = viewModelScope.launch {
-        c.transactions.delete(id)
+    /** Deletes the transaction; an imported one is remembered so a later inbox scan doesn't bring it back. */
+    fun delete(id: Long, onDone: () -> Unit) = launchGuarded(guard) {
+        c.tombstones.deleteTransaction(id)
         onDone()
     }
 }
@@ -119,9 +134,10 @@ fun AddTransactionScreen(nav: NavController, editId: Long?, initialType: TxnType
         initialType = initialType,
         initialAccountId = initialAccountId,
         load = { vm.load(it) },
-        onSave = { existing, draft -> vm.save(existing, draft) { nav.popBackStack() } },
-        onDelete = { id -> vm.delete(id) { nav.popBackStack() } },
-        onBack = { nav.popBackStack() },
+        onSave = { existing, draft -> vm.save(existing, draft) { nav.popBackSafely() } },
+        // After deleting, also leave the detail screen the editor was opened from: it would show "not found".
+        onDelete = { id -> vm.delete(id) { nav.popPast(com.amitjha.kosh.ui.nav.Routes.TXN_DETAIL) } },
+        onBack = { nav.popBackSafely() },
     )
 }
 

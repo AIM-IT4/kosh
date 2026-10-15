@@ -14,14 +14,19 @@ class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-        val parts = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+        // Malformed PDUs come back as null entries; a bad broadcast must never crash the app.
+        val parts = runCatching { Telephony.Sms.Intents.getMessagesFromIntent(intent) }.getOrNull()
+            ?.filterNotNull()
+            .orEmpty()
         if (parts.isEmpty()) return
         // Multi-part messages arrive as several PDUs from the same sender.
         val messages = parts.groupBy { it.displayOriginatingAddress ?: it.originatingAddress ?: "" }
+            .filterKeys { it.isNotEmpty() }
             .map { (sender, pdus) ->
+                // The PDU timestamp is the send time, the same value inbox scans read from DATE_SENT.
                 SmsMessage(sender, pdus.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }, pdus.first().timestampMillis)
             }
-            .filter { isFinancialMessage(it.sender, it.body) }
+            .filter { it.body.isNotBlank() && isFinancialMessage(it.sender, it.body) }
         if (messages.isEmpty()) return
 
         val app = context.applicationContext as KoshApp
@@ -35,11 +40,18 @@ class SmsReceiver : BroadcastReceiver() {
                 if (settings.notifyTransactions) {
                     for (txn in result.insertedTransactions) {
                         val verb = if (txn.type == TxnType.INCOME) "received" else "spent"
-                        val amount = if (settings.hideAmounts) "Money" else Money.format(txn.amount)
-                        val where = txn.merchant?.let { if (txn.type == TxnType.INCOME) " from $it" else " at $it" } ?: ""
-                        container.notifications.transaction(txn.id, "$amount $verb$where", "Tap to review and categorise")
+                        // Privacy mode keeps both the amount and the merchant off the notification shade.
+                        val text = if (settings.hideAmounts) {
+                            "New transaction $verb"
+                        } else {
+                            val where = txn.merchant?.let { if (txn.type == TxnType.INCOME) " from $it" else " at $it" } ?: ""
+                            "${Money.format(txn.amount)} $verb$where"
+                        }
+                        container.notifications.transaction(txn.id, text, "Tap to review and categorise")
                     }
                 }
+            } catch (e: Exception) {
+                // A failed live import is retried by the next inbox scan; never take the app down for it.
             } finally {
                 pending.finish()
             }

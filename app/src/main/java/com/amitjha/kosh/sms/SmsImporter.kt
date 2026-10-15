@@ -131,7 +131,7 @@ class SmsImporter(
                 result = result.copy(financial = result.financial + 1)
                 result = when (val parsed = runCatching { SmsParser.parse(msg) }.getOrNull()) {
                     is SmsParseResult.Transaction ->
-                        result + importTransaction(parsed.txn, rules, msg.body).copy(parsedTransactions = 1)
+                        result + importTransaction(parsed.txn, rules, msg).copy(parsedTransactions = 1)
                     is SmsParseResult.CardBill -> result + importBill(parsed.bill).copy(parsedBills = 1)
                     is SmsParseResult.BalanceUpdate -> result + importBalance(parsed.update)
                     is SmsParseResult.Ignored, null -> {
@@ -148,18 +148,33 @@ class SmsImporter(
                 }
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
-            runCatching { com.amitjha.kosh.repo.TransferPairer.run(db) }
+            // Only the window around these messages can gain new pairs; a live SMS shouldn't rescan everything.
+            val earliest = messages.minOfOrNull { it.timestampMillis }
+            if (earliest != null) {
+                val since = earliest - com.amitjha.kosh.domain.TransferPairing.WINDOW_MILLIS - DAY_MILLIS
+                runCatching { com.amitjha.kosh.repo.TransferPairer.run(db, since) }
+            }
             result
         }
     }
 
-    private suspend fun importTransaction(p: ParsedTransaction, rules: Map<String, String>, body: String = ""): ImportResult {
+    private suspend fun importTransaction(p: ParsedTransaction, rules: Map<String, String>, msg: SmsMessage? = null): ImportResult {
+        val body = msg?.body.orEmpty()
+        val txnDao = db.transactions()
+        // Same SMS imported before 1.8, when inbox scans fingerprinted with the phone's storage time.
+        if (msg != null && p.referenceNo == null && isKnownUnderReceivedTime(msg, p)) return ImportResult(duplicates = 1)
+
         var created = 0
         val account = resolveAccount(p.bank, p.accountLast4, p.isCreditCard) { created++ }
-        val txnDao = db.transactions()
+
+        // Without a reference number the fingerprint depends on the minute; the live receiver and an inbox
+        // scan can see slightly different times for one message, so treat a near-identical import as the same.
+        if (p.referenceNo == null && isNearDuplicate(account.id, p)) {
+            return ImportResult(duplicates = 1, accountsCreated = created)
+        }
 
         // A transfer the user already recorded (e.g. "mark bill paid") covers this card payment or bank debit.
-        if (coveredByManualTransfer(account, p)) {
+        if (coverWithManualTransfer(account, p)) {
             return ImportResult(duplicates = 1, accountsCreated = created)
         }
 
@@ -174,6 +189,9 @@ class SmsImporter(
             // Messages for an account the user ignored are kept but never counted.
             excludeFromStats = base.excludeFromStats || account.archived,
         )
+        // The user deleted this import before; a re-scan must not bring it back.
+        val fp = entity.fingerprint
+        if (fp != null && db.tombstones().contains(fp)) return ImportResult(duplicates = 1, accountsCreated = created)
         val id = txnDao.insertIgnore(entity)
         var balances = 0
         if (id > 0) {
@@ -241,12 +259,40 @@ class SmsImporter(
         }
     }
 
-    private suspend fun coveredByManualTransfer(account: AccountEntity, p: ParsedTransaction): Boolean {
-        val isCardPaymentSide = p.isCardPayment || (!p.isCreditCard && p.type == TxnType.EXPENSE)
-        if (!isCardPaymentSide) return false
+    private suspend fun isKnownUnderReceivedTime(msg: SmsMessage, p: ParsedTransaction): Boolean {
+        val received = msg.receivedMillis ?: return false
+        if (received == msg.timestampMillis) return false
+        val legacy = runCatching { SmsParser.parse(msg.copy(timestampMillis = received, receivedMillis = null)) }
+            .getOrNull() as? SmsParseResult.Transaction ?: return false
+        return legacy.txn.fingerprint != p.fingerprint && db.transactions().countFingerprint(legacy.txn.fingerprint) > 0
+    }
+
+    private suspend fun isNearDuplicate(accountId: Long, p: ParsedTransaction): Boolean {
+        val nearby = db.transactions().findAmountNear(
+            accountId, p.amount, p.timestampMillis - NEAR_DUPLICATE_MILLIS, p.timestampMillis + NEAR_DUPLICATE_MILLIS,
+        )
+        return SmsMapping.isNearDuplicate(nearby, accountId, p.type, p.amount, p.merchant, p.fingerprint)
+    }
+
+    /**
+     * Matches an SMS to a transfer the user recorded by hand, so the money isn't moved twice. Direction
+     * matters: a bank debit is covered only by a transfer *from* that account, a credit (bank income or a
+     * card payment) only by a transfer *to* it, and each manual transfer covers at most one SMS per side.
+     * The debit's fingerprint is stored on the manual transfer (so re-scans dedupe), the credit's as
+     * `referenceNo = "sms:<fingerprint>"`.
+     */
+    private suspend fun coverWithManualTransfer(account: AccountEntity, p: ParsedTransaction): Boolean {
+        val dao = db.transactions()
+        val marker = MANUAL_COVER_PREFIX + p.fingerprint
+        if (dao.countReference(marker) > 0) return true
+        val debitSide = p.type == TxnType.EXPENSE && !p.isCreditCard
+        val creditSide = p.type == TxnType.INCOME
+        if (!debitSide && !creditSide) return false
         val window = 3 * DAY_MILLIS
-        return db.transactions().findAmountNear(account.id, p.amount, p.timestampMillis - window, p.timestampMillis + window)
-            .any { it.type == TxnType.TRANSFER && it.source == TxnSource.MANUAL }
+        val nearby = dao.findAmountNear(account.id, p.amount, p.timestampMillis - window, p.timestampMillis + window)
+        val match = SmsMapping.manualTransferFor(nearby, account.id, debitSide, p.timestampMillis) ?: return false
+        dao.update(if (debitSide) match.copy(fingerprint = p.fingerprint) else match.copy(referenceNo = marker))
+        return true
     }
 
     /**
@@ -257,7 +303,10 @@ class SmsImporter(
         val banks = db.accounts().all().filter { it.type == AccountType.BANK }
         for (bank in banks) {
             val match = db.transactions().findAmountNear(bank.id, p.amount, p.timestampMillis - DAY_MILLIS, p.timestampMillis + DAY_MILLIS)
-                .firstOrNull { it.type == TxnType.EXPENSE && it.accountId == bank.id && !it.excludeFromStats }
+                .firstOrNull {
+                    it.type == TxnType.EXPENSE && it.accountId == bank.id && !it.excludeFromStats &&
+                        it.source != TxnSource.MANUAL && !it.reviewed
+                }
             if (match != null) {
                 db.transactions().update(match.copy(categoryKey = SmsMapping.TRANSFER_CATEGORY, excludeFromStats = true, note = match.note ?: "Paid ${card.name}"))
                 return
@@ -276,7 +325,12 @@ class SmsImporter(
         val out = ArrayList<String>()
         for (msg in messages.asReversed()) {
             val r = runCatching { SmsParser.parse(msg) }.getOrNull() as? SmsParseResult.Transaction ?: continue
-            if (r.txn.fingerprint in fingerprints) {
+            // Rows imported before 1.8 were fingerprinted with the storage time.
+            val legacy = msg.receivedMillis?.takeIf { it != msg.timestampMillis }?.let { at ->
+                (runCatching { SmsParser.parse(msg.copy(timestampMillis = at, receivedMillis = null)) }.getOrNull() as? SmsParseResult.Transaction)
+                    ?.txn?.fingerprint
+            }
+            if (r.txn.fingerprint in fingerprints || (legacy != null && legacy in fingerprints)) {
                 out += ImportResult.maskForSharing(msg.sender, msg.body)
                 if (out.size >= limit) break
             }
@@ -323,15 +377,19 @@ class SmsImporter(
     }
 
     private inline fun readFrom(uri: android.net.Uri, selection: String, sinceMillis: Long, sink: (SmsMessage) -> Unit) {
-        val projection = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE)
+        val projection = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.DATE_SENT)
         context.contentResolver.query(uri, projection, selection, arrayOf(sinceMillis.toString()), "${Telephony.Sms.DATE} ASC")?.use { c ->
             val iAddr = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
             val iBody = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
             val iDate = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
+            val iSent = c.getColumnIndex(Telephony.Sms.DATE_SENT)
             while (c.moveToNext()) {
                 val sender = c.getString(iAddr) ?: continue
                 val body = c.getString(iBody) ?: continue
-                sink(SmsMessage(sender, body, c.getLong(iDate)))
+                val stored = c.getLong(iDate)
+                // The send time equals the live receiver's PDU timestamp, so both paths fingerprint alike.
+                val sent = if (iSent >= 0) c.getLong(iSent) else 0L
+                sink(SmsMessage(sender, body, if (sent > 0) sent else stored, receivedMillis = stored))
             }
         }
     }
@@ -341,6 +399,12 @@ class SmsImporter(
         private const val DAY_MILLIS = 86_400_000L
         /** Re-read a little before the last scan so messages delivered late are not missed. */
         private const val OVERLAP_MILLIS = 2 * DAY_MILLIS
+
+        /** Two reference-less imports this close, same account, amount, type and merchant, are one message. */
+        const val NEAR_DUPLICATE_MILLIS = 3 * 60_000L
+
+        /** Marks a manual transfer whose credit side was matched to an SMS. */
+        const val MANUAL_COVER_PREFIX = "sms:"
 
         /** Ignore reasons that mean "we could not understand it" rather than "deliberately skipped". */
         private val UNPARSED_REASONS = setOf("no transaction found", "not a bank sender", "parse error")

@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 class NetWorthBreakdownViewModel(c: AppContainer) : ViewModel() {
     val netWorth: StateFlow<NetWorth?> = c.netWorth.observeNetWorth()
@@ -60,7 +61,7 @@ class NetWorthBreakdownViewModel(c: AppContainer) : ViewModel() {
 fun NetWorthBreakdownScreen(nav: NavController) {
     val vm = koshViewModel { NetWorthBreakdownViewModel(it) }
     val nw by vm.netWorth.collectAsStateWithLifecycle()
-    KoshScreen(title = "Net worth", subtitle = "How it is calculated", onBack = { nav.popBackStack() }) { padding ->
+    KoshScreen(title = "Net worth", subtitle = "How it is calculated", onBack = { nav.popBackSafely() }) { padding ->
         val n = nw ?: return@KoshScreen
         NetWorthBreakdownContent(
             n,

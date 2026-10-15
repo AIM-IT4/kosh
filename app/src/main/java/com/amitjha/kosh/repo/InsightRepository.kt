@@ -122,10 +122,16 @@ class InsightRepository(
             },
             upcomingBills = db.bills().unpaid().mapNotNull { b ->
                 val due = b.dueDate ?: return@mapNotNull null
-                BillInput(byId[b.accountId]?.account?.name ?: "Card", b.totalDue, LocalDate.ofEpochDay(due), b.paid, accountId = b.accountId)
+                BillInput(
+                    byId[b.accountId]?.account?.name ?: "Card", b.totalDue, LocalDate.ofEpochDay(due), b.paid,
+                    accountId = b.accountId, statementDate = b.statementDate?.let(LocalDate::ofEpochDay),
+                )
             },
             investments = db.investments().active().map {
-                InvestmentInput(it.name, it.type, it.currentValue, it.maturityDate?.let(LocalDate::ofEpochDay))
+                InvestmentInput(
+                    it.name, it.type, it.currentValue, it.maturityDate?.let(LocalDate::ofEpochDay),
+                    maturityValue = maturityValue(it),
+                )
             },
             categoryNames = db.categories().all().associate { it.key to it.name },
             monthStartDay = monthStartDay,
@@ -191,4 +197,12 @@ class NetWorthRepository(
             investmentItems = investments,
         )
     }
+}
+
+/** What an FD pays at maturity, from its stored spec (null for other investments or unreadable specs). */
+internal fun maturityValue(e: com.amitjha.kosh.data.InvestmentEntity): Paise? {
+    if (e.type != InvestmentType.FD) return null
+    val spec = runCatching { com.amitjha.kosh.domain.SpecCodec.decode(e.specJson) }.getOrNull() as? com.amitjha.kosh.domain.InvestmentSpec.Fd
+        ?: return null
+    return spec.toFinance(e.institution, e.name).maturityValue()
 }

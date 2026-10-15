@@ -6,10 +6,14 @@ import com.amitjha.kosh.domain.TransferPairing
 
 /** Applies [TransferPairing] to the stored transactions; run after imports and once on upgrade. */
 object TransferPairer {
-    /** Returns how many self-transfers were found. */
-    suspend fun run(db: KoshDatabase): Int {
+    /**
+     * Returns how many self-transfers were found. With [sinceMillis], only transactions from then on are
+     * considered (imports pass the window around the new messages instead of scanning everything).
+     */
+    suspend fun run(db: KoshDatabase, sinceMillis: Long? = null): Int {
         val accounts = db.accounts().all()
-        val pairs = TransferPairing.findPairs(db.transactions().all(), accounts)
+        val txns = if (sinceMillis != null) db.transactions().since(sinceMillis) else db.transactions().all()
+        val pairs = TransferPairing.findPairs(txns, accounts)
         if (pairs.isEmpty()) return 0
         db.withTransaction {
             for (pair in pairs) {

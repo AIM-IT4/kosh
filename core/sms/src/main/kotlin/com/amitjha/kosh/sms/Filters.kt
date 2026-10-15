@@ -8,9 +8,11 @@ internal object Filters {
     )
 
     private val always: List<Pair<String, Regex>> = listOf(
+        // Clear OTP deliveries only. "Avl Bal 12345.67. Never share your OTP" is a real debit, see [weakOtp].
         "otp" to Regex(
-            "\\botp\\b.{0,20}(?:is|:)\\s*\\d{4,8}|\\b\\d{4,8}\\b.{0,25}\\botp\\b|one[- ]time password|" +
-                "verification code|\\bcode is\\s*\\d",
+            "\\botp\\b.{0,20}(?:is|:)\\s*\\d{4,8}|\\botp\\b.{0,60}\\bis\\s*\\d{4,8}\\b|" +
+                "\\b\\d{4,8}\\b\\s*(?:is|as)\\s*(?:your|the)?\\s*(?:otp|one[- ]time password)|" +
+                "one[- ]time password|verification code|\\bcode is\\s*\\d",
         ),
         "failed or declined" to Regex(
             "declined|\\bfailed\\b|unsuccessful|not successful|could not be (?:processed|completed)|" +
@@ -39,9 +41,14 @@ internal object Filters {
 
     private val refundOfFailed = Regex("(?:refund|reversed|reversal).{0,80}credited|credited.{0,80}(?:refund|reversed|reversal)")
 
+    /** "1234 ... OTP" without delivery wording: only an OTP message when there is no transaction verb. */
+    private val weakOtp = Regex("\\b\\d{4,8}\\b.{0,25}\\botp\\b")
+
     /** Hard rejections, applied before bill detection. */
     fun hardReject(lower: String): String? {
-        val hit = always.firstOrNull { it.second.containsMatchIn(lower) }?.first ?: return null
+        val hit = always.firstOrNull { it.second.containsMatchIn(lower) }?.first
+            ?: (if (weakOtp.containsMatchIn(lower) && !txnVerb.containsMatchIn(lower)) "otp" else null)
+            ?: return null
         // "Refund of Rs.X for failed txn credited" is a real credit
         if (hit == "failed or declined" && refundOfFailed.containsMatchIn(lower)) return null
         return hit

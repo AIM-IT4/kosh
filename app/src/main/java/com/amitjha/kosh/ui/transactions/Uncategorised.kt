@@ -69,6 +69,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 /** Uncategorised transactions to the same payee, fixed together with one tap. */
 data class PayeeGroup(
@@ -164,7 +165,7 @@ fun UncategorisedScreen(nav: NavController) {
     KoshScreen(
         title = "Fix uncategorised",
         subtitle = "Pick a category once per payee",
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         snackbar = snackbar,
     ) { padding ->
         if (state.loaded && state.groups.isEmpty()) {

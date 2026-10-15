@@ -50,11 +50,19 @@ class Notifications(private val context: Context) {
     private fun post(channel: String, id: Int, title: String, text: String, route: String) {
         if (!canNotify()) return
         val intent = Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            // SINGLE_TOP delivers the tap to the running activity (onNewIntent) instead of recreating it.
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra(EXTRA_ROUTE, route)
         val pending = PendingIntent.getActivity(
             context, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // On the lock screen only a generic line shows; amounts and merchants stay hidden until unlocked.
+        val publicVersion = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Kosh")
+            .setContentText(PUBLIC_TEXT[channel] ?: "New activity")
+            .setColor(0xFF4C3BE0.toInt())
+            .build()
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -63,6 +71,8 @@ class Notifications(private val context: Context) {
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setColor(0xFF4C3BE0.toInt())
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion)
             .build()
         try {
             NotificationManagerCompat.from(context).notify(id, notification)
@@ -83,6 +93,14 @@ class Notifications(private val context: Context) {
         const val ROUTE_BILLS = "bills"
         const val ROUTE_INSIGHTS = "insights"
         const val ROUTE_INVESTMENTS = "investments"
+
+        /** Lock-screen text per channel, with no amounts or merchants. */
+        private val PUBLIC_TEXT = mapOf(
+            CH_TRANSACTIONS to "New transaction to review",
+            CH_BILLS to "Card bill reminder",
+            CH_INSIGHTS to "New insight",
+            CH_MATURITY to "Investment update",
+        )
 
         private const val NOTIF_TXN_BASE = 100_000L
         private const val NOTIF_BILL_BASE = 300_000

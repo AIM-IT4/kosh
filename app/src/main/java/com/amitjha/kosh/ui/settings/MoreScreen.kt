@@ -90,6 +90,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import com.amitjha.kosh.ui.common.rememberSmsPermissionRequest
 import java.time.LocalDate
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 fun ImportResult.describe(): String = when {
     permissionMissing -> "SMS permission is needed to scan your inbox"
@@ -127,6 +128,9 @@ fun MoreScreen(nav: NavController) {
     val unpaidBills by c.bills.observeUnpaid().collectAsState(initial = emptyList())
 
     fun show(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
+    var sampleLoaded by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { sampleLoaded = runCatching { c.demoData.isLoaded() }.getOrDefault(false) }
+    val backupFlow = remember { com.amitjha.kosh.security.BackupFlow(context.applicationContext as com.amitjha.kosh.KoshApp) }
 
     fun scanSms() {
         busy = "Scanning SMS inbox…"
@@ -200,6 +204,8 @@ fun MoreScreen(nav: NavController) {
                             } else if (activity != null) {
                                 scope.launch {
                                     if (BiometricGate.authenticate(activity, title = "Turn on app lock") == UnlockResult.Success) {
+                                        // The user just proved it's them: keep this session unlocked.
+                                        com.amitjha.kosh.ui.AppLock.markUnlocked()
                                         c.settings.setBiometricLock(true)
                                     }
                                 }
@@ -207,6 +213,13 @@ fun MoreScreen(nav: NavController) {
                         },
                         Icons.Outlined.Fingerprint,
                         enabled = canLock,
+                    )
+                    SwitchRow(
+                        "Block screenshots",
+                        "Hide Kosh in the recent-apps preview and block screenshots. On by default with app lock or hidden amounts",
+                        s.blockScreenshots,
+                        { v -> scope.launch { c.settings.setBlockScreenshots(v) } },
+                        Icons.Outlined.VisibilityOff,
                     )
                 }
             }
@@ -263,14 +276,29 @@ fun MoreScreen(nav: NavController) {
                     ActionRow("Restore from backup", "Replaces everything on this phone", Icons.Outlined.Restore, enabled = busy == null) {
                         openBackup.launch(arrayOf("*/*"))
                     }
-                    ActionRow("Load sample data", "Explore Kosh with demo accounts and transactions", Icons.Outlined.Science, enabled = busy == null) {
-                        busy = "Loading sample data…"
-                        scope.launch {
-                            c.demoData.load()
-                            c.investments.revalueAll(fetchNavs = false)
-                            c.netWorth.snapshot()
-                            busy = null
-                            show("Sample data loaded")
+                    if (sampleLoaded) {
+                        ActionRow("Remove sample data", "Deletes only the demo accounts, transactions and investments", Icons.Outlined.Science, enabled = busy == null) {
+                            busy = "Removing sample data…"
+                            scope.launch {
+                                runCatching { c.demoData.removeSample() }
+                                sampleLoaded = c.demoData.isLoaded()
+                                busy = null
+                                show("Sample data removed")
+                            }
+                        }
+                    } else {
+                        ActionRow("Load sample data", "Explore Kosh with demo accounts and transactions", Icons.Outlined.Science, enabled = busy == null) {
+                            busy = "Loading sample data…"
+                            scope.launch {
+                                val loaded = runCatching { c.demoData.load() }.getOrDefault(false)
+                                if (loaded) {
+                                    c.investments.revalueAll(fetchNavs = false)
+                                    c.netWorth.snapshot()
+                                }
+                                sampleLoaded = c.demoData.isLoaded()
+                                busy = null
+                                show(if (loaded) "Sample data loaded" else "Sample data is already loaded")
+                            }
                         }
                     }
                     ActionRow("Erase all data", "Deletes accounts, transactions and investments", Icons.Outlined.DeleteForever) { confirmErase = true }
@@ -305,6 +333,7 @@ fun MoreScreen(nav: NavController) {
                 confirmErase = false
                 scope.launch {
                     c.demoData.clear()
+                    sampleLoaded = false
                     show("All data erased")
                 }
             },
@@ -317,7 +346,7 @@ fun MoreScreen(nav: NavController) {
             backupUri = null
             busy = "Creating backup…"
             scope.launch {
-                val r = runCatching { c.backup.export(uri, pw.toCharArray()) }
+                val r = runCatching { backupFlow.export(uri, pw.toCharArray()) }
                 busy = null
                 show(r.map { "Backed up ${it.transactions} transactions and ${it.accounts} accounts" }.getOrElse { "Backup failed: ${it.message}" })
             }
@@ -329,8 +358,9 @@ fun MoreScreen(nav: NavController) {
             restoreUri = null
             busy = "Restoring…"
             scope.launch {
-                val r = runCatching { c.backup.restore(uri, pw.toCharArray()) }
+                val r = runCatching { backupFlow.restore(uri, pw.toCharArray()) }
                 busy = null
+                sampleLoaded = c.demoData.isLoaded()
                 show(
                     r.map { "Restored ${it.transactions} transactions and ${it.accounts} accounts" }.getOrElse {
                         if (it is BackupCrypto.WrongPasswordException) "Wrong password or damaged file" else "Restore failed: ${it.message}"
@@ -340,6 +370,8 @@ fun MoreScreen(nav: NavController) {
         }
     }
 }
+
+private const val NEW_BACKUP_MIN_PASSWORD = 8
 
 /** A titled group of settings rows on a card. */
 @Composable
@@ -355,7 +387,8 @@ fun Section(title: String, content: @Composable () -> Unit) {
 private fun PasswordDialog(title: String, message: String, confirm: Boolean, onDismiss: () -> Unit, onDone: (String) -> Unit) {
     var pw by remember { mutableStateOf("") }
     var pw2 by remember { mutableStateOf("") }
-    val ok = pw.length >= 6 && (!confirm || pw == pw2)
+    val minLength = if (confirm) NEW_BACKUP_MIN_PASSWORD else 1
+    val ok = pw.length >= minLength && (!confirm || pw == pw2)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -363,7 +396,7 @@ private fun PasswordDialog(title: String, message: String, confirm: Boolean, onD
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(message, style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.OutlinedTextField(
-                    pw, { pw = it }, label = { Text("Password (6+ characters)") }, singleLine = true,
+                    pw, { pw = it }, label = { Text(if (confirm) "Password ($NEW_BACKUP_MIN_PASSWORD+ characters)" else "Password") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
@@ -388,7 +421,7 @@ private fun PasswordDialog(title: String, message: String, confirm: Boolean, onD
 fun CategoriesScreen(nav: NavController) {
     val c = LocalContainer.current
     val cats by c.categories.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
-    KoshScreen(title = "Categories", subtitle = "Recategorise a transaction to teach Kosh your merchants", onBack = { nav.popBackStack() }) { padding ->
+    KoshScreen(title = "Categories", subtitle = "Recategorise a transaction to teach Kosh your merchants", onBack = { nav.popBackSafely() }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 40.dp)) {
             listOf(TxnType.EXPENSE to "Spending", TxnType.INCOME to "Income").forEach { (type, title) ->
                 item(key = title) {

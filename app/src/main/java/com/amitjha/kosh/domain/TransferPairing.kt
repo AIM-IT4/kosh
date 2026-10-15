@@ -3,6 +3,7 @@ package com.amitjha.kosh.domain
 import com.amitjha.kosh.data.AccountEntity
 import com.amitjha.kosh.data.TransactionEntity
 import com.amitjha.kosh.model.AccountType
+import com.amitjha.kosh.model.TxnSource
 import com.amitjha.kosh.model.TxnType
 import kotlin.math.abs
 
@@ -17,12 +18,18 @@ object TransferPairing {
 
     const val WINDOW_MILLIS = 2 * 24 * 60 * 60 * 1000L
 
+    /** Credits that are never one side of a self-transfer. */
+    private val NEVER_TRANSFER_CREDITS = setOf("salary", "refund", "interest", "cashback")
+
     data class Pair(val debit: TransactionEntity, val credit: TransactionEntity)
 
     /**
      * Pairs an expense on one own account with an income of the same amount on a different own account
      * within [WINDOW_MILLIS] (closest in time wins; each leg is used once). Card bill payments are
      * included: the card's "payment received" credit is already a transfer but its bank debit may not be.
+     *
+     * Only unreviewed imports take part: a manual entry or a row the user confirmed is never rewritten, and
+     * salary, refund, interest and cashback credits are never someone's transfer.
      */
     fun findPairs(txns: List<TransactionEntity>, accounts: List<AccountEntity>): List<Pair> {
         val accById = accounts.associateBy { it.id }
@@ -46,14 +53,15 @@ object TransferPairing {
                 }
             }
 
+        fun pairable(t: TransactionEntity) = !t.suspicious && t.source != TxnSource.MANUAL && !t.reviewed
         val debits = txns.filter {
-            it.type == TxnType.EXPENSE && !it.suspicious && it.categoryKey != SmsMapping.TRANSFER_CATEGORY &&
+            it.type == TxnType.EXPENSE && pairable(it) && it.categoryKey != SmsMapping.TRANSFER_CATEGORY &&
                 own(it.accountId) && !isCard(it.accountId)
         }.sortedBy { it.timestamp }
         val credits = txns.filter {
-            it.type == TxnType.INCOME && !it.suspicious && own(it.accountId) && it.id !in consumedCredits &&
+            it.type == TxnType.INCOME && pairable(it) && own(it.accountId) && it.id !in consumedCredits &&
                 (it.categoryKey != SmsMapping.TRANSFER_CATEGORY || isCard(it.accountId)) &&
-                it.categoryKey != "salary"
+                it.categoryKey !in NEVER_TRANSFER_CREDITS
         }
 
         val usedCredits = HashSet<Long>()

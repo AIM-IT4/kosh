@@ -134,8 +134,17 @@ interface TransactionDao {
     @Delete
     suspend fun delete(txn: TransactionEntity)
 
-    @Query("UPDATE transactions SET categoryKey = :categoryKey WHERE merchant = :merchant AND source != 'MANUAL'")
-    suspend fun recategoriseMerchant(merchant: String, categoryKey: String)
+    /**
+     * "Apply to similar": imported transactions of the same [type] from [merchant] get [categoryKey].
+     * Rows already filed as transfers (paired legs, card payments) are left alone, and a row hidden from
+     * stats for another reason (an ignored account) stays hidden.
+     */
+    @Query(
+        """UPDATE transactions SET categoryKey = :categoryKey,
+           excludeFromStats = CASE WHEN :categoryKey = 'transfer' THEN 1 ELSE excludeFromStats END
+           WHERE merchant = :merchant AND source != 'MANUAL' AND type = :type AND categoryKey != 'transfer'""",
+    )
+    suspend fun recategoriseMerchant(merchant: String, categoryKey: String, type: String)
 
     /** Confirms every unreviewed import except suspicious ones, which need an individual look. */
     @Query("UPDATE transactions SET reviewed = 1 WHERE reviewed = 0 AND suspicious = 0")
@@ -198,10 +207,8 @@ interface TransactionDao {
     suspend fun all(): List<TransactionEntity>
 
     /** Imported expenses that are still uncategorised, or were filed as transfers to a phone-number payee. */
-    @Query(
-        """SELECT * FROM transactions WHERE source != 'MANUAL' AND type = 'EXPENSE' AND (categoryKey = 'other'
-           OR (categoryKey = 'transfer' AND reviewed = 0 AND toAccountId IS NULL AND merchant LIKE 'UPI X%'))""",
-    )
+    /** Imported expenses still in "other" that the user hasn't reviewed (a reviewed "other" is a choice). */
+    @Query("SELECT * FROM transactions WHERE source != 'MANUAL' AND type = 'EXPENSE' AND categoryKey = 'other' AND reviewed = 0")
     suspend fun recategoriseCandidates(): List<TransactionEntity>
 
     @Query("DELETE FROM transactions")
@@ -301,7 +308,8 @@ interface InvestmentDao {
     @Delete
     suspend fun delete(investment: InvestmentEntity)
 
-    @Upsert
+    /** One value per investment per day: a later write the same day replaces the earlier one. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSnapshot(snapshot: InvestmentSnapshotEntity)
 
     @Query("SELECT * FROM investment_history WHERE investmentId = :investmentId ORDER BY epochDay")

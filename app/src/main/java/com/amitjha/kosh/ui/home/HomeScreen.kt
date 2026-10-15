@@ -102,6 +102,7 @@ import com.amitjha.kosh.designsystem.components.SpendHeatmap
 import com.amitjha.kosh.designsystem.components.SpendPaceChart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.amitjha.kosh.ui.nav.navigateToTab
 
 data class HomeState(
     val loading: Boolean = true,
@@ -215,12 +216,12 @@ fun HomeScreen(nav: NavController) {
         onInsights = { nav.navigate(Routes.INSIGHTS) },
         onReview = { nav.navigate(Routes.REVIEW) },
         onBills = { nav.navigate(Routes.BILLS) },
-        onActivity = { nav.navigate(Routes.TRANSACTIONS) },
+        onActivity = { nav.navigateToTab(Routes.TRANSACTIONS) },
         onCategory = { key ->
             com.amitjha.kosh.ui.transactions.ActivityFilterRequest.pendingCategory = key
-            nav.navigate(Routes.TRANSACTIONS) { launchSingleTop = true }
+            nav.navigateToTab(Routes.TRANSACTIONS)
         },
-        onWealth = { nav.navigate(Routes.WEALTH) { launchSingleTop = true } },
+        onWealth = { nav.navigateToTab(Routes.WEALTH) },
         onTransaction = { nav.navigate(Routes.txn(it)) },
         onAccounts = { nav.navigate(Routes.ACCOUNTS) },
         onAccount = { nav.navigate(Routes.account(it)) },

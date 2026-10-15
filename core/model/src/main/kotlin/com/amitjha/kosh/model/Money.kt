@@ -23,7 +23,8 @@ object Money {
     /** Formats with Indian digit grouping: 12345678.9 -> "₹1,23,45,678.90". */
     fun format(paise: Paise, showPaise: Boolean = true, symbol: String = "₹"): String {
         val negative = paise < 0
-        val absPaise = abs(paise)
+        // Without paise the amount is rounded to the nearest rupee (₹1,999.99 shows as ₹2,000).
+        val absPaise = if (showPaise) abs(paise) else (abs(paise) + 50) / 100 * 100
         val rupees = absPaise / 100
         val fraction = absPaise % 100
         val grouped = groupIndian(rupees.toString())
@@ -35,11 +36,23 @@ object Money {
     fun compact(paise: Paise, symbol: String = "₹"): String {
         val r = abs(paise) / 100.0
         val sign = if (paise < 0) "-" else ""
-        val body = when {
-            r >= 1e7 -> trim(r / 1e7) + "Cr"
-            r >= 1e5 -> trim(r / 1e5) + "L"
-            r >= 1e3 -> trim(r / 1e3) + "K"
-            else -> r.toLong().toString()
+        // Pick the unit after rounding, so ₹99,950 reads "₹1L" rather than "₹100K".
+        val units = listOf(1e7 to "Cr", 1e5 to "L", 1e3 to "K")
+        val rupees = Math.round(r)
+        var body = rupees.toString()
+        if (rupees >= 1_000) {
+            for ((i, unit) in units.withIndex()) {
+                if (r < unit.first) continue
+                val rounded = BigDecimal.valueOf(r / unit.first).setScale(1, RoundingMode.HALF_UP).toDouble()
+                val bigger = units.getOrNull(i - 1)
+                body = if (bigger != null && rounded * unit.first >= bigger.first) {
+                    trim(r / bigger.first) + bigger.second
+                } else {
+                    trim(r / unit.first) + unit.second
+                }
+                break
+            }
+            if (r < 1e3) body = "1K"
         }
         return sign + symbol + body
     }

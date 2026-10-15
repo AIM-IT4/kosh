@@ -17,7 +17,15 @@ import javax.crypto.spec.SecretKeySpec
 object BackupCrypto {
     private val MAGIC = byteArrayOf('K'.code.toByte(), 'O'.code.toByte(), 'S'.code.toByte(), 'H'.code.toByte())
     private const val VERSION: Byte = 1
-    const val DEFAULT_ITERATIONS = 210_000
+    /** OWASP's 2023 recommendation for PBKDF2-HMAC-SHA256. Older backups used 210,000 and still open. */
+    const val DEFAULT_ITERATIONS = 600_000
+
+    /**
+     * Bounds for the iteration count read from a file header. A crafted file can't make restore hang for
+     * hours, and nothing weaker than any Kosh version ever wrote is accepted.
+     */
+    const val MIN_ITERATIONS = 100_000
+    const val MAX_ITERATIONS = 2_000_000
     private const val SALT_LEN = 16
     private const val IV_LEN = 12
     private const val TAG_BITS = 128
@@ -46,6 +54,7 @@ object BackupCrypto {
         val version = buf.get()
         require(version == VERSION) { "Unsupported backup version $version" }
         val iterations = buf.int
+        if (iterations !in MIN_ITERATIONS..MAX_ITERATIONS) throw IllegalArgumentException("Damaged backup file")
         val salt = ByteArray(SALT_LEN).also { buf.get(it) }
         val iv = ByteArray(IV_LEN).also { buf.get(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

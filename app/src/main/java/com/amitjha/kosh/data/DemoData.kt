@@ -1,5 +1,6 @@
 package com.amitjha.kosh.data
 
+import androidx.room.withTransaction
 import com.amitjha.kosh.domain.InvestmentSpec
 import com.amitjha.kosh.finance.Compounding
 import com.amitjha.kosh.finance.NpsHolding
@@ -15,24 +16,28 @@ import java.time.LocalDate
 import kotlin.random.Random
 
 /**
- * Realistic sample data for showcasing the app. Only loaded when the user asks for it in Settings;
- * [clear] removes everything again.
+ * Realistic sample data for showcasing the app. Only loaded when the user asks for it in Settings.
+ *
+ * Every row it creates is recorded in `demo_rows`, so [load] runs at most once and [removeSample] deletes the
+ * sample rows (and, through foreign keys, their transactions, bills and history) without touching the user's own.
  */
 class DemoData(private val db: KoshDatabase, private val investments: InvestmentRepository) {
 
-    suspend fun load(today: LocalDate = Time.today()) {
+    /** Loads the sample data; returns false (and does nothing) if it is already loaded. */
+    suspend fun load(today: LocalDate = Time.today()): Boolean {
+        if (db.demoRows().count() > 0) return false
         val rnd = Random(42)
         val start = today.withDayOfMonth(1).minusMonths(3)
         val openingDate = Time.startOfDay(start)
 
-        val hdfc = db.accounts().insert(account("HDFC Savings", AccountType.BANK, Bank.HDFC, "4521", rupees(85_000.0), openingDate))
-        val icici = db.accounts().insert(account("ICICI Salary", AccountType.BANK, Bank.ICICI, "7788", rupees(42_000.0), openingDate))
-        val cash = db.accounts().insert(AccountEntity(name = "Cash", type = AccountType.CASH, bank = Bank.OTHER.name, openingBalance = rupees(3_500.0), openingDate = openingDate))
-        val hdfcCard = db.accounts().insert(
+        val hdfc = demoAccount(account("HDFC Savings", AccountType.BANK, Bank.HDFC, "4521", rupees(85_000.0), openingDate))
+        val icici = demoAccount(account("ICICI Salary", AccountType.BANK, Bank.ICICI, "7788", rupees(42_000.0), openingDate))
+        val cash = demoAccount(AccountEntity(name = "Cash", type = AccountType.CASH, bank = Bank.OTHER.name, openingBalance = rupees(3_500.0), openingDate = openingDate))
+        val hdfcCard = demoAccount(
             account("HDFC Regalia", AccountType.CREDIT_CARD, Bank.HDFC, "9012", 0, openingDate)
                 .copy(creditLimit = rupees(3_00_000.0), statementDay = 12, dueDay = 2),
         )
-        val iciciCard = db.accounts().insert(
+        val iciciCard = demoAccount(
             account("ICICI Amazon Pay", AccountType.CREDIT_CARD, Bank.ICICI, "3344", 0, openingDate)
                 .copy(creditLimit = rupees(1_50_000.0), statementDay = 18, dueDay = 5),
         )
@@ -86,26 +91,27 @@ class DemoData(private val db: KoshDatabase, private val investments: Investment
         )
 
         // Budgets and goals.
-        db.budgets().upsert(BudgetEntity(categoryKey = null, monthlyLimit = rupees(60_000.0)))
-        db.budgets().upsert(BudgetEntity(categoryKey = "food", monthlyLimit = rupees(6_000.0)))
-        db.budgets().upsert(BudgetEntity(categoryKey = "shopping", monthlyLimit = rupees(8_000.0)))
-        db.budgets().upsert(BudgetEntity(categoryKey = "groceries", monthlyLimit = rupees(9_000.0)))
-        db.goals().upsert(GoalEntity(name = "Emergency fund", target = rupees(4_00_000.0), saved = rupees(2_35_000.0), deadline = today.plusMonths(10).toEpochDay(), icon = "shield"))
-        db.goals().upsert(GoalEntity(name = "Europe trip", target = rupees(3_50_000.0), saved = rupees(90_000.0), deadline = today.plusMonths(14).toEpochDay(), icon = "flight"))
+        // Only where the user has no budget yet, so their own limits are never overwritten.
+        demoBudget(null, rupees(60_000.0))
+        demoBudget("food", rupees(6_000.0))
+        demoBudget("shopping", rupees(8_000.0))
+        demoBudget("groceries", rupees(9_000.0))
+        mark("goal", db.goals().upsert(GoalEntity(name = "Emergency fund", target = rupees(4_00_000.0), saved = rupees(2_35_000.0), deadline = today.plusMonths(10).toEpochDay(), icon = "shield")))
+        mark("goal", db.goals().upsert(GoalEntity(name = "Europe trip", target = rupees(3_50_000.0), saved = rupees(90_000.0), deadline = today.plusMonths(14).toEpochDay(), icon = "flight")))
 
         // Investments.
-        investments.addFd(
+        mark("investment", investments.addFd(
             "HDFC FD 2025", Bank.HDFC.displayName,
             InvestmentSpec.Fd(rupees(2_00_000.0), 7.25, today.minusMonths(11), today.plusDays(20), Compounding.QUARTERLY),
-        )
-        investments.addFd(
+        ))
+        mark("investment", investments.addFd(
             "ICICI Tax Saver FD", Bank.ICICI.displayName,
             InvestmentSpec.Fd(rupees(1_50_000.0), 7.0, today.minusYears(2), today.plusYears(3), Compounding.QUARTERLY),
-        )
-        investments.addEpf(
+        ))
+        mark("investment", investments.addEpf(
             "EPF - ACME", InvestmentSpec.Epf(rupees(6_42_000.0), today.withDayOfMonth(1).minusMonths(6), rupees(7_800.0), rupees(2_386.0)),
-        )
-        investments.addNps(
+        ))
+        mark("investment", investments.addNps(
             "NPS Tier I",
             InvestmentSpec.Nps(
                 holdings = listOf(
@@ -117,8 +123,40 @@ class DemoData(private val db: KoshDatabase, private val investments: Investment
                 allocation = mapOf("SM008001" to 0.5, "SM008002" to 0.25, "SM008003" to 0.25),
                 investedAmount = rupees(2_95_000.0),
             ),
-        )
+        ))
+        return true
     }
+
+    /** Whether sample data is currently loaded. */
+    suspend fun isLoaded(): Boolean = db.demoRows().count() > 0
+
+    /** Removes only the sample rows; the user's own data stays. */
+    suspend fun removeSample() {
+        val rows = db.demoRows().all()
+        if (rows.isEmpty()) return
+        db.withTransaction {
+            val ids = { kind: String -> rows.filter { it.kind == kind }.mapNotNull { it.rowKey.toLongOrNull() } }
+            // Deleting an account removes its transactions and bills (foreign keys cascade); same for investments.
+            db.demoRows().deleteAccounts(ids("account"))
+            db.demoRows().deleteGoals(ids("goal"))
+            db.demoRows().deleteInvestments(ids("investment"))
+            val budgets = rows.filter { it.kind == "budget" }.map { it.rowKey }
+            db.demoRows().deleteBudgets(budgets.filter { it != OVERALL })
+            if (OVERALL in budgets) db.demoRows().deleteOverallBudget()
+            db.demoRows().clear()
+        }
+    }
+
+    private suspend fun demoAccount(account: AccountEntity): Long = db.accounts().insert(account).also { mark("account", it) }
+
+    private suspend fun demoBudget(categoryKey: String?, limit: Long) {
+        val exists = if (categoryKey == null) db.demoRows().overallBudgetCount() > 0 else db.demoRows().budgetCount(categoryKey) > 0
+        if (exists) return
+        db.budgets().upsert(BudgetEntity(categoryKey = categoryKey, monthlyLimit = limit))
+        db.demoRows().insert(DemoRowEntity("budget", categoryKey ?: OVERALL))
+    }
+
+    private suspend fun mark(kind: String, id: Long) = db.demoRows().insert(DemoRowEntity(kind, id.toString()))
 
     /** Removes all user data (categories are re-seeded). */
     suspend fun clear() {
@@ -139,4 +177,8 @@ class DemoData(private val db: KoshDatabase, private val investments: Investment
     }
 
     private fun rupees(r: Double) = Money.fromRupees(r)
+
+    private companion object {
+        const val OVERALL = "*"
+    }
 }

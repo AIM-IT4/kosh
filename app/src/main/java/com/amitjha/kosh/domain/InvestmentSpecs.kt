@@ -36,9 +36,13 @@ sealed interface InvestmentSpec {
         val monthlyEmployer: Paise,
         val annualRatePct: Double = EpfAccount.DEFAULT_EPF_RATE_PCT,
         val contributionDay: Int = 15,
+        /** True when the entered balance already includes this fiscal year's interest. */
+        val includesCurrentYearInterest: Boolean = false,
     ) : InvestmentSpec {
         override val type get() = InvestmentType.EPF
-        fun toFinance() = EpfAccount(balanceAsOf, asOfDate, monthlyEmployee, monthlyEmployer, annualRatePct, contributionDay)
+        fun toFinance() = EpfAccount(
+            balanceAsOf, asOfDate, monthlyEmployee, monthlyEmployer, annualRatePct, contributionDay, includesCurrentYearInterest,
+        )
     }
 
     data class Nps(
@@ -71,12 +75,13 @@ data class NpsSimple(
     override val type get() = InvestmentType.NPS
 
     /**
-     * Value and amount invested on [date]: the balance compounds monthly at [annualReturnPct] / 12 and each
-     * contribution is added on [contributionDay] of every month after [asOfDate].
+     * Value and amount invested on [date]: the balance compounds monthly so that a full year grows by exactly
+     * [annualReturnPct] (monthly rate (1 + R)^(1/12) − 1), and each contribution is added on [contributionDay] of
+     * every month after [asOfDate].
      */
     fun valueOn(date: LocalDate): kotlin.Pair<Paise, Paise> {
         if (!date.isAfter(asOfDate)) return valueAsOf to investedAsOf
-        val r = annualReturnPct / 100.0 / 12.0
+        val r = Math.pow(1 + annualReturnPct / 100.0, 1.0 / 12.0) - 1
         var value = valueAsOf.toDouble()
         var invested = investedAsOf
         var cursor = asOfDate
@@ -126,6 +131,7 @@ object SpecCodec {
             .put("employer", spec.monthlyEmployer)
             .put("rate", spec.annualRatePct)
             .put("day", spec.contributionDay)
+            .put("includesFyInterest", spec.includesCurrentYearInterest)
         is InvestmentSpec.Nps -> JSONObject()
             .put("type", "NPS")
             .put("holdings", JSONArray().apply {
@@ -174,6 +180,7 @@ object SpecCodec {
                 monthlyEmployer = o.getLong("employer"),
                 annualRatePct = o.optDouble("rate", EpfAccount.DEFAULT_EPF_RATE_PCT),
                 contributionDay = o.optInt("day", 15),
+                includesCurrentYearInterest = o.optBoolean("includesFyInterest", false),
             )
             "NPS" -> if (o.optString("mode") == "simple") {
                 NpsSimple(

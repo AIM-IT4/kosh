@@ -19,7 +19,8 @@ object SmsMapping {
 
     /**
      * Finds the account a message belongs to: same bank and kind (card vs account), and the same last 4 digits
-     * when both are known. If the message has no digits and the user has exactly one such account, use it.
+     * when both are known. If the message has no digits and the user has exactly one such account, use it;
+     * with several, reuse the account already created for digitless messages so only one is ever made.
      */
     fun matchAccount(accounts: List<AccountEntity>, bank: Bank, last4: String?, isCard: Boolean): AccountEntity? {
         val type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK
@@ -33,7 +34,9 @@ object SmsMapping {
             // An account the user chose to ignore keeps receiving its messages, so it isn't recreated.
             return sameKind.firstOrNull { it.archived && it.last4 == last4 }
         }
-        return candidates.singleOrNull()
+        candidates.singleOrNull()?.let { return it }
+        return candidates.firstOrNull { it.last4 == null && it.autoCreated }
+            ?: sameKind.firstOrNull { it.archived && it.last4 == null }
     }
 
     /** Above this, an imported amount (other than salary) is held for review instead of moving balances. */
@@ -98,20 +101,25 @@ object SmsMapping {
         s.trim().substringBefore(' ').lowercase().filter { it.isLetterOrDigit() }
 
     /**
-     * Picks a better category for an imported transaction stuck in "other" (or in the old "transfer"
-     * bucket for payments to a person), using the user's rules first and the category guesser second.
-     * Returns null when nothing should change. Manual entries are never touched.
+     * Picks a better category for an imported, unreviewed transaction stuck in "other", using the user's rules
+     * first and the category guesser second. Returns null when nothing should change. Manual entries, reviewed
+     * rows and transfers are never touched, and a row hidden from stats (an ignored account) stays hidden.
      */
     fun recategorised(txn: TransactionEntity, rules: Map<String, String>): TransactionEntity? {
         if (txn.source == TxnSource.MANUAL || txn.type != TxnType.EXPENSE) return null
-        val legacyPersonTransfer = txn.categoryKey == TRANSFER_CATEGORY && !txn.reviewed && txn.toAccountId == null &&
-            txn.merchant?.startsWith("UPI X", ignoreCase = true) == true
-        if (txn.categoryKey != "other" && !legacyPersonTransfer) return null
+        if (txn.categoryKey != "other" || txn.reviewed) return null
         val next = ruleFor(rules, txn.merchant)
             ?: com.amitjha.kosh.sms.CategoryGuesser.guess(txn.merchant, txn.note.orEmpty(), txn.type, txn.channel)
         if (next == txn.categoryKey || next == "other") return null
-        return txn.copy(categoryKey = next, excludeFromStats = next == TRANSFER_CATEGORY)
+        return txn.copy(categoryKey = next, excludeFromStats = txn.excludeFromStats || next == TRANSFER_CATEGORY)
     }
+
+    /**
+     * Stats flag after a user picks [newCategory] for a row: transfers are hidden; a row hidden for another
+     * reason (an ignored account) stays hidden; a former transfer becomes visible.
+     */
+    fun excludeAfterRecategorise(txn: TransactionEntity, newCategory: String): Boolean =
+        newCategory == TRANSFER_CATEGORY || (txn.excludeFromStats && txn.categoryKey != TRANSFER_CATEGORY)
 
     fun toTransaction(parsed: ParsedTransaction, accountId: Long, categoryOverride: String?): TransactionEntity {
         val cardPayment = parsed.isCardPayment
@@ -145,6 +153,33 @@ object SmsMapping {
             source = source,
             fingerprint = parsed.fingerprint,
         )
+
+    /**
+     * The manual transfer an imported SMS belongs to, if any. Direction matters: a bank debit ([debitSide])
+     * is covered only by a transfer *from* [accountId] not yet matched to an SMS (no fingerprint); a credit
+     * only by a transfer *to* it not yet matched (no referenceNo). Closest in time wins.
+     */
+    fun manualTransferFor(candidates: List<TransactionEntity>, accountId: Long, debitSide: Boolean, at: Long): TransactionEntity? =
+        candidates
+            .filter { it.type == TxnType.TRANSFER && it.source == TxnSource.MANUAL }
+            .filter { if (debitSide) it.accountId == accountId && it.fingerprint == null else it.toAccountId == accountId && it.referenceNo == null }
+            .minByOrNull { kotlin.math.abs(it.timestamp - at) }
+
+    /**
+     * Whether an imported row in [nearby] is the same reference-less message seen with a slightly different
+     * timestamp (live receiver vs inbox scan): same account, type, amount and merchant, different fingerprint.
+     */
+    fun isNearDuplicate(
+        nearby: List<TransactionEntity>,
+        accountId: Long,
+        type: TxnType,
+        amount: Paise,
+        merchant: String?,
+        fingerprint: String,
+    ): Boolean = nearby.any {
+        it.accountId == accountId && it.type == type && it.amount == amount && it.source != TxnSource.MANUAL &&
+            it.referenceNo == null && it.merchant == merchant && it.fingerprint != fingerprint
+    }
 
     /** Whether [txn] counts as income or expense in summaries. */
     fun countsInStats(txn: TransactionEntity): Boolean =

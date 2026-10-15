@@ -14,8 +14,8 @@ android {
         applicationId = "com.amitjha.kosh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.7.0"
+        versionCode = 10
+        versionName = "1.8.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -38,9 +38,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
-        debug {
-            signingConfig = signingConfigs.getByName("release")
-        }
+        // Debug builds use the standard debug key, so a debuggable APK can never install over the real app.
     }
 
     compileOptions {

@@ -84,6 +84,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.amitjha.kosh.ui.nav.popBackSafely
+import com.amitjha.kosh.ui.nav.navigateToTab
 
 class InsightsViewModel(private val c: AppContainer) : ViewModel() {
     val insights: StateFlow<List<Insight>?> = c.insights.observeInsights().map<List<Insight>, List<Insight>?> { it }
@@ -106,15 +108,15 @@ fun openInsightAction(nav: NavController, action: InsightAction) {
     when (action.route) {
         InsightRoute.CATEGORY -> {
             ActivityFilterRequest.pendingCategory = action.argument
-            nav.navigate(Routes.TRANSACTIONS) { launchSingleTop = true }
+            nav.navigateToTab(Routes.TRANSACTIONS)
         }
-        InsightRoute.ACTIVITY -> nav.navigate(Routes.TRANSACTIONS) { launchSingleTop = true }
+        InsightRoute.ACTIVITY -> nav.navigateToTab(Routes.TRANSACTIONS)
         InsightRoute.BUDGETS, InsightRoute.GOALS -> {
             com.amitjha.kosh.ui.planning.PlanningTabRequest.pending = if (action.route == InsightRoute.GOALS) 1 else 0
-            nav.navigate(Routes.PLANNING) { launchSingleTop = true }
+            nav.navigateToTab(Routes.PLANNING)
         }
         InsightRoute.BILLS -> nav.navigate(Routes.BILLS)
-        InsightRoute.WEALTH -> nav.navigate(Routes.WEALTH) { launchSingleTop = true }
+        InsightRoute.WEALTH -> nav.navigateToTab(Routes.WEALTH)
         InsightRoute.ACCOUNTS -> nav.navigate(Routes.ACCOUNTS)
     }
 }
@@ -131,7 +133,7 @@ fun InsightsScreen(nav: NavController) {
     KoshScreen(
         title = "Insights",
         subtitle = "Worked out on your phone, from your own data",
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         actions = { IconButton(onClick = vm::restoreDismissed) { Icon(Icons.Outlined.Restore, contentDescription = "Show dismissed insights") } },
     ) { padding ->
         PullToRefreshBox(

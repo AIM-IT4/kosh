@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.amitjha.kosh.data.CategoryEntity
+import com.amitjha.kosh.data.tombstones
 import com.amitjha.kosh.designsystem.components.EmptyState
 import com.amitjha.kosh.designsystem.components.KoshCard
 import com.amitjha.kosh.designsystem.components.SourceBadge
@@ -57,6 +58,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 data class ReviewState(val items: List<TransactionItem> = emptyList(), val categories: List<CategoryEntity> = emptyList(), val loaded: Boolean = false)
 
@@ -67,7 +69,7 @@ class ReviewViewModel(private val c: AppContainer) : ViewModel() {
 
     fun confirm(id: Long) = viewModelScope.launch { c.transactions.markReviewed(id) }
     fun confirmAll() = viewModelScope.launch { c.transactions.markAllReviewed() }
-    fun delete(id: Long) = viewModelScope.launch { c.transactions.delete(id) }
+    fun delete(id: Long) = viewModelScope.launch { c.tombstones.deleteTransaction(id) }
     fun recategorise(id: Long, key: String, all: Boolean) = viewModelScope.launch { c.transactions.recategorise(id, key, all) }
     fun markTransfer(id: Long, otherAccountId: Long?) = viewModelScope.launch { c.transactions.markSelfTransfer(id, otherAccountId) }
 }
@@ -84,7 +86,7 @@ fun ReviewScreen(nav: NavController) {
     KoshScreen(
         title = "Review",
         subtitle = if (state.items.isEmpty()) null else "${state.items.size} imported from SMS & email",
-        onBack = { nav.popBackStack() },
+        onBack = { nav.popBackSafely() },
         actions = {
             if (state.items.isNotEmpty()) {
                 TextButton(onClick = {
@@ -105,7 +107,7 @@ fun ReviewScreen(nav: NavController) {
                 icon = Icons.Outlined.TaskAlt,
                 modifier = Modifier.padding(padding).padding(top = 60.dp),
                 actionLabel = "Back to home",
-                onAction = { nav.popBackStack() },
+                onAction = { nav.popBackSafely() },
             )
         } else {
             LazyColumn(

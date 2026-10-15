@@ -54,6 +54,7 @@ import com.amitjha.kosh.ui.common.KoshScreen
 import com.amitjha.kosh.ui.common.KoshTextField
 import com.amitjha.kosh.ui.common.LocalHideAmounts
 import com.amitjha.kosh.ui.common.koshViewModel
+import com.amitjha.kosh.ui.common.launchGuarded
 import com.amitjha.kosh.ui.common.label
 import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.flow.SharingStarted
@@ -61,6 +62,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.amitjha.kosh.ui.nav.popBackSafely
 
 /** Accounts found in SMS/e-mail plus the confirmed accounts they could be merged into. */
 data class PendingState(
@@ -74,9 +76,11 @@ class PendingAccountsViewModel(private val c: AppContainer) : ViewModel() {
         .map { all -> PendingState(all.filter { it.isPending }, all.filter { it.counted }, loaded = true) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PendingState())
 
-    fun merge(pendingId: Long, targetId: Long) = viewModelScope.launch { c.accounts.mergePending(pendingId, targetId) }
+    private val guard = com.amitjha.kosh.ui.common.ActionGuard()
 
-    fun addAsNew(id: Long, name: String, balance: Long) = viewModelScope.launch { c.accounts.confirmPendingAsNew(id, name, balance) }
+    fun merge(pendingId: Long, targetId: Long) = launchGuarded(guard) { c.accounts.mergePending(pendingId, targetId) }
+
+    fun addAsNew(id: Long, name: String, balance: Long) = launchGuarded(guard) { c.accounts.confirmPendingAsNew(id, name, balance) }
 
     fun ignore(id: Long) = viewModelScope.launch { c.accounts.ignorePending(id) }
 }
@@ -136,7 +140,7 @@ fun PendingAccountsScreen(nav: NavController) {
     var merging by remember { mutableStateOf<AccountWithBalance?>(null) }
     var adding by remember { mutableStateOf<AccountWithBalance?>(null) }
 
-    KoshScreen(title = "Accounts found in SMS", onBack = { nav.popBackStack() }) { padding ->
+    KoshScreen(title = "Accounts found in SMS", onBack = { nav.popBackSafely() }) { padding ->
         if (state.loaded && state.pending.isEmpty()) {
             EmptyState(
                 "All sorted",

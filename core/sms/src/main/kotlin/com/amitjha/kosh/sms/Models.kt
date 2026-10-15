@@ -9,7 +9,13 @@ import com.amitjha.kosh.model.TxnType
 data class SmsMessage(
     val sender: String,
     val body: String,
+    /** When the message was sent (the network timestamp); used for fingerprints and as the fallback date. */
     val timestampMillis: Long,
+    /**
+     * When the phone stored the message, if known and different. Versions before 1.8 fingerprinted inbox
+     * messages with this time, so the importer also checks it to avoid importing the same SMS twice.
+     */
+    val receivedMillis: Long? = null,
 )
 
 /** Outcome of parsing one SMS. */

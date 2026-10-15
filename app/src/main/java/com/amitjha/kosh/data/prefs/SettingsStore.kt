@@ -2,19 +2,26 @@ package com.amitjha.kosh.data.prefs
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "kosh_settings")
+// A corrupt settings file is replaced with defaults instead of crashing every launch.
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "kosh_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
@@ -30,8 +37,13 @@ data class Settings(
     val notifyInsights: Boolean = true,
     val hideAmounts: Boolean = false,
     val dismissedInsightIds: Set<String> = emptySet(),
+    /** User's explicit choice for blocking screenshots and the recents preview; null follows [blockScreenshots]. */
+    val blockScreenshotsChoice: Boolean? = null,
 ) {
     val currencySymbol: String get() = "₹"
+
+    /** Screenshots and the recents preview are blocked by default while app lock or privacy mode is on. */
+    val blockScreenshots: Boolean get() = blockScreenshotsChoice ?: (biometricLockEnabled || hideAmounts)
 }
 
 /** App preferences backed by DataStore. */
@@ -57,9 +69,13 @@ class SettingsStore(private val context: Context) {
         val notifiedInsights = stringSetPreferencesKey("notified_insights")
         val notifiedBills = stringSetPreferencesKey("notified_bills")
         val repairVersion = intPreferencesKey("repair_version")
+        val blockScreenshots = booleanPreferencesKey("block_screenshots")
     }
 
-    val settings: Flow<Settings> = context.dataStore.data.map { p ->
+    val settings: Flow<Settings> = context.dataStore.data.catch { e ->
+        // An unreadable file reads as defaults rather than crashing the collectors.
+        if (e is java.io.IOException) emit(emptyPreferences()) else throw e
+    }.map { p ->
         Settings(
             onboardingDone = p[Keys.onboardingDone] ?: false,
             biometricLockEnabled = p[Keys.biometricLock] ?: false,
@@ -72,6 +88,7 @@ class SettingsStore(private val context: Context) {
             notifyInsights = p[Keys.notifyInsights] ?: true,
             hideAmounts = p[Keys.hideAmounts] ?: false,
             dismissedInsightIds = p[Keys.dismissedInsights] ?: emptySet(),
+            blockScreenshotsChoice = p[Keys.blockScreenshots],
         )
     }
 
@@ -87,12 +104,13 @@ class SettingsStore(private val context: Context) {
     suspend fun setNotifyBills(enabled: Boolean) = edit { it[Keys.notifyBills] = enabled }
     suspend fun setNotifyInsights(enabled: Boolean) = edit { it[Keys.notifyInsights] = enabled }
     suspend fun setHideAmounts(hidden: Boolean) = edit { it[Keys.hideAmounts] = hidden }
+    suspend fun setBlockScreenshots(blocked: Boolean) = edit { it[Keys.blockScreenshots] = blocked }
 
     /** Clears preferences left by the removed Gmail import. */
     suspend fun clearLegacyGmail() = edit { prefs -> Keys.legacyGmail.forEach { prefs.remove(it) } }
 
     /** Version of the last one-time data repair applied after an update (see `repo.DataRepairs`). */
-    suspend fun repairVersion(): Int = context.dataStore.data.first()[Keys.repairVersion] ?: 0
+    suspend fun repairVersion(): Int = runCatching { context.dataStore.data.first()[Keys.repairVersion] }.getOrNull() ?: 0
 
     suspend fun setRepairVersion(version: Int) = edit { it[Keys.repairVersion] = version }
 

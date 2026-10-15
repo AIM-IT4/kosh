@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.amitjha.kosh.data.TransactionEntity
+import com.amitjha.kosh.data.tombstones
 import com.amitjha.kosh.designsystem.components.DateHeader
 import com.amitjha.kosh.designsystem.components.EmptyState
 import com.amitjha.kosh.designsystem.components.FilterChipsRow
@@ -189,13 +190,10 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     }
     fun only(f: String) { filters.value = setOf(f) }
 
-    suspend fun delete(id: Long): TransactionEntity? {
-        val t = c.transactions.byId(id) ?: return null
-        c.transactions.delete(id)
-        return t
-    }
+    /** Deletes the transaction (remembering an imported one so a rescan doesn't bring it back) and returns it for Undo. */
+    suspend fun delete(id: Long): TransactionEntity? = c.tombstones.deleteTransaction(id)
 
-    fun restore(t: TransactionEntity) = viewModelScope.launch { c.transactions.add(t.copy(id = 0)) }
+    fun restore(t: TransactionEntity) = viewModelScope.launch { c.tombstones.undoDelete(t) }
     fun markReviewed(id: Long) = viewModelScope.launch { c.transactions.markReviewed(id) }
 }
 
