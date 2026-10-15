@@ -93,6 +93,8 @@ import com.amitjha.kosh.ui.common.SwitchRow
 import com.amitjha.kosh.ui.common.color
 import com.amitjha.kosh.ui.nav.Routes
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import com.amitjha.kosh.ui.common.rememberSmsPermissionRequest
 import java.time.LocalDate
 
 fun ImportResult.describe(): String = when {
@@ -142,25 +144,31 @@ fun MoreScreen(nav: NavController) {
         }
     }
 
-    val smsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted[Manifest.permission.READ_SMS] == true) scanSms() else show("SMS permission denied")
-    }
+    val requestSms = rememberSmsPermissionRequest { scanSms() }
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     fun syncGmail() {
-        busy = "Reading card statements from Gmail…"
+        if (busy != null) return
+        busy = "Connecting to Gmail…"
         scope.launch {
-            val r = runCatching { c.gmailSync.sync() }.getOrNull()
-            busy = null
-            show(
-                when {
-                    r == null -> "Gmail sync failed"
+            try {
+                val r = c.gmailSync.sync(onProgress = { done, total ->
+                    scope.launch { busy = "Reading Gmail: $done of $total emails…" }
+                })
+                show(when {
                     r.needsReconnect -> "Please reconnect Gmail"
-                    r.error != null -> r.error
-                    else -> "Checked ${r.scanned} emails · ${r.billsAdded} bill${if (r.billsAdded == 1) "" else "s"} · " +
-                        "${r.transactionsAdded} transaction${if (r.transactionsAdded == 1) "" else "s"}"
-                },
-            )
+                    r.error != null -> "${r.error} Saved ${r.billsAdded} bills and ${r.transactionsAdded} transactions."
+                    else -> "Checked ${r.scanned} emails · ${r.billsAdded} bills · ${r.transactionsAdded} transactions" +
+                        (if (r.moreAvailable) " · Tap sync again for more history" else "") +
+                        (if (r.failed > 0) " · ${r.failed} emails couldn't be read; sync again to retry" else "")
+                })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                show(e.message ?: "Gmail sync failed")
+            } finally {
+                busy = null
+            }
         }
     }
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -271,8 +279,7 @@ fun MoreScreen(nav: NavController) {
                     SwitchRow("Import bank SMS automatically", "New bank messages are added as they arrive. SMS never leave your phone.",
                         s.smsAutoImport, { v -> scope.launch { c.settings.setSmsAutoImport(v) } }, Icons.Outlined.Sms)
                     ActionRow("Scan inbox now", "Last scan ${Fmt.ago(s.smsLastScanMillis)}", Icons.Outlined.Sync, enabled = busy == null) {
-                        if (context.hasSmsPermission()) scanSms()
-                        else smsPermission.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
+                        requestSms()
                     }
                     lastScan?.let { ScanDetails(it) }
                     if (s.gmailConnected) {
@@ -531,3 +538,4 @@ private fun ScanDetails(r: ImportResult) {
         }
     }
 }
+

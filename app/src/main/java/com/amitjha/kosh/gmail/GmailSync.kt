@@ -14,6 +14,10 @@ import com.amitjha.kosh.model.Bank
 import com.amitjha.kosh.model.TxnSource
 import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 
 data class GmailSyncResult(
@@ -24,6 +28,7 @@ data class GmailSyncResult(
     val transactionsAdded: Int = 0,
     val error: String? = null,
     val needsReconnect: Boolean = false,
+    val moreAvailable: Boolean = false,
 )
 
 /** Pulls credit card statements from Gmail into card bills. */
@@ -33,7 +38,22 @@ class GmailSync(
     private val auth: GmailAuth,
 ) {
 
-    suspend fun sync(sinceDays: Int = 180): GmailSyncResult {
+    private val syncMutex = Mutex()
+
+    suspend fun sync(sinceDays: Int = 180, onProgress: (Int, Int) -> Unit = { _, _ -> }): GmailSyncResult {
+        if (!syncMutex.tryLock()) return GmailSyncResult(error = "A Gmail scan is already running")
+        return try {
+            syncOnce(sinceDays, onProgress)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            GmailSyncResult(error = e.message ?: "Gmail sync failed")
+        } finally {
+            syncMutex.unlock()
+        }
+    }
+
+    private suspend fun syncOnce(sinceDays: Int, onProgress: (Int, Int) -> Unit): GmailSyncResult {
         val s = settings.current()
         if (!s.gmailConnected) return GmailSyncResult(error = "Gmail is not connected")
         var token = auth.accessTokenSilently() ?: return GmailSyncResult(error = "Reconnect Gmail", needsReconnect = true)
@@ -41,15 +61,22 @@ class GmailSync(
         val banks = cardBanks()
         val skip = settings.processedEmailIds()
         val result = try {
-            fetch(token, banks, sinceDays, skip)
+            fetch(token, banks, sinceDays, skip, onProgress)
         } catch (e: GmailException.AuthExpired) {
             auth.invalidateToken(token)
             token = auth.accessTokenSilently() ?: return GmailSyncResult(error = "Reconnect Gmail", needsReconnect = true)
             try {
-                fetch(token, banks, sinceDays, skip)
+                fetch(token, banks, sinceDays, skip, onProgress)
+            } catch (e2: GmailException.AuthExpired) {
+                settings.setGmailReconnectNeeded(true)
+                return GmailSyncResult(error = "Reconnect Gmail", needsReconnect = true)
+            } catch (e2: CancellationException) {
+                throw e2
             } catch (e2: Exception) {
                 return GmailSyncResult(error = e2.message)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return GmailSyncResult(error = e.message ?: "Gmail sync failed")
         }
@@ -80,13 +107,16 @@ class GmailSync(
         }
         val processed = result.processedIds.ifEmpty { result.bills.map { it.emailId } + result.payments.map { it.emailId } }
         settings.addProcessedEmailIds(processed)
-        settings.setGmailLastSync(System.currentTimeMillis())
+        if (result.error == null && !result.moreAvailable && result.failedMessageIds.isEmpty()) {
+            settings.setGmailLastSync(System.currentTimeMillis())
+        }
         settings.setGmailReconnectNeeded(false)
         settings.setGmailLastSummary(
             "Scanned ${result.scannedMessages} new email${if (result.scannedMessages == 1) "" else "s"} · " +
                 "$added bill${if (added == 1) "" else "s"} · $txnsAdded transaction${if (txnsAdded == 1) "" else "s"}",
         )
-        return GmailSyncResult(result.scannedMessages, added, settled, result.failedMessageIds.size, txnsAdded)
+        return GmailSyncResult(result.scannedMessages, added, settled, result.failedMessageIds.size, txnsAdded,
+            error = result.error, moreAvailable = result.moreAvailable)
     }
 
     /**
@@ -112,8 +142,15 @@ class GmailSync(
         return fresh.copy(id = db.accounts().insert(fresh))
     }
 
-    private suspend fun fetch(token: String, banks: Set<Bank>, sinceDays: Int, skip: Set<String>) = withContext(Dispatchers.IO) {
-        GmailBillFetcher(GmailClient(tokenProvider = { token })).fetch(banks, sinceDays, skipIds = skip)
+    private suspend fun fetch(token: String, banks: Set<Bank>, sinceDays: Int, skip: Set<String>, onProgress: (Int, Int) -> Unit) = withContext(Dispatchers.IO) {
+        val context = currentCoroutineContext()
+        val started = System.nanoTime()
+        val client = GmailClient(tokenProvider = { token }, checkActive = {
+            context.ensureActive()
+            // Stop starting requests after a minute; an in-flight request retains its socket timeout.
+            if (System.nanoTime() - started >= 60_000_000_000L) throw GmailException.ScanTimedOut()
+        })
+        GmailBillFetcher(client).fetch(banks, sinceDays, skipIds = skip, onProgress = onProgress)
     }
 
     /** Banks of the user's cards, or the four supported issuers if no cards are set up yet. */
@@ -146,3 +183,4 @@ class GmailSync(
         const val DEDUPE_WINDOW_MILLIS = 10 * 60_000L
     }
 }
+

@@ -26,6 +26,7 @@ data class EmailMessage(
 
 /** Errors raised by [GmailClient]. */
 sealed class GmailException(message: String) : Exception(message) {
+    class ScanTimedOut : GmailException("Gmail scan paused after one minute. Tap sync again to continue.")
     /** HTTP 401: the access token expired or was revoked; refresh it and retry. */
     class AuthExpired(message: String = "Gmail access token expired or invalid") : GmailException(message)
 
@@ -45,21 +46,29 @@ class GmailClient(
     private val sleeper: (Long) -> Unit = { Thread.sleep(it) },
     private val baseUrl: String = "https://gmail.googleapis.com/gmail/v1/users/me",
     private val retryDelayMs: Long = 1_500,
+    private val checkActive: () -> Unit = {},
 ) {
     /** IDs of messages matching a Gmail search [query], newest first, at most [max]. */
-    fun searchMessageIds(query: String, max: Int = 50): List<String> {
+    fun searchMessageIds(query: String, max: Int = 50, skipIds: Set<String> = emptySet()): List<String> {
+        require(max > 0)
         val ids = ArrayList<String>()
         var pageToken: String? = null
+        val visitedPages = HashSet<String>()
         do {
-            val pageSize = minOf(500, max - ids.size)
+            val pageSize = if (skipIds.isEmpty()) minOf(500, max - ids.size) else 500
             val url = buildString {
                 append(baseUrl).append("/messages?q=").append(encode(query))
                 append("&maxResults=").append(pageSize)
                 if (pageToken != null) append("&pageToken=").append(encode(pageToken!!))
             }
             val json = MiniJson.parse(call(url)).obj()
-            json["messages"].arr().forEach { m -> m.obj().str("id")?.let(ids::add) }
+            json["messages"].arr().forEach { m ->
+                m.obj().str("id")?.takeIf { it !in skipIds && it !in ids }?.let(ids::add)
+            }
             pageToken = json.str("nextPageToken")
+            if (pageToken != null && !visitedPages.add(pageToken!!)) {
+                throw GmailException.Http(502, "Gmail repeated a page token")
+            }
         } while (pageToken != null && ids.size < max)
         return ids.take(max)
     }
@@ -73,6 +82,7 @@ class GmailClient(
     private fun call(url: String): String {
         var attempt = 0
         while (true) {
+            checkActive()
             val response = transport.get(
                 url,
                 mapOf("Authorization" to "Bearer ${tokenProvider()}", "Accept" to "application/json"),
@@ -165,3 +175,4 @@ class GmailClient(
         }.getOrNull()
     }
 }
+

@@ -105,6 +105,8 @@ import com.amitjha.kosh.ui.settings.hasSmsPermission
 import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import com.amitjha.kosh.ui.common.rememberSmsPermissionRequest
 
 private const val STEPS = 8
 
@@ -402,9 +404,7 @@ private fun InvestmentsStep(onNext: () -> Unit) {
 private fun PermissionsStep(onNext: () -> Unit) {
     val context = LocalContext.current
     var smsGranted by remember { mutableStateOf(context.hasSmsPermission()) }
-    val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
-        smsGranted = r[Manifest.permission.READ_SMS] == true
-    }
+    val requestSms = rememberSmsPermissionRequest { smsGranted = true }
     var notifGranted by remember {
         mutableStateOf(
             Build.VERSION.SDK_INT < 33 ||
@@ -435,7 +435,7 @@ private fun PermissionsStep(onNext: () -> Unit) {
         }
         Spacer(Modifier.height(16.dp))
         PermissionRow(Icons.Outlined.Sms, "Read bank SMS", smsGranted) {
-            smsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
+            requestSms()
         }
         PermissionRow(Icons.Outlined.NotificationsActive, "Notifications for new spends and bill reminders", notifGranted) {
             if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -533,19 +533,37 @@ private fun ImportStep(onNext: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var gmailNote by remember { mutableStateOf<String?>(null) }
     val s = LocalSettings.current
+    var phase by remember { mutableStateOf("Reading your bank SMS…") }
     LaunchedEffect(Unit) {
-        if (context.hasSmsPermission()) {
-            running = true
-            delay(300)
-            result = runCatching { c.smsImporter.importInbox() }.getOrNull() ?: ImportResult()
-            if (s.gmailConnected) {
-                gmailNote = runCatching { c.gmailSync.sync() }.getOrNull()?.let { "${it.billsAdded} card bill${if (it.billsAdded == 1) "" else "s"} from Gmail" }
+        running = true
+        try {
+            if (context.hasSmsPermission()) {
+                result = c.smsImporter.importInbox()
             }
+            if (s.gmailConnected) {
+                phase = "Connecting to Gmail…"
+                val r = c.gmailSync.sync(onProgress = { done, total ->
+                    // The fetch callback runs on IO; post UI updates to this effect's scope.
+                    launch { phase = "Reading Gmail: $done of $total emails…" }
+                })
+                gmailNote = when {
+                    r.needsReconnect -> "Reconnect Gmail from More to continue."
+                    r.error != null -> r.error
+                    else -> "${r.billsAdded} card bills and ${r.transactionsAdded} transactions from Gmail" +
+                        (if (r.moreAvailable) ". Sync again from More for older history." else "") +
+                        (if (r.failed > 0) " ${r.failed} emails couldn't be read; sync again to retry." else "")
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            gmailNote = e.message ?: "Import failed. Try again from More."
+        } finally {
             running = false
         }
     }
     StepPage(
-        title = if (running) "Reading your bank SMS…" else "Your history",
+        title = if (running) phase else "Your history",
         subtitle = if (context.hasSmsPermission()) "Kosh looks back 180 days and skips anything it has already seen."
         else "SMS access wasn't allowed. You can scan later from More › Scan inbox now.",
         primary = "Continue",
@@ -558,6 +576,7 @@ private fun ImportStep(onNext: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         }
+        gmailNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText) }
         result?.let { r ->
             KoshCard {
                 Text(r.describe(), fontWeight = FontWeight.SemiBold)
@@ -566,7 +585,6 @@ private fun ImportStep(onNext: () -> Unit) {
                     Text("They're waiting in Review so you can confirm categories.", style = MaterialTheme.typography.bodySmall,
                         color = KoshTheme.colors.subtleText)
                 }
-                gmailNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText) }
             }
         }
     }
@@ -601,3 +619,4 @@ private fun DoneStep(onFinish: () -> Unit) {
         Spacer(Modifier.height(16.dp))
     }
 }
+

@@ -11,6 +11,10 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Task
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -56,6 +60,8 @@ class GmailAuth(private val appContext: Context, private val settings: SettingsS
     suspend fun completeConsent(data: Intent?): GmailAuthOutcome = try {
         val result = Identity.getAuthorizationClient(appContext).getAuthorizationResultFromIntent(data)
         handle(result)
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         GmailAuthOutcome.Failed(e.message ?: "Google sign-in was cancelled")
     }
@@ -70,18 +76,22 @@ class GmailAuth(private val appContext: Context, private val settings: SettingsS
             settings.setGmailReconnectNeeded(true)
             null
         }
-        is GmailAuthOutcome.Failed -> null
+        is GmailAuthOutcome.Failed -> throw IllegalStateException(o.message)
     }
 
     /** Forgets the cached token so the next request fetches a fresh one (after a 401). */
-    fun invalidateToken(token: String) {
-        runCatching { com.google.android.gms.auth.GoogleAuthUtil.clearToken(appContext, token) }
+    suspend fun invalidateToken(token: String) = withContext(Dispatchers.IO) {
+        com.google.android.gms.auth.GoogleAuthUtil.clearToken(appContext, token)
     }
 
     suspend fun disconnect() = settings.setGmailAccount(null)
 
     private suspend fun authorize(context: Context): GmailAuthOutcome = try {
-        handle(Identity.getAuthorizationClient(context).authorize(request).await())
+        withTimeoutOrNull(20_000L) {
+            handle(Identity.getAuthorizationClient(context).authorize(request).await())
+        } ?: GmailAuthOutcome.Failed("Google sign-in timed out. Check your connection and try again.")
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         GmailAuthOutcome.Failed(e.message ?: "Couldn't reach Google Play services")
     }
@@ -107,3 +117,4 @@ internal suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont
     addOnFailureListener { cont.resumeWithException(it) }
     addOnCanceledListener { cont.cancel() }
 }
+
