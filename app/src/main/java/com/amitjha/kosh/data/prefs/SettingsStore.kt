@@ -47,7 +47,11 @@ data class Settings(
 }
 
 /** App preferences backed by DataStore. */
-class SettingsStore(private val context: Context) {
+class SettingsStore(
+    private val context: Context,
+    /** The decoy profile passes its own store so it never reads or changes the real settings. */
+    private val store: DataStore<Preferences> = context.dataStore,
+) {
 
     private object Keys {
         val onboardingDone = booleanPreferencesKey("onboarding_done")
@@ -72,7 +76,7 @@ class SettingsStore(private val context: Context) {
         val blockScreenshots = booleanPreferencesKey("block_screenshots")
     }
 
-    val settings: Flow<Settings> = context.dataStore.data.catch { e ->
+    val settings: Flow<Settings> = store.data.catch { e ->
         // An unreadable file reads as defaults rather than crashing the collectors.
         if (e is java.io.IOException) emit(emptyPreferences()) else throw e
     }.map { p ->
@@ -110,7 +114,7 @@ class SettingsStore(private val context: Context) {
     suspend fun clearLegacyGmail() = edit { prefs -> Keys.legacyGmail.forEach { prefs.remove(it) } }
 
     /** Version of the last one-time data repair applied after an update (see `repo.DataRepairs`). */
-    suspend fun repairVersion(): Int = runCatching { context.dataStore.data.first()[Keys.repairVersion] }.getOrNull() ?: 0
+    suspend fun repairVersion(): Int = runCatching { store.data.first()[Keys.repairVersion] }.getOrNull() ?: 0
 
     suspend fun setRepairVersion(version: Int) = edit { it[Keys.repairVersion] = version }
 
@@ -137,7 +141,7 @@ class SettingsStore(private val context: Context) {
     }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
-        context.dataStore.edit { block(it) }
+        store.edit { block(it) }
     }
 
     companion object {

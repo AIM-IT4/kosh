@@ -179,6 +179,9 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
                     DetailRow("Moved to my own account?", "Mark as transfer", onClick = { selfTransfer = true }, accent = true)
                 }
             }
+            if (t.type != com.amitjha.kosh.model.TxnType.TRANSFER) {
+                com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.TXN, t.id)
+            }
         }
     }
 

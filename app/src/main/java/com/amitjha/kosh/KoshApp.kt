@@ -28,5 +28,7 @@ class KoshApp : Application() {
             runCatching { container.settings.clearLegacyGmail() }
         }
         WorkScheduler.schedule(this)
+        com.amitjha.kosh.tools.WidgetUpdater.start(this)
+        appScope.launch { runCatching { com.amitjha.kosh.tools.DigestSchedule.sync(this@KoshApp) } }
     }
 }

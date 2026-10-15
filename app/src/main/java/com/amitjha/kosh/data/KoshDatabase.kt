@@ -21,8 +21,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NetWorthSnapshotEntity::class,
         DeletedFingerprintEntity::class,
         DemoRowEntity::class,
+        HouseholdItemEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class KoshDatabase : RoomDatabase() {
@@ -36,6 +37,7 @@ abstract class KoshDatabase : RoomDatabase() {
     abstract fun merchantRules(): MerchantRuleDao
     abstract fun netWorth(): NetWorthDao
     abstract fun tombstones(): TombstoneDao
+    abstract fun household(): HouseholdDao
     abstract fun restore(): RestoreDao
     abstract fun demoRows(): DemoRowDao
 
@@ -81,11 +83,34 @@ abstract class KoshDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        /** v6 adds the shared household space synced with a paired phone. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `household_items` (`uuid` TEXT NOT NULL, `kind` TEXT NOT NULL, " +
+                        "`ownerId` TEXT NOT NULL, `ownerName` TEXT NOT NULL, `localId` INTEGER, `payload` TEXT NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`uuid`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_household_items_kind_localId` ON `household_items` (`kind`, `localId`)")
+            }
+        }
 
-        fun create(context: Context): KoshDatabase =
-            Room.databaseBuilder(context, KoshDatabase::class.java, "kosh.db")
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+
+        /**
+         * Opens the database encrypted with SQLCipher (key in the Android Keystore). An existing plaintext
+         * database is converted once; if that can't be done, the plaintext one keeps working and the
+         * conversion is retried on the next launch.
+         */
+        fun create(context: Context): KoshDatabase {
+            val builder = Room.databaseBuilder(context, KoshDatabase::class.java, DatabaseEncryption.NAME)
                 .addMigrations(*ALL_MIGRATIONS)
-                .build()
+            val passphrase = runCatching { com.amitjha.kosh.security.DatabaseKey.passphrase(context) }.getOrNull()
+            if (passphrase == null) DatabaseEncryption.quarantineUnreadable(context)
+            if (passphrase != null && runCatching { DatabaseEncryption.prepare(context, passphrase) }.getOrDefault(false)) {
+                builder.openHelperFactory(net.zetetic.database.sqlcipher.SupportOpenHelperFactory(passphrase))
+            }
+            return builder.build()
+        }
     }
 }

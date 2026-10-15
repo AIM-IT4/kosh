@@ -14,8 +14,8 @@ android {
         applicationId = "com.amitjha.kosh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.8.0"
+        versionCode = 11
+        versionName = "2.0.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -31,12 +31,30 @@ android {
         }
     }
 
+    // Two editions from one codebase: "standard" (may fetch public NPS prices) and "offline", which has no
+    // INTERNET permission at all, so Android itself guarantees nothing can leave the phone.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("standard") {
+            dimension = "edition"
+            buildConfigField("boolean", "NETWORK_ENABLED", "true")
+        }
+        create("offline") {
+            dimension = "edition"
+            applicationId = "com.amitjha.kosh.offline"
+            versionNameSuffix = "-offline"
+            buildConfigField("boolean", "NETWORK_ENABLED", "false")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            // Signed with the Kosh key when it is present locally; CI and F-Droid build without it (F-Droid
+            // signs with its own key).
+            if (rootProject.file("keystore/kosh-release.jks").exists()) signingConfig = signingConfigs.getByName("release")
         }
         // Debug builds use the standard debug key, so a debuggable APK can never install over the real app.
     }
@@ -46,7 +64,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
@@ -80,6 +101,10 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.biometric)
     implementation(libs.kotlinx.coroutines.android)
+    // QR codes for household pairing (Apache-2.0)
+    implementation(libs.zxing.android.embedded)
+    implementation(libs.sqlcipher.android)
+    implementation(libs.androidx.sqlite)
 
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")

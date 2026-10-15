@@ -22,12 +22,17 @@ import com.amitjha.kosh.sms.SmsImporter
 import com.amitjha.kosh.work.WorkScheduler
 
 /** Manual dependency container; get it with `(context.applicationContext as KoshApp).container`. */
-class AppContainer(context: Context) {
+/**
+ * [sandbox] is set for the decoy profile: an in-memory database, separate settings and no SMS access, so
+ * nothing real can ever be shown or written there.
+ */
+class AppContainer(context: Context, sandbox: com.amitjha.kosh.security.DecoySandbox? = null) {
     private val app = context.applicationContext
 
-    val db: KoshDatabase = KoshDatabase.create(app)
-    val settings = SettingsStore(app)
-    val navSource: NavSource = NpsNavApi()
+    val db: KoshDatabase = sandbox?.db ?: KoshDatabase.create(app)
+    val settings = sandbox?.settings ?: SettingsStore(app)
+    // The offline edition has no INTERNET permission; it never tries to fetch NPS prices.
+    val navSource: NavSource = if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) NpsNavApi() else OfflineNavSource
     val notifications = Notifications(app)
 
     val accounts = AccountRepository(db)
@@ -40,11 +45,24 @@ class AppContainer(context: Context) {
     val insights = InsightRepository(db, accounts, settings)
     val netWorth = NetWorthRepository(db, accounts)
     val interest = InterestRepository(db, accounts)
+    val planningPrefs = com.amitjha.kosh.data.prefs.PlanningPrefs(app)
+    val tax = com.amitjha.kosh.repo.TaxRepository(db, investments, planningPrefs)
+    val goalOutlooks = com.amitjha.kosh.repo.GoalSimulations(goals, planningPrefs)
 
-    val smsImporter = SmsImporter(app, db, settings)
+    val smsImporter = SmsImporter(sandbox?.smsContext ?: app, db, settings)
     val backup = BackupManager(app, db)
     val demoData = DemoData(db, investments)
+    /** Household sync with a paired phone over local Wi-Fi (standard edition only). */
+    val householdStore = com.amitjha.kosh.sync.HouseholdStore(app)
+    val household = com.amitjha.kosh.sync.HouseholdRepository(db, householdStore)
+    val householdSync = com.amitjha.kosh.sync.HouseholdSync(app, household, householdStore)
 
     /** Runs the full daily refresh (NAVs, SMS, net worth) once in the background. */
     fun syncNow() = WorkScheduler.syncNow(app)
+}
+
+/** NAV source for the offline edition: never touches the network. */
+object OfflineNavSource : NavSource {
+    override fun latestNav(schemeCode: String): com.amitjha.kosh.finance.NavQuote? = null
+    override fun allSchemes(): List<com.amitjha.kosh.finance.NavQuote> = emptyList()
 }

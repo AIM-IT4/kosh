@@ -76,7 +76,10 @@ private const val F_MANUAL = "Manual"
 
 /** Opens the fix-uncategorised screen rather than filtering the list. */
 internal const val F_OTHER = "Other"
-private val FILTERS = listOf(F_SMS, F_OTHER, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL)
+/** Transactions marked as household (shown only when household sync exists in this edition). */
+private const val F_HOUSEHOLD = "Household"
+private val FILTERS = listOf(F_SMS, F_OTHER, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL) +
+    listOfNotNull(F_HOUSEHOLD.takeIf { com.amitjha.kosh.ui.household.householdAvailable })
 
 /** One-shot filter requested by another screen (e.g. Settings → "View email transactions"). */
 object ActivityFilterRequest {
@@ -129,8 +132,8 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
             @Suppress("UNCHECKED_CAST") val f = values[2] as Set<String>
             val cat = values[3] as String?
             c.transactions.observe(TxnFilter(period = p, query = q, categoryKey = cat)).let { flow ->
-                combine(flow, c.categories.observeAll()) { list, cats ->
-                    val filtered = list.filter { matches(it, f) }
+                combine(flow, c.categories.observeAll(), c.household.observeSharedIds(com.amitjha.kosh.sync.HouseholdKind.TXN)) { list, cats, shared ->
+                    val filtered = list.filter { matches(it, f) && (F_HOUSEHOLD !in f || it.txn.id in shared) }
                     // Totals come from exactly the rows shown, with the same rules as Home and Insights
                     // (transfers, excluded and held-for-review rows don't count).
                     val summary = TransactionRepository.summarise(p, filtered.map { it.txn }, cats.associateBy { it.key })

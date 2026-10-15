@@ -251,6 +251,9 @@ private fun LockScreen(onUnlocked: () -> Unit) {
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
     var available by remember { mutableStateOf(BiometricGate.isAvailable(context)) }
+    // App PIN / decoy PIN (see ui.tools.PinLockPad); biometrics always open the real profile.
+    val toolsPrefs by remember { com.amitjha.kosh.tools.ToolsSettings.get(context).prefs }.collectAsStateWithLifecycle(initialValue = null)
+    val realTheme = com.amitjha.kosh.ui.common.LocalSettings.current.themeMode
     val unlock: () -> Unit = unlock@{
         val activity = context as? FragmentActivity ?: return@unlock
         available = BiometricGate.isAvailable(context)
@@ -261,12 +264,16 @@ private fun LockScreen(onUnlocked: () -> Unit) {
         }
         scope.launch {
             when (val r = BiometricGate.authenticate(activity)) {
-                UnlockResult.Success -> onUnlocked()
+                UnlockResult.Success -> {
+                    com.amitjha.kosh.security.DecoySession.deactivate()
+                    onUnlocked()
+                }
                 is UnlockResult.Error -> message = r.message
             }
         }
     }
-    LaunchedEffect(Unit) { unlock() }
+    // With an app PIN set the PIN pad shows first, so a decoy PIN can be entered without a prompt in the way.
+    LaunchedEffect(toolsPrefs?.pinSet) { if (toolsPrefs?.pinSet == false) unlock() }
     Box(
         Modifier
             .fillMaxSize()
@@ -279,8 +286,26 @@ private fun LockScreen(onUnlocked: () -> Unit) {
             Text("Kosh is locked", style = MaterialTheme.typography.titleLarge, color = KoshTheme.colors.ink)
             message?.let { Text(it, color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodyMedium) }
             Spacer(Modifier.height(8.dp))
-            PrimaryButton(text = "Unlock", onClick = unlock, icon = Icons.Outlined.Fingerprint, modifier = Modifier.padding(horizontal = 48.dp).fillMaxWidth())
-            if (!available) {
+            val pinPrefs = toolsPrefs
+            if (pinPrefs?.pinSet == true) {
+                com.amitjha.kosh.ui.tools.PinLockPad(
+                    prefs = pinPrefs,
+                    onMatch = { match ->
+                        scope.launch {
+                            if (match == com.amitjha.kosh.security.PinMatch.DECOY) {
+                                com.amitjha.kosh.security.DecoySession.activate(context, realTheme)
+                            } else {
+                                com.amitjha.kosh.security.DecoySession.deactivate()
+                            }
+                            onUnlocked()
+                        }
+                    },
+                    onBiometric = if (available) unlock else null,
+                )
+            } else {
+                PrimaryButton(text = "Unlock", onClick = unlock, icon = Icons.Outlined.Fingerprint, modifier = Modifier.padding(horizontal = 48.dp).fillMaxWidth())
+            }
+            if (!available && pinPrefs?.pinSet != true) {
                 androidx.compose.material3.TextButton(onClick = {
                     runCatching {
                         context.startActivity(
@@ -307,6 +332,8 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
             Notifications.ROUTE_BILLS -> Routes.BILLS
             Notifications.ROUTE_INSIGHTS -> Routes.INSIGHTS
             Notifications.ROUTE_INVESTMENTS -> Routes.WEALTH
+            com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_EXPENSE -> Routes.addTxn(TxnType.EXPENSE)
+            com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_INCOME -> Routes.addTxn(TxnType.INCOME)
             else -> null
         }
         if (target != null) {
@@ -475,6 +502,8 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.PENDING_ACCOUNTS) { com.amitjha.kosh.ui.accounts.PendingAccountsScreen(nav) }
         composable(Routes.NET_WORTH) { com.amitjha.kosh.ui.wealth.NetWorthBreakdownScreen(nav) }
         composable(Routes.UNCATEGORISED) { com.amitjha.kosh.ui.transactions.UncategorisedScreen(nav) }
+        composable(Routes.TAX) { com.amitjha.kosh.ui.tax.TaxScreen(nav) }
+        composable(Routes.HOUSEHOLD) { com.amitjha.kosh.ui.household.HouseholdScreen(nav) }
     }
 }
 

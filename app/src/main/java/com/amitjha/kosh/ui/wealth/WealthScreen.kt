@@ -147,6 +147,7 @@ fun WealthScreen(nav: NavController) {
         onOpen = { nav.navigate(Routes.investment(it)) },
         onNetWorth = { nav.navigate(Routes.NET_WORTH) },
         onOpenAccount = { nav.navigate(Routes.account(it)) },
+        onTax = { nav.navigate(Routes.TAX) },
     )
 }
 
@@ -162,12 +163,16 @@ fun WealthContent(
     onOpen: (Long) -> Unit = {},
     onNetWorth: () -> Unit = {},
     onOpenAccount: (Long) -> Unit = {},
+    onTax: (() -> Unit)? = null,
 ) {
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
             item(key = "head") {
                 Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Wealth", style = KoshText.screenTitle, modifier = Modifier.weight(1f))
+                    if (onTax != null) {
+                        androidx.compose.material3.TextButton(onClick = onTax) { Text("Tax", color = KoshTheme.colors.ink) }
+                    }
                     if (refreshing) {
                         CircularProgressIndicator(
                             Modifier.padding(12.dp).height(20.dp).width(20.dp),

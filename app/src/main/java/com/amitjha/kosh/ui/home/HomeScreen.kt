@@ -229,6 +229,11 @@ fun HomeScreen(nav: NavController) {
         onNetWorth = { nav.navigate(Routes.NET_WORTH) },
         onPendingAccounts = { nav.navigate(Routes.PENDING_ACCOUNTS) },
         onUncategorised = { nav.navigate(Routes.UNCATEGORISED) },
+        householdCard = if (com.amitjha.kosh.ui.household.householdAvailable) {
+            { m -> com.amitjha.kosh.ui.household.HouseholdHomeCard(m) { nav.navigate(Routes.HOUSEHOLD) } }
+        } else {
+            null
+        },
         onLoadDemo = {
             loadingDemo = true
             scope.launch {
@@ -264,6 +269,8 @@ fun HomeContent(
     onNetWorth: () -> Unit = {},
     onPendingAccounts: () -> Unit = {},
     onUncategorised: () -> Unit = {},
+    /** Household sync's card (null in previews and in the offline edition); it draws nothing until paired. */
+    householdCard: (@Composable (Modifier) -> Unit)? = null,
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     val pad = Modifier.padding(horizontal = 20.dp)
@@ -502,6 +509,10 @@ fun HomeContent(
                     }
                 }
             }
+        }
+
+        if (householdCard != null) {
+            item(key = "household") { householdCard(pad.padding(top = KoshTheme.spacing.section)) }
         }
 
         if (state.charts.netWorth.size >= 2) {

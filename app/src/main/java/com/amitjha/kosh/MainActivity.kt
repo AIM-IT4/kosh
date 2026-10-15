@@ -7,6 +7,9 @@ import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -37,11 +40,17 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
-            KoshRoot(
-                container = container,
-                initialRoute = pendingRoute.value,
-                onRouteConsumed = { pendingRoute.value = null },
-            )
+            // The decoy PIN swaps in a sandboxed profile; keying on the container rebuilds every screen and
+            // ViewModel, so nothing from the real profile survives the switch (or the switch back).
+            val decoy by com.amitjha.kosh.security.DecoySession.active.collectAsState()
+            val active = if (decoy) com.amitjha.kosh.security.DecoySession.container ?: container else container
+            key(active) {
+                KoshRoot(
+                    container = active,
+                    initialRoute = pendingRoute.value,
+                    onRouteConsumed = { pendingRoute.value = null },
+                )
+            }
         }
     }
 

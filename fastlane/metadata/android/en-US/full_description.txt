@@ -1,0 +1,26 @@
+<p><b>Kosh</b> (Sanskrit for <i>treasury</i>) is a private, offline-first money tracker built for how banking works in India. It reads your bank SMS, categorises every rupee and shows where you stand. No account, no ads, no analytics, no servers.</p>
+
+<p><b>Automatic tracking</b></p>
+<ul>
+<li>Imports transactions from bank SMS (ICICI, HDFC, Kotak and DBS in detail, plus a generic parser for other banks), as they arrive and from your inbox history.</li>
+<li>Smart categories from an open dataset of Indian merchants; it learns from every correction.</li>
+<li>Transfers between your own accounts are recognised and never counted as spending.</li>
+<li>Credit cards: outstanding, utilisation and statement bills from SMS, with due-date reminders.</li>
+</ul>
+
+<p><b>Wealth and planning</b></p>
+<ul>
+<li>FD, EPF and NPS values update automatically; savings interest is estimated daily at your bank's rate.</li>
+<li>A transparent net worth: every number shows where it came from.</li>
+<li>Budgets that warn before you overshoot, and goals that show the monthly saving needed, with an optional loan.</li>
+<li>Insights with numbers: monthly score, spending pace, subscriptions, card utilisation, month-end forecast.</li>
+</ul>
+
+<p><b>Privacy and security</b></p>
+<ul>
+<li>Everything stays on your phone. The database is encrypted with SQLCipher, its key held in the Android Keystore.</li>
+<li>The offline edition has no internet permission at all.</li>
+<li>App lock with fingerprint or face, privacy mode, screenshot blocking and encrypted backups.</li>
+</ul>
+
+<p>Kosh is free software under the GPL-3.0-or-later.</p>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_month_title">This month</string>
+    <string name="widget_spent">spent</string>
+    <string name="widget_month_description">Spent, income and saved this budgeting period</string>
+    <string name="widget_quick_add_description">Add an expense or income in one tap</string>
+    <string name="widget_add_expense">− Expense</string>
+    <string name="widget_add_income">+ Income</string>
+    <string name="tile_add_expense">Add expense</string>
+</resources>

@@ -89,6 +89,8 @@ data class PlanningState(
     val goals: List<GoalStatus> = emptyList(),
     val categories: List<CategoryEntity> = emptyList(),
     val loaded: Boolean = false,
+    /** Monte Carlo outlook per goal id (goals not yet reached and with time left). */
+    val outlooks: Map<Long, com.amitjha.kosh.repo.GoalOutlook> = emptyMap(),
 )
 
 class PlanningViewModel(private val c: AppContainer) : ViewModel() {
@@ -96,7 +98,8 @@ class PlanningViewModel(private val c: AppContainer) : ViewModel() {
         c.budgets.observeStatuses(),
         c.goals.observeStatuses(),
         c.categories.observeByType(TxnType.EXPENSE),
-    ) { b, g, cats -> PlanningState(b, g, cats, loaded = true) }
+        c.goalOutlooks.observe(),
+    ) { b, g, cats, outlooks -> PlanningState(b, g, cats, loaded = true, outlooks = outlooks) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanningState())
 
     fun setBudget(categoryKey: String?, limit: Long) = viewModelScope.launch { c.budgets.upsert(categoryKey, limit) }
@@ -106,6 +109,7 @@ class PlanningViewModel(private val c: AppContainer) : ViewModel() {
     fun saveGoal(goal: GoalEntity) = launchGuarded(guard) { c.goals.upsert(goal) }
     fun contribute(id: Long, amount: Long) = launchGuarded(guard) { c.goals.contribute(id, amount) }
     fun deleteGoal(goal: GoalEntity) = viewModelScope.launch { c.goals.delete(goal) }
+    fun setInflation(goalId: Long, pct: Double) = viewModelScope.launch { c.goalOutlooks.setInflation(goalId, pct) }
 }
 
 /** Lets other screens (e.g. an insight's action) open Plan on a given tab: 0 = Budgets, 1 = Goals. */
@@ -139,6 +143,7 @@ fun PlanningScreen(@Suppress("UNUSED_PARAMETER") nav: NavController) {
         onDeleteBudget = vm::deleteBudget,
         onOpenGoal = { editGoal = it },
         onContribute = vm::contribute,
+        onInflation = vm::setInflation,
     )
 
     if (addBudget) {
@@ -186,6 +191,7 @@ fun PlanningContent(
     onDeleteBudget: (BudgetStatus) -> Unit = {},
     onOpenGoal: (GoalEntity) -> Unit = {},
     onContribute: (Long, Long) -> Unit = { _, _ -> },
+    onInflation: (Long, Double) -> Unit = { _, _ -> },
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 8.dp)) {
@@ -202,7 +208,7 @@ fun PlanningContent(
         if (tab == 0) {
             BudgetsTab(state, onAdd = onAddBudget, onSet = onSetBudget, onDelete = onDeleteBudget)
         } else {
-            GoalsTab(state, onAdd = onNewGoal, onOpen = onOpenGoal, onContribute = onContribute)
+            GoalsTab(state, onAdd = onNewGoal, onOpen = onOpenGoal, onContribute = onContribute, onInflation = onInflation)
         }
     }
 }
@@ -311,6 +317,7 @@ private fun EditBudgetSheet(s: BudgetStatus, onDismiss: () -> Unit, onSave: (Lon
             Spacer(Modifier.height(12.dp))
             FormColumn {
                 AmountField("Monthly limit", limit, { limit = it }, allowZero = false)
+                com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.BUDGET, s.budget.id, card = false)
                 PrimaryButton("Save", enabled = (limit ?: 0) > 0, modifier = Modifier.fillMaxWidth(), onClick = { onSave(limit!!) })
                 TextButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) { Text("Delete budget", color = KoshTheme.colors.alert) }
             }
@@ -359,6 +366,7 @@ private fun GoalsTab(
     onAdd: () -> Unit,
     onOpen: (GoalEntity) -> Unit,
     onContribute: (Long, Long) -> Unit,
+    onInflation: (Long, Double) -> Unit = { _, _ -> },
 ) {
     val hidden = LocalHideAmounts.current
     var contributing by remember { mutableStateOf<GoalStatus?>(null) }
@@ -395,6 +403,9 @@ private fun GoalsTab(
                     hidden = hidden,
                     onClick = { onOpen(g.goal) },
                 )
+                state.outlooks[g.goal.id]?.let { o ->
+                    GoalOutlookSection(o, g.deadline, hidden, onInflation = { pct -> onInflation(g.goal.id, pct) })
+                }
                 if (!plan.reached) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { contributing = g }) {
@@ -453,6 +464,7 @@ private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEnt
                     target?.let { com.amitjha.kosh.domain.GoalLoan.savingsTarget(it, loanForPlan) },
                     saved, deadline, ret.toDoubleOrNull()?.coerceIn(0.0, 30.0) ?: 7.0,
                 )
+                if (goal != null) com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.GOAL, goal.id, card = false)
                 PrimaryButton(
                     if (goal == null) "Create goal" else "Save",
                     enabled = name.isNotBlank() && (target ?: 0) > 0,

@@ -32,7 +32,17 @@ object CategoryGuesser {
      * Checked in order, first match wins. Specific brands come before categories whose brands they
      * contain ("amazon prime" before "amazon", "jiomart" before "jio", "instamart" before "swiggy").
      */
-    private val rules: List<Rule> = listOf(
+    /**
+     * The bundled community dataset (kosh/merchants.json), or the built-in copy below if it can't be read.
+     */
+    private val rules: List<Rule> = MerchantDataset.load()
+        ?.rules?.map { Rule(it.category, it.brands.joinToString("|"), it.generic.joinToString("|")) }
+        ?: builtInRules()
+
+    /** Number of categorisation rules in use (for diagnostics and tests). */
+    val ruleCount: Int get() = rules.size
+
+    private fun builtInRules(): List<Rule> = listOf(
         Rule(
             "emi",
             "\\bemi\\b|bajaj ?fin(serv)?|home ?loan|car ?loan|personal ?loan|two ?wheeler ?loan|loan ?(a/?c|account|emi|repay)" +

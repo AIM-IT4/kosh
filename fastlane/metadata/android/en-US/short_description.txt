@@ -1,0 +1,1 @@
+Private money tracker for India: reads bank SMS, works offline, no ads.

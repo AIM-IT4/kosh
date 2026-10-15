@@ -2,6 +2,16 @@
 <h1 align="center">Kosh</h1>
 <p align="center"><b>A private, offline-first personal finance tracker for Android, built for Indian banking.</b></p>
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-059669" alt="GPL-3.0"></a>
+  <img src="https://img.shields.io/badge/price-free-111111" alt="Free">
+  <img src="https://img.shields.io/badge/trackers-none-111111" alt="No trackers">
+  <img src="https://img.shields.io/badge/Android-8.0%2B-111111" alt="Android 8.0+">
+</p>
+
+**Free and open source.** No ads, no account, no servers, no analytics. Kosh never sells data or loans,
+and anyone can read the code to check that your SMS and finances never leave the phone.
+
 Kosh (Sanskrit: *treasury*) tracks income, expenses, credit cards, bills and investments. It reads bank
 SMS automatically, and turns your data into insights, all on the phone.
 
@@ -48,10 +58,12 @@ SMS automatically, and turns your data into insights, all on the phone.
   - **Net worth:** tracked over time.
 - **Planning:** monthly budgets with pace projection, and goals with the monthly saving they need.
 - **Insights:** 17 offline rules, including budget pace, spending spikes, savings rate, subscriptions, card utilisation, emergency-fund cover, FD maturity and unusual spends.
-- **Privacy:**
-  - **Biometric lock and privacy mode** that hides amounts.
+- **Privacy and security:**
+  - **Encrypted database:** SQLCipher (AES-256), with the key kept in the Android Keystore.
+  - **Offline edition:** a build with no INTERNET permission at all, so Android itself guarantees nothing can be sent.
+  - **Biometric lock, privacy mode and screenshot blocking.**
   - **Local-only data:** it stays on the device and is excluded from Google's cloud backup.
-  - **Encrypted backups:** AES-256-GCM with a password-derived key.
+  - **Encrypted backups:** AES-256-GCM with a password-derived key (PBKDF2, 600k iterations).
 
 ## Architecture
 
@@ -63,15 +75,30 @@ SMS automatically, and turns your data into insights, all on the phone.
 | `core:designsystem` | Compose theme, charts, components, logo |
 | `app` | Room database, repositories, SMS import, WorkManager jobs, UI screens |
 
-Kotlin, Jetpack Compose with Material 3, Room, WorkManager, DataStore and Google Identity Services.
+Kotlin, Jetpack Compose with Material 3, Room with SQLCipher, WorkManager and DataStore. No Google Play Services.
 The engine modules are plain Kotlin with unit tests.
 
 ## Building
 
 ```bash
-./gradlew test             # unit tests for every module
-./gradlew :app:assembleRelease
+./gradlew test                          # unit tests for every module
+./gradlew :app:assembleStandardRelease  # standard edition (can fetch public NPS prices)
+./gradlew :app:assembleOfflineRelease   # offline edition (no INTERNET permission)
 ```
+
+The two editions have different application IDs (`com.amitjha.kosh` and `com.amitjha.kosh.offline`), so both
+can be installed side by side. CI builds both on every push (see `.github/workflows/ci.yml`).
 
 Release signing reads `keystore/kosh-release.jks` and the `KOSH_STORE_PASSWORD` / `KOSH_KEY_PASSWORD`
 Gradle properties from `~/.gradle/gradle.properties`. Neither is committed.
+
+## Contributing
+
+Contributions are welcome, especially **bank SMS formats** and **merchant categories**. The merchant rules
+live in an open dataset, [`core/sms/src/main/resources/kosh/merchants.json`](core/sms/src/main/resources/kosh/merchants.json)
+(format in [docs/DATASET.md](docs/DATASET.md)). See [CONTRIBUTING.md](CONTRIBUTING.md), and always mask
+account numbers before sharing an SMS. Security issues: see [SECURITY.md](SECURITY.md).
+
+## License
+
+Kosh is free software under the [GNU General Public License v3.0 or later](LICENSE).

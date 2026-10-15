@@ -29,3 +29,7 @@
 
 -dontwarn org.slf4j.**
 -dontwarn javax.annotation.**
+
+# SQLCipher (JNI and the Room SupportOpenHelperFactory).
+-keep class net.zetetic.database.** { *; }
+-dontwarn net.zetetic.database.**

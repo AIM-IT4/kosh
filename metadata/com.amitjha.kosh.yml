@@ -1,0 +1,29 @@
+# Draft recipe for fdroiddata (https://gitlab.com/fdroid/fdroiddata). Copy to metadata/com.amitjha.kosh.yml there.
+Categories:
+  - Money
+License: GPL-3.0-or-later
+AuthorName: Amit Kumar Jha
+AuthorEmail: jha.8@alumni.iitj.ac.in
+SourceCode: https://github.com/AIM-IT4/kosh
+IssueTracker: https://github.com/AIM-IT4/kosh/issues
+Changelog: https://github.com/AIM-IT4/kosh/releases
+
+AutoName: Kosh
+
+RepoType: git
+Repo: https://github.com/AIM-IT4/kosh.git
+
+Builds:
+  # First release that contains the standard/offline flavours. Update to the tag you release.
+  - versionName: 1.9.0
+    versionCode: 11
+    commit: v1.9.0
+    subdir: app
+    gradle:
+      - standard
+    # Paparazzi is a test-only plugin; tests are not run during the F-Droid build.
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.9.0
+CurrentVersionCode: 11

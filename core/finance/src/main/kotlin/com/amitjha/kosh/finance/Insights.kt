@@ -397,6 +397,15 @@ object InsightEngine {
             add(m("Needed/month", compact(plan.requiredMonthly)))
             add(m("Your surplus/month", surplus?.let { compact(it) } ?: "-"))
             add(m("Expected return", "${"%.1f".format(g.expectedReturnPct)}%"))
+            if (!plan.reached && !plan.overdue && plan.monthsLeft > 0) {
+                // Uncertain returns: chance of making it at the planned saving, and the saving for 80% confidence.
+                val sim = GoalSimulation.simulate(
+                    GoalSimulation.Input(toSave, g.saved, plan.monthsLeft, plan.requiredMonthly, g.expectedReturnPct),
+                    paths = 2000, seed = GoalSimulation.seedFor(g.id, g.name),
+                )
+                add(m("Chance at plan", "${(sim.probability * 100).roundToInt()}%"))
+                add(m("For 80% confidence", compact(sim.monthlyForConfidence) + "/mo"))
+            }
         }
         val chart = goalProjection(g, plan, today)
         val action = InsightAction("Open goal", InsightRoute.GOALS, g.id?.toString())

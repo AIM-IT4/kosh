@@ -275,7 +275,8 @@ private fun NpsEntry(item: InvestmentItem?, vm: InvestmentEditViewModel, onSave:
     var advanced by remember { mutableStateOf(item?.spec is InvestmentSpec.Nps) }
     Column {
         if (advanced) NpsForm(item, vm, onSave = { n, sp -> onSave(n, sp) }) else NpsSimpleForm(item, onSave = { n, sp -> onSave(n, sp) })
-        Row(
+        // Live NAVs need the network; the offline edition only offers the simple form.
+        if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED || advanced) Row(
             Modifier.fillMaxWidth().padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

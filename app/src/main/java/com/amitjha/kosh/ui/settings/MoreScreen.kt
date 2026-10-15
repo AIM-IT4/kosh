@@ -26,15 +26,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Science
@@ -179,7 +182,13 @@ fun MoreScreen(nav: NavController) {
                     ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Outlined.AccountBalance) { nav.navigate(Routes.ACCOUNTS) }
                     ActionRow("Review imports", "Confirm transactions imported from SMS", Icons.Outlined.Inbox) { nav.navigate(Routes.REVIEW) }
                     ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Outlined.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
+                    ActionRow("Tax planner", "Old vs new regime, 80C, 80D, HRA and more", Icons.Outlined.Calculate) { nav.navigate(Routes.TAX) }
                     ActionRow("Categories", null, Icons.Outlined.Category) { nav.navigate(Routes.CATEGORIES) }
+                    if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) {
+                        ActionRow("Household sync", "Share with your partner's phone over Wi-Fi, encrypted", Icons.Outlined.Groups) {
+                            nav.navigate(Routes.HOUSEHOLD)
+                        }
+                    }
                 }
             }
             item(key = "appearance") {
@@ -221,6 +230,18 @@ fun MoreScreen(nav: NavController) {
                         { v -> scope.launch { c.settings.setBlockScreenshots(v) } },
                         Icons.Outlined.VisibilityOff,
                     )
+                    val encrypted = com.amitjha.kosh.data.DatabaseEncryption.status ==
+                        com.amitjha.kosh.data.DatabaseEncryption.Status.ENCRYPTED
+                    ActionRow(
+                        if (encrypted) "Database encrypted ✓" else "Database not encrypted yet",
+                        if (encrypted) {
+                            "AES-256 (SQLCipher), key kept in the phone's secure hardware keystore"
+                        } else {
+                            "Kosh will encrypt it on the next launch"
+                        },
+                        Icons.Outlined.Lock,
+                        enabled = false,
+                    ) {}
                 }
             }
             item(key = "sms") {
@@ -268,6 +289,7 @@ fun MoreScreen(nav: NavController) {
                     )
                 }
             }
+            item(key = "tools") { com.amitjha.kosh.ui.tools.ToolsSection(onMessage = { show(it) }) }
             item(key = "data") {
                 Section("Your data") {
                     ActionRow("Back up", "Encrypted file protected by a password", Icons.Outlined.Backup, enabled = busy == null) {
@@ -307,7 +329,13 @@ fun MoreScreen(nav: NavController) {
             item(key = "about") {
                 Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Kosh ${context.versionName()}", style = MaterialTheme.typography.labelLarge, color = KoshTheme.colors.subtleText)
-                    Text("Everything stays on this device.", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.subtleText)
+                    Text(
+                        if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) "Everything stays on this device."
+                        else "Offline edition · no internet access at all",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = KoshTheme.colors.subtleText,
+                    )
+                    Text("Free & open source · GPL-3.0", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.subtleText)
                 }
             }
         }

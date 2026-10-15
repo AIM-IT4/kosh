@@ -1,0 +1,3 @@
+- Fixes from a full audit: no duplicate SMS imports, correct transfers and card-bill payments, correct NPS, EPF and forecast figures
+- Atomic, safer backups and restore; stronger backup encryption
+- App lock hardening, screenshot blocking, private lock-screen notifications
