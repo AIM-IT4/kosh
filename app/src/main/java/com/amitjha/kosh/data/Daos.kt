@@ -144,6 +144,10 @@ interface TransactionDao {
     @Query("UPDATE transactions SET suspicious = :suspicious WHERE id = :id")
     suspend fun setSuspicious(id: Long, suspicious: Boolean)
 
+    /** Transactions (not flagged suspicious) that move [accountId] from [since] on, oldest first. */
+    @Query("SELECT * FROM transactions WHERE (accountId = :accountId OR toAccountId = :accountId) AND timestamp >= :since AND suspicious = 0 ORDER BY timestamp")
+    suspend fun forAccountSince(accountId: Long, since: Long): List<TransactionEntity>
+
     /** Number of transactions (not flagged suspicious) that move [accountId] after [since]. */
     @Query("SELECT COUNT(*) FROM transactions WHERE (accountId = :accountId OR toAccountId = :accountId) AND timestamp >= :since AND suspicious = 0")
     suspend fun countSince(accountId: Long, since: Long): Int

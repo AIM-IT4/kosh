@@ -15,6 +15,7 @@ import com.amitjha.kosh.repo.BudgetRepository
 import com.amitjha.kosh.repo.CategoryRepository
 import com.amitjha.kosh.repo.GoalRepository
 import com.amitjha.kosh.repo.InsightRepository
+import com.amitjha.kosh.repo.InterestRepository
 import com.amitjha.kosh.repo.InvestmentRepository
 import com.amitjha.kosh.repo.NetWorthRepository
 import com.amitjha.kosh.repo.TransactionRepository
@@ -40,6 +41,7 @@ class AppContainer(context: Context) {
     val investments = InvestmentRepository(db, navSource)
     val insights = InsightRepository(db, accounts, settings)
     val netWorth = NetWorthRepository(db, accounts)
+    val interest = InterestRepository(db, accounts)
 
     val smsImporter = SmsImporter(app, db, settings)
     val gmailAuth = GmailAuth(app, settings)

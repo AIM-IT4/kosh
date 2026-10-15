@@ -48,4 +48,18 @@ class MigrationSchemaTest {
             assertEquals(table, columns(schema(1), table).keys, columns(schema(2), table).keys)
         }
     }
+
+    @Test
+    fun version4AddsSavingsInterestColumnsToAccounts() {
+        val v3 = columns(schema(3), "accounts")
+        val v4 = columns(schema(4), "accounts")
+        assertEquals(setOf("interestRatePct", "interestCreditFrequency"), v4.keys - v3.keys)
+        val rate = v4.getValue("interestRatePct")
+        assertEquals("REAL", rate.getString("affinity"))
+        assertTrue(!rate.getBoolean("notNull"))
+        val freq = v4.getValue("interestCreditFrequency")
+        assertEquals("TEXT", freq.getString("affinity"))
+        assertTrue(freq.getBoolean("notNull"))
+        assertEquals("'QUARTERLY'", freq.getString("defaultValue"))
+    }
 }

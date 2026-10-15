@@ -198,6 +198,7 @@ data class AccountDetailState(
     val transactions: List<TransactionItem> = emptyList(),
     val bills: List<BillItem> = emptyList(),
     val banks: List<AccountEntity> = emptyList(),
+    val interest: com.amitjha.kosh.repo.AccountInterest? = null,
     val loaded: Boolean = false,
 )
 
@@ -206,8 +207,10 @@ class AccountDetailViewModel(private val c: AppContainer, private val id: Long) 
         c.accounts.observeAccounts(),
         c.transactions.observe(TxnFilter(accountId = id)),
         c.bills.observeForCard(id),
-    ) { accounts, txns, bills ->
+        c.interest.observeAccount(id),
+    ) { accounts, txns, bills, interest ->
         AccountDetailState(
+            interest = interest,
             account = accounts.firstOrNull { it.id == id },
             transactions = txns.take(100),
             bills = bills,
@@ -217,6 +220,8 @@ class AccountDetailViewModel(private val c: AppContainer, private val id: Long) 
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountDetailState())
 
     fun setBalance(amount: Long) = viewModelScope.launch { c.accounts.setCurrentBalance(id, amount) }
+    fun setInterestRate(ratePct: Double?, frequency: com.amitjha.kosh.finance.CreditFrequency) =
+        viewModelScope.launch { c.interest.setRate(id, ratePct, frequency) }
     fun archive(onDone: () -> Unit) = viewModelScope.launch {
         c.accounts.archive(id)
         onDone()
@@ -233,6 +238,7 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
     var reconcile by remember { mutableStateOf(false) }
     var archive by remember { mutableStateOf(false) }
     var paying by remember { mutableStateOf<BillItem?>(null) }
+    var editingRate by remember { mutableStateOf(false) }
     val a = state.account
 
     KoshScreen(
@@ -299,6 +305,11 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
                     }
                 }
             }
+            state.interest?.let { interest ->
+                item(key = "interest") {
+                    com.amitjha.kosh.ui.wealth.AccountInterestCard(interest, hidden, onEditRate = { editingRate = true }, Modifier.padding(bottom = 8.dp))
+                }
+            }
             if (a.isCard) {
                 item(key = "card-info") {
                     KoshCard(Modifier.padding(bottom = 8.dp)) {
@@ -337,6 +348,17 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
         }
     }
 
+    val interestNow = state.interest
+    if (editingRate && interestNow != null) {
+        com.amitjha.kosh.ui.wealth.InterestRateDialog(
+            interestNow,
+            onDismiss = { editingRate = false },
+            onSave = { rate, freq ->
+                vm.setInterestRate(rate, freq)
+                editingRate = false
+            },
+        )
+    }
     if (reconcile && a != null) {
         AmountSheet(
             title = if (a.isCard) "Amount you owe today" else "Balance in your bank app today",

@@ -79,6 +79,7 @@ data class WealthState(
     val netWorth: NetWorth? = null,
     val history: List<ChartPoint> = emptyList(),
     val items: List<InvestmentItem> = emptyList(),
+    val interest: com.amitjha.kosh.repo.InterestSummary? = null,
     val loaded: Boolean = false,
 )
 
@@ -87,11 +88,13 @@ class WealthViewModel(private val c: AppContainer) : ViewModel() {
         c.netWorth.observeNetWorth(),
         c.netWorth.observeHistory(),
         c.investments.observeItems(),
-    ) { nw, history, items ->
+        c.interest.observe(),
+    ) { nw, history, items, interest ->
         WealthState(
             netWorth = nw,
             history = history.takeLast(180).map { ChartPoint(Fmt.date(LocalDate.ofEpochDay(it.epochDay)), it.total) },
             items = items,
+            interest = interest,
             loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WealthState())
@@ -143,6 +146,7 @@ fun WealthScreen(nav: NavController) {
         onAdd = { nav.navigate(Routes.addInvestment(it)) },
         onOpen = { nav.navigate(Routes.investment(it)) },
         onNetWorth = { nav.navigate(Routes.NET_WORTH) },
+        onOpenAccount = { nav.navigate(Routes.account(it)) },
     )
 }
 
@@ -157,6 +161,7 @@ fun WealthContent(
     onAdd: (InvestmentType) -> Unit = {},
     onOpen: (Long) -> Unit = {},
     onNetWorth: () -> Unit = {},
+    onOpenAccount: (Long) -> Unit = {},
 ) {
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
@@ -212,6 +217,14 @@ fun WealthContent(
                                 }
                             }
                         }
+                    }
+                }
+            }
+            state.interest?.takeIf { it.items.isNotEmpty() }?.let { interest ->
+                item(key = "interest") {
+                    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = KoshTheme.spacing.section)) {
+                        SectionHeader("Savings interest")
+                        SavingsInterestCard(interest, hidden, onOpenAccount)
                     }
                 }
             }
