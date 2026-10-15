@@ -47,6 +47,11 @@ data class InsightInput(
     val monthlyIncomeHint: Paise? = null,
     /** Display names for category keys ("food" → "Food & Dining"); keys are shown as-is when missing. */
     val categoryNames: Map<String, String> = emptyMap(),
+    /**
+     * First day of the user's budgeting month (e.g. 25 = salary day). Periods then run from the
+     * 25th to the 24th and are labelled with the month holding most of their days.
+     */
+    val monthStartDay: Int = 1,
 )
 
 /** Severity, from most to least urgent. */
@@ -127,7 +132,20 @@ object InsightEngine {
     const val SPENDING_DOWN_FROM_DAY = 15
 
     fun generate(input: InsightInput): List<Insight> {
-        val ctx = Context(input)
+        val startDay = input.monthStartDay.coerceIn(1, 28)
+        val shift = (startDay - 1).toLong()
+        // A period from day S of month M to day S-1 of M+1 has exactly as many days as M, so moving
+        // every date back by S-1 days maps budgeting periods exactly onto calendar months.
+        dateShift.set(shift)
+        labelOffset.set(if (startDay > 15) 1L else 0L)
+        val shifted = if (shift == 0L) input else input.copy(
+            today = input.today.minusDays(shift),
+            transactions = input.transactions.map { it.copy(date = it.date.minusDays(shift)) },
+            goals = input.goals.map { it.copy(deadline = it.deadline.minusDays(shift)) },
+            upcomingBills = input.upcomingBills.map { it.copy(dueDate = it.dueDate.minusDays(shift)) },
+            investments = input.investments.map { it.copy(maturityDate = it.maturityDate?.minusDays(shift)) },
+        )
+        val ctx = Context(shifted)
         val rules: List<(Context) -> List<Insight>> = listOf(
             ::budgetRules, ::categorySpikes, ::savingsRate, ::noIncome, ::goalRules, ::emergencyFund,
             ::idleCash, ::cardUtilisation, ::billsDue, ::fdMaturity, ::subscriptions, ::frequentSmallSpends,
@@ -169,7 +187,8 @@ object InsightEngine {
         /** The last [n] months, oldest first, ending with this month. */
         fun lastMonths(n: Int = 6): List<YearMonth> = (n - 1 downTo 0).map { month.minusMonths(it.toLong()) }
 
-        fun monthLabel(m: YearMonth): String = m.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
+        fun monthLabel(m: YearMonth): String =
+            m.plusMonths(labelOffset.get()).month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
 
         /** Spending this month accumulated day by day, up to today. */
         fun cumulativeThisMonth(category: String? = null): List<Long> {
@@ -182,8 +201,17 @@ object InsightEngine {
         val daysLeft: Int get() = daysInMonth - today.dayOfMonth
     }
 
+    private val dateShift = ThreadLocal.withInitial { 0L }
+    private val labelOffset = ThreadLocal.withInitial { 0L }
+
+    /** The real calendar date of a (shifted) engine date. */
+    private fun real(d: LocalDate): LocalDate = d.plusDays(dateShift.get())
+
+    private fun isWeekendDay(d: LocalDate): Boolean =
+        real(d).dayOfWeek == DayOfWeek.SATURDAY || real(d).dayOfWeek == DayOfWeek.SUNDAY
+
     private fun fmt(p: Paise) = Money.format(p, showPaise = false)
-    private fun day(d: LocalDate) = "${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}"
+    private fun day(d: LocalDate) = real(d).let { "${it.dayOfMonth} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}" }
 
     /** Regular commitments that a "still using it?" nudge makes no sense for. */
     private val NON_DISCRETIONARY = setOf("rent", "emi", "insurance", "investment", "taxes", "people", "transfer", "bills", "education", "salary")
@@ -428,10 +456,10 @@ object InsightEngine {
         val from = c.today.minusDays(30)
         val recent = c.expenses.filter { it.date.isAfter(from) && !it.date.isAfter(c.today) }
         val days = (1..30).map { c.today.minusDays(it.toLong() - 1) }
-        val weekendDays = days.count { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY }
+        val weekendDays = days.count { isWeekendDay(it) }
         val weekdayDays = days.size - weekendDays
         if (weekendDays == 0 || weekdayDays == 0) return emptyList()
-        val isWeekend = { t: InsightTxn -> t.date.dayOfWeek == DayOfWeek.SATURDAY || t.date.dayOfWeek == DayOfWeek.SUNDAY }
+        val isWeekend = { t: InsightTxn -> isWeekendDay(t.date) }
         val weekendTotal = recent.filter(isWeekend).sumOf { it.amount }
         val weekdayTotal = recent.filterNot(isWeekend).sumOf { it.amount }
         val weekendDaily = weekendTotal.toDouble() / weekendDays
@@ -602,7 +630,7 @@ object InsightEngine {
                     metrics = listOfNotNull(
                         m("Monthly", compact(payments.map { it.amount }.average().roundToLong())),
                         m("Yearly", compact(payments.map { it.amount }.average().roundToLong() * 12)),
-                        next?.let { m("Next expected", "${it.dayOfMonth} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}") },
+                        next?.let { m("Next expected", day(it)) },
                     ),
                     chart = InsightChart(InsightChart.Kind.BARS, payments.map { c.monthLabel(YearMonth.from(it.date)) }, payments.map { it.amount }),
                     action = i.category?.let { InsightAction("See ${c.label(it)}", InsightRoute.CATEGORY, it) },
@@ -620,7 +648,7 @@ object InsightEngine {
             id == "weekend_spending" -> {
                 val from = c.today.minusDays(30)
                 val recent = c.expenses.filter { it.date.isAfter(from) && !it.date.isAfter(c.today) }
-                val byDow = DayOfWeek.entries.map { d -> recent.filter { it.date.dayOfWeek == d }.sumOf { it.amount } }
+                val byDow = DayOfWeek.entries.map { d -> recent.filter { real(it.date).dayOfWeek == d }.sumOf { it.amount } }
                 i.copy(
                     detail = "Spending per day of the week over the last 30 days. Planning weekend outings in advance is a simple way to trim it.",
                     chart = InsightChart(InsightChart.Kind.BARS, listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), byDow),
@@ -660,7 +688,7 @@ object InsightEngine {
         val top = c.expensesIn(c.month).groupBy { it.category }.mapValues { (_, t) -> t.sumOf { it.amount } }
             .entries.sortedByDescending { it.value }.take(3)
         val projected = Budgets.project(Long.MAX_VALUE, spent, c.today).projected
-        val monthName = c.month.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
+        val monthName = c.month.plusMonths(labelOffset.get()).month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
         val share = if (income > 0) " (${pct(spent.toDouble() / income)} of income)" else ""
         val topText = if (top.isEmpty()) "" else " Biggest categories: " + top.joinToString(", ") { "${c.label(it.key)} ${fmt(it.value)}" } + "."
         val score = monthScore(c)
@@ -799,7 +827,7 @@ object InsightEngine {
                 null, 19,
                 detail = "These merchants were paid similar amounts about a month apart. The next expected date helps you keep enough in the account.",
                 metrics = recurring.take(6).map { (name, amount, next) ->
-                    m(name, "${compact(amount)} · ${next.dayOfMonth} ${next.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}")
+                    m(name, "${compact(amount)} · ${day(next)}")
                 },
                 action = InsightAction("See activity", InsightRoute.ACTIVITY),
             ),

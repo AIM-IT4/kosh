@@ -91,7 +91,7 @@ class InsightsViewModel(private val c: AppContainer) : ViewModel() {
 
     fun dismiss(id: String) = viewModelScope.launch { c.insights.dismiss(id) }
     fun restoreDismissed() = viewModelScope.launch { c.settings.clearDismissedInsights() }
-    suspend fun regenerate() = c.insights.generate()
+    suspend fun regenerate() = c.insights.refresh()
 }
 
 private fun Severity.heading(): String = when (this) {

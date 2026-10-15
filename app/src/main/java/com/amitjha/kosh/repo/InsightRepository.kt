@@ -21,6 +21,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flowOn
@@ -39,6 +41,7 @@ class InsightRepository(
     fun observeInsights(): Flow<List<Insight>> =
         combine(
             listOf<Flow<Any?>>(
+            refreshTick,
             db.transactions().observeChanges(),
             db.accounts().observeActive(),
             db.budgets().observeAll(),
@@ -60,9 +63,18 @@ class InsightRepository(
 
     suspend fun dismiss(id: String) = settings.dismissInsight(id)
 
+    /** Bumped to force [observeInsights] to regenerate, e.g. on pull-to-refresh. */
+    private val refreshTick = MutableStateFlow(0)
+
+    /** Regenerates the observed insights now. */
+    fun refresh() {
+        refreshTick.value = refreshTick.value + 1
+    }
+
     /** Builds the engine input from the last ~4 months of data. */
     suspend fun buildInput(today: LocalDate = Time.today()): InsightInput {
-        val since = Time.startOfDay(today.withDayOfMonth(1).minusMonths(4))
+        val since = Time.startOfDay(today.withDayOfMonth(1).minusMonths(5))
+        val monthStartDay = settings.settings.first().monthStartDay
         val accountList = accounts.accounts()
         val cardIds = accountList.filter { it.isCard }.map { it.id }.toSet()
         val txns = db.transactions().since(since)
@@ -103,6 +115,7 @@ class InsightRepository(
                 InvestmentInput(it.name, it.type, it.currentValue, it.maturityDate?.let(LocalDate::ofEpochDay))
             },
             categoryNames = db.categories().all().associate { it.key to it.name },
+            monthStartDay = monthStartDay,
         )
     }
 }
