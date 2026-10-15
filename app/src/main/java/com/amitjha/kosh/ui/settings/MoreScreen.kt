@@ -1,16 +1,12 @@
 package com.amitjha.kosh.ui.settings
 
 import com.amitjha.kosh.designsystem.theme.KoshText
-import com.amitjha.kosh.ui.common.GmailExplainerSheet
-import com.amitjha.kosh.ui.common.friendlyGmailError
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,7 +33,6 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteForever
-import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Notifications
@@ -76,7 +71,6 @@ import com.amitjha.kosh.designsystem.components.KoshCard
 import com.amitjha.kosh.designsystem.components.KoshLogo
 import com.amitjha.kosh.designsystem.components.SegmentedTabs
 import com.amitjha.kosh.designsystem.theme.KoshTheme
-import com.amitjha.kosh.gmail.GmailAuthOutcome
 import com.amitjha.kosh.model.TxnType
 import com.amitjha.kosh.security.BackupCrypto
 import com.amitjha.kosh.security.BiometricGate
@@ -147,64 +141,6 @@ fun MoreScreen(nav: NavController) {
     val requestSms = rememberSmsPermissionRequest { scanSms() }
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-    fun syncGmail() {
-        if (busy != null) return
-        busy = "Connecting to Gmail…"
-        scope.launch {
-            try {
-                val r = c.gmailSync.sync(onProgress = { done, total ->
-                    scope.launch { busy = "Reading Gmail: $done of $total emails…" }
-                })
-                show(when {
-                    r.needsReconnect -> "Please reconnect Gmail"
-                    r.error != null -> "${r.error} Saved ${r.billsAdded} bills and ${r.transactionsAdded} transactions."
-                    else -> "Checked ${r.scanned} emails · ${r.billsAdded} bills · ${r.transactionsAdded} transactions" +
-                        (if (r.moreAvailable) " · Tap sync again for more history" else "") +
-                        (if (r.failed > 0) " · ${r.failed} emails couldn't be read; sync again to retry" else "")
-                })
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                show(e.message ?: "Gmail sync failed")
-            } finally {
-                busy = null
-            }
-        }
-    }
-    val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        scope.launch {
-            when (val o = c.gmailAuth.completeConsent(result.data)) {
-                is GmailAuthOutcome.Granted -> syncGmail()
-                is GmailAuthOutcome.Failed -> show(friendlyGmailError(o.message))
-                is GmailAuthOutcome.NeedsConsent -> show("Google needs more consent; try again")
-            }
-        }
-    }
-    var showGmailExplainer by remember { mutableStateOf(false) }
-    fun startGmailConsent() {
-        val activity = context as? Activity ?: return
-        scope.launch {
-            when (val o = c.gmailAuth.connect(activity)) {
-                is GmailAuthOutcome.NeedsConsent -> consent.launch(IntentSenderRequest.Builder(o.pendingIntent).build())
-                is GmailAuthOutcome.Granted -> syncGmail()
-                is GmailAuthOutcome.Failed -> show(friendlyGmailError(o.message))
-            }
-        }
-    }
-
-    fun connectGmail() {
-        showGmailExplainer = true
-    }
-    if (showGmailExplainer) {
-        GmailExplainerSheet(
-            onContinue = {
-                showGmailExplainer = false
-                startGmailConsent()
-            },
-            onDismiss = { showGmailExplainer = false },
-        )
-    }
-
     val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) backupUri = uri
     }
@@ -229,7 +165,7 @@ fun MoreScreen(nav: NavController) {
                 Section("Credit cards") {
                     ActionRow(
                         if (due > 0) "Card bills · $due due" else "Card bills",
-                        if (due > 0) "From SMS & Gmail statements — tap to see amounts and due dates" else "Bills from SMS & Gmail statements appear here",
+                        if (due > 0) "From your card SMS — tap to see amounts and due dates" else "Bills from your card SMS appear here",
                         Icons.Outlined.CreditCard,
                     ) { nav.navigate(Routes.BILLS) }
                 }
@@ -237,7 +173,7 @@ fun MoreScreen(nav: NavController) {
             item(key = "shortcuts") {
                 Section("Manage") {
                     ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Outlined.AccountBalance) { nav.navigate(Routes.ACCOUNTS) }
-                    ActionRow("Review imports", "Check SMS and email transactions", Icons.Outlined.Inbox) { nav.navigate(Routes.REVIEW) }
+                    ActionRow("Review imports", "Confirm transactions imported from SMS", Icons.Outlined.Inbox) { nav.navigate(Routes.REVIEW) }
                     ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Outlined.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
                     ActionRow("Categories", null, Icons.Outlined.Category) { nav.navigate(Routes.CATEGORIES) }
                 }
@@ -275,37 +211,13 @@ fun MoreScreen(nav: NavController) {
                 }
             }
             item(key = "sms") {
-                Section("SMS & email") {
+                Section("Bank SMS") {
                     SwitchRow("Import bank SMS automatically", "New bank messages are added as they arrive. SMS never leave your phone.",
                         s.smsAutoImport, { v -> scope.launch { c.settings.setSmsAutoImport(v) } }, Icons.Outlined.Sms)
                     ActionRow("Scan inbox now", "Last scan ${Fmt.ago(s.smsLastScanMillis)}", Icons.Outlined.Sync, enabled = busy == null) {
                         requestSms()
                     }
                     lastScan?.let { ScanDetails(it) }
-                    if (s.gmailConnected) {
-                        ActionRow(
-                            "Gmail: ${s.gmailAccountEmail}",
-                            if (s.gmailReconnectNeeded) "Access expired — tap to reconnect" else "Last checked ${Fmt.ago(s.gmailLastSyncMillis)} · tap to sync now",
-                            Icons.Outlined.Email,
-                            enabled = busy == null,
-                        ) { if (s.gmailReconnectNeeded) connectGmail() else syncGmail() }
-                        s.gmailLastSummary?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText,
-                                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
-                        }
-                        ActionRow("View bills", "Card statements found in Gmail", Icons.Outlined.CreditCard) { nav.navigate(Routes.BILLS) }
-                        ActionRow("View email transactions", "Card spends read from alert emails", Icons.Outlined.Inbox) {
-                            com.amitjha.kosh.ui.transactions.ActivityFilterRequest.pending = com.amitjha.kosh.ui.transactions.F_EMAIL
-                            nav.navigate(Routes.TRANSACTIONS) {
-                                popUpTo(Routes.HOME) { saveState = false }
-                                launchSingleTop = true
-                            }
-                        }
-                        ActionRow("Disconnect Gmail", null, null) { scope.launch { c.gmailAuth.disconnect() } }
-                    } else {
-                        ActionRow("Connect Gmail", "Read card statements and transaction alerts (read-only)", Icons.Outlined.Email,
-                            enabled = busy == null) { connectGmail() }
-                    }
                 }
             }
             item(key = "notif") {

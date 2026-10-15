@@ -1,9 +1,6 @@
 package com.amitjha.kosh.ui.onboarding
 
 import com.amitjha.kosh.designsystem.theme.KoshText
-import androidx.compose.material.icons.outlined.Email
-import com.amitjha.kosh.ui.common.friendlyGmailError
-import com.amitjha.kosh.ui.common.GmailExplainerSheet
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
@@ -86,7 +83,6 @@ import com.amitjha.kosh.designsystem.theme.BrandPalette
 import com.amitjha.kosh.designsystem.theme.KoshTheme
 import com.amitjha.kosh.domain.InvestmentSpec
 import com.amitjha.kosh.finance.Compounding
-import com.amitjha.kosh.gmail.GmailAuthOutcome
 import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.Bank
 import com.amitjha.kosh.sms.ImportResult
@@ -108,7 +104,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import com.amitjha.kosh.ui.common.rememberSmsPermissionRequest
 
-private const val STEPS = 8
+private const val STEPS = 7
 
 @Composable
 fun OnboardingScreen() {
@@ -145,8 +141,7 @@ fun OnboardingScreen() {
                 2 -> AccountsStep(card = true) { step = 3 }
                 3 -> InvestmentsStep { step = 4 }
                 4 -> PermissionsStep { step = 5 }
-                5 -> GmailStep { step = 6 }
-                6 -> ImportStep { step = 7 }
+                5 -> ImportStep { step = 6 }
                 else -> DoneStep(finish)
             }
         }
@@ -220,7 +215,7 @@ private fun Welcome(onNext: () -> Unit) {
         Text("Your expenses, income, cards and investments in one private place.",
             style = MaterialTheme.typography.bodyLarge, color = KoshTheme.colors.subtleText, textAlign = TextAlign.Center)
         Spacer(Modifier.height(28.dp))
-        ValueProp(Icons.Outlined.Sms, "Automatic tracking", "Bank SMS and card emails become transactions and bills.")
+        ValueProp(Icons.Outlined.Sms, "Automatic tracking", "Bank SMS become transactions and card bills automatically.")
         ValueProp(Icons.AutoMirrored.Outlined.TrendingUp, "Wealth on autopilot", "FD, EPF and NPS values update by themselves.")
         ValueProp(Icons.Outlined.Lock, "Private by design", "Everything stays on your phone. Insights are computed offline.")
         Spacer(Modifier.weight(1f))
@@ -460,79 +455,12 @@ private fun PermissionRow(icon: ImageVector, title: String, granted: Boolean, on
 }
 
 @Composable
-private fun GmailStep(onNext: () -> Unit) {
-    val c = LocalContainer.current
-    val s = LocalSettings.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var message by remember { mutableStateOf<String?>(null) }
-    val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        scope.launch {
-            message = when (val o = c.gmailAuth.completeConsent(result.data)) {
-                is GmailAuthOutcome.Granted -> "Connected"
-                is GmailAuthOutcome.Failed -> friendlyGmailError(o.message)
-                is GmailAuthOutcome.NeedsConsent -> "Please try again"
-            }
-        }
-    }
-    StepPage(
-        title = "Card bills from Gmail",
-        subtitle = "Optional: Kosh can read your credit card statement emails (read-only) to get bill amounts and due dates.",
-        primary = if (s.gmailConnected) "Continue" else "Not now",
-        onPrimary = onNext,
-        icon = Icons.Outlined.Email,
-    ) {
-        if (s.gmailConnected) {
-            KoshCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = KoshTheme.colors.good)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Connected as ${s.gmailAccountEmail}", fontWeight = FontWeight.Medium)
-                }
-            }
-        } else {
-            var explain by remember { mutableStateOf(false) }
-            PrimaryButton("Connect Gmail", modifier = Modifier.fillMaxWidth(), icon = Icons.Outlined.Email, onClick = { explain = true })
-            if (explain) {
-                GmailExplainerSheet(
-                    onContinue = {
-                        explain = false
-                        val activity = context as? Activity
-                        if (activity != null) {
-                            scope.launch {
-                                when (val o = c.gmailAuth.connect(activity)) {
-                                    is GmailAuthOutcome.NeedsConsent -> consent.launch(IntentSenderRequest.Builder(o.pendingIntent).build())
-                                    is GmailAuthOutcome.Granted -> message = "Connected"
-                                    is GmailAuthOutcome.Failed -> message = friendlyGmailError(o.message)
-                                }
-                            }
-                        }
-                    },
-                    onDismiss = { explain = false },
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Google shows an “unverified app” screen for personal apps — choose Continue. You can connect later in More.",
-                style = MaterialTheme.typography.bodySmall,
-                color = KoshTheme.colors.subtleText,
-            )
-        }
-        message?.let {
-            Spacer(Modifier.height(10.dp))
-            Text(it, color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
 private fun ImportStep(onNext: () -> Unit) {
     val c = LocalContainer.current
     val context = LocalContext.current
     var result by remember { mutableStateOf<ImportResult?>(null) }
     var running by remember { mutableStateOf(false) }
-    var gmailNote by remember { mutableStateOf<String?>(null) }
-    val s = LocalSettings.current
+    var note by remember { mutableStateOf<String?>(null) }
     var phase by remember { mutableStateOf("Reading your bank SMS…") }
     LaunchedEffect(Unit) {
         running = true
@@ -540,24 +468,10 @@ private fun ImportStep(onNext: () -> Unit) {
             if (context.hasSmsPermission()) {
                 result = c.smsImporter.importInbox()
             }
-            if (s.gmailConnected) {
-                phase = "Connecting to Gmail…"
-                val r = c.gmailSync.sync(onProgress = { done, total ->
-                    // The fetch callback runs on IO; post UI updates to this effect's scope.
-                    launch { phase = "Reading Gmail: $done of $total emails…" }
-                })
-                gmailNote = when {
-                    r.needsReconnect -> "Reconnect Gmail from More to continue."
-                    r.error != null -> r.error
-                    else -> "${r.billsAdded} card bills and ${r.transactionsAdded} transactions from Gmail" +
-                        (if (r.moreAvailable) ". Sync again from More for older history." else "") +
-                        (if (r.failed > 0) " ${r.failed} emails couldn't be read; sync again to retry." else "")
-                }
-            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            gmailNote = e.message ?: "Import failed. Try again from More."
+            note = e.message ?: "Import failed. Try again from More."
         } finally {
             running = false
         }
@@ -576,7 +490,7 @@ private fun ImportStep(onNext: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         }
-        gmailNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText) }
+        note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText) }
         result?.let { r ->
             KoshCard {
                 Text(r.describe(), fontWeight = FontWeight.SemiBold)

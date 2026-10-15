@@ -6,8 +6,6 @@ import com.amitjha.kosh.data.KoshDatabase
 import com.amitjha.kosh.data.prefs.SettingsStore
 import com.amitjha.kosh.finance.NavSource
 import com.amitjha.kosh.finance.NpsNavApi
-import com.amitjha.kosh.gmail.GmailAuth
-import com.amitjha.kosh.gmail.GmailSync
 import com.amitjha.kosh.notify.Notifications
 import com.amitjha.kosh.repo.AccountRepository
 import com.amitjha.kosh.repo.BillRepository
@@ -44,11 +42,9 @@ class AppContainer(context: Context) {
     val interest = InterestRepository(db, accounts)
 
     val smsImporter = SmsImporter(app, db, settings)
-    val gmailAuth = GmailAuth(app, settings)
-    val gmailSync = GmailSync(db, settings, gmailAuth)
     val backup = BackupManager(app, db)
     val demoData = DemoData(db, investments)
 
-    /** Runs the full daily refresh (NAVs, SMS, Gmail, net worth) once in the background. */
+    /** Runs the full daily refresh (NAVs, SMS, net worth) once in the background. */
     fun syncNow() = WorkScheduler.syncNow(app)
 }

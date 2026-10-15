@@ -25,6 +25,7 @@ class KoshApp : Application() {
                 com.amitjha.kosh.repo.DataRepairs.run(container.db, container.settings, container.netWorth)
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(container.db) }
+            runCatching { container.settings.clearLegacyGmail() }
         }
         WorkScheduler.schedule(this)
     }

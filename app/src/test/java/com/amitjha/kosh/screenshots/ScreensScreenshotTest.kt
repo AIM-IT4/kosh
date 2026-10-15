@@ -19,7 +19,6 @@ import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.CreditCard
-import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Sms
@@ -254,17 +253,16 @@ class ScreensScreenshotTest {
                 Section("Manage") {
                     ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Outlined.AccountBalance) {}
                     ActionRow("Card bills", "Due dates and payments", Icons.Outlined.CreditCard) {}
-                    ActionRow("Review imports", "Check SMS and email transactions", Icons.Outlined.Inbox) {}
+                    ActionRow("Review imports", "Confirm transactions imported from SMS", Icons.Outlined.Inbox) {}
                 }
                 Section("Appearance & privacy") {
                     SegmentedTabs(listOf("System", "Light", "Dark"), 1, onSelect = {}, modifier = Modifier.padding(vertical = 8.dp))
                     SwitchRow("Hide amounts", "Show ₹ •••• until you tap the eye", false, {}, Icons.Outlined.VisibilityOff)
                     SwitchRow("App lock", "Fingerprint, face or screen lock when opening Kosh", true, {}, Icons.Outlined.Fingerprint)
                 }
-                Section("SMS & email") {
+                Section("Bank SMS") {
                     SwitchRow("Import bank SMS automatically", "New bank messages are added as they arrive. SMS never leave your phone.", true, {}, Icons.Outlined.Sms)
                     ActionRow("Scan inbox now", "Last scan 2 hours ago", Icons.Outlined.Sync) {}
-                    ActionRow("Connect Gmail", "Read credit card statements for bill amounts and due dates (read-only)", Icons.Outlined.Email) {}
                 }
                 Section("Your data") {
                     ActionRow("Back up", "Encrypted file protected by a password", Icons.Outlined.Backup) {}

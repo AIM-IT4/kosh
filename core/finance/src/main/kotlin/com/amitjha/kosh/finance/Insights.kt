@@ -24,7 +24,23 @@ data class InsightTxn(
 )
 
 data class BudgetInput(val category: String?, val monthlyLimit: Paise)
-data class GoalInput(val name: String, val target: Paise, val saved: Paise, val deadline: LocalDate)
+/**
+ * A savings goal exactly as the user planned it. A purchase [loanAmount] reduces what has to be
+ * saved, and savings grow at [expectedReturnPct].
+ */
+data class GoalInput(
+    val name: String,
+    val target: Paise,
+    val saved: Paise,
+    val deadline: LocalDate,
+    val expectedReturnPct: Double = 0.0,
+    val loanAmount: Paise = 0,
+    val loanRatePct: Double = 9.0,
+    val loanTenureMonths: Int = 36,
+    val createdAt: LocalDate? = null,
+    /** Database id, used to open the goal from the insight. */
+    val id: Long? = null,
+)
 data class AccountInput(val id: Long, val name: String, val type: AccountType, val balance: Paise, val creditLimit: Paise? = null)
 data class BillInput(
     val cardName: String,
@@ -107,6 +123,10 @@ object InsightEngine {
     const val SPIKE_FACTOR = 1.5
     val SPIKE_MIN_BASE: Paise = Money.fromRupees(1_000.0)
     const val SAVINGS_GUIDELINE = 0.20
+    /** A goal is comfortably on track when it needs at most this share of the available surplus. */
+    const val GOAL_COMFORT_SHARE = 0.8
+    /** Complete budgeting months averaged to estimate the monthly surplus available for goals. */
+    const val GOAL_SURPLUS_MONTHS = 3
     const val SAVINGS_GREAT = 0.30
     const val EMERGENCY_MIN_MONTHS = 3.0
     const val EMERGENCY_TARGET_MONTHS = 6.0
@@ -141,7 +161,7 @@ object InsightEngine {
         val shifted = if (shift == 0L) input else input.copy(
             today = input.today.minusDays(shift),
             transactions = input.transactions.map { it.copy(date = it.date.minusDays(shift)) },
-            goals = input.goals.map { it.copy(deadline = it.deadline.minusDays(shift)) },
+            goals = input.goals.map { it.copy(deadline = it.deadline.minusDays(shift), createdAt = it.createdAt?.minusDays(shift)) },
             upcomingBills = input.upcomingBills.map { it.copy(dueDate = it.dueDate.minusDays(shift)) },
             investments = input.investments.map { it.copy(maturityDate = it.maturityDate?.minusDays(shift)) },
         )
@@ -209,6 +229,8 @@ object InsightEngine {
 
     private fun isWeekendDay(d: LocalDate): Boolean =
         real(d).dayOfWeek == DayOfWeek.SATURDAY || real(d).dayOfWeek == DayOfWeek.SUNDAY
+
+    private fun realDay(d: LocalDate) = "${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)} ${d.year}"
 
     private fun fmt(p: Paise) = Money.format(p, showPaise = false)
     private fun day(d: LocalDate) = real(d).let { "${it.dayOfMonth} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}" }
@@ -310,30 +332,123 @@ object InsightEngine {
         )
     }
 
+    /** Monthly surplus (income − spending) averaged over the last complete budgeting months that have data. */
+    private fun recentSurplus(c: Context): Paise? {
+        val months = (1..GOAL_SURPLUS_MONTHS).map { c.month.minusMonths(it.toLong()) }
+            .filter { c.income(it) != 0L || c.spent(it) != 0L }
+        if (months.isEmpty()) return null
+        return months.sumOf { c.income(it) - c.spent(it) } / months.size
+    }
+
     private fun goalRules(c: Context): List<Insight> {
-        val monthlySaving = (1..3).map { c.month.minusMonths(it.toLong()) }
-            .map { c.income(it) - c.spent(it) }.filter { it != 0L }.let { if (it.isEmpty()) 0L else it.sum() / it.size }
-        return c.input.goals.mapNotNull { g ->
-            val plan = Goals.plan(g.target, g.saved, g.deadline, c.today)
-            val id = "goal_${slug(g.name)}"
-            when {
-                plan.reached -> Insight(id, Severity.GOOD, "Goal reached: ${g.name}", "You've saved ${fmt(g.saved)} of ${fmt(g.target)}.", null, 30)
-                plan.overdue -> Insight(
-                    id, Severity.ALERT, "${g.name} deadline has passed",
-                    "${fmt(g.target - g.saved)} is still needed. Set a new date or a monthly amount to finish it.", null, 80,
+        val today = real(c.today)
+        val surplus = recentSurplus(c)
+        // Earlier deadlines get first call on the surplus.
+        val plans = c.input.goals.map { g ->
+            g to Goals.planGoal(g.target, g.saved, real(g.deadline), today, g.expectedReturnPct, g.loanAmount)
+        }.sortedBy { it.first.deadline }
+        var committedEarlier = 0L
+        return plans.map { (g, plan) ->
+            val capacity = surplus?.let { it - committedEarlier }
+            val insight = goalInsight(c, g, plan, surplus, capacity, today)
+            if (!plan.reached && !plan.overdue) committedEarlier += plan.requiredMonthly
+            insight
+        }
+    }
+
+    private fun goalInsight(c: Context, g: GoalInput, plan: GoalPlan, surplus: Paise?, capacity: Paise?, today: LocalDate): Insight {
+        val id = "goal_${slug(g.name)}"
+        val toSave = plan.target
+        val deadline = real(g.deadline)
+        val loanNote = if (g.loanAmount > 0) {
+            val emi = GoalLoan.emi(g.loanAmount, g.loanRatePct, g.loanTenureMonths)
+            " plus a ${fmt(g.loanAmount)} loan (EMI ${fmt(emi)} for ${g.loanTenureMonths} months)"
+        } else ""
+        val metrics = buildList {
+            add(m("Target", compact(g.target)))
+            add(m("Saved", compact(g.saved)))
+            if (g.loanAmount > 0) add(m("Loan", compact(g.loanAmount)))
+            add(m("To save", compact(toSave)))
+            add(m("Months left", "${plan.monthsLeft}"))
+            add(m("Needed/month", compact(plan.requiredMonthly)))
+            add(m("Your surplus/month", surplus?.let { compact(it) } ?: "-"))
+            add(m("Expected return", "${"%.1f".format(g.expectedReturnPct)}%"))
+        }
+        val chart = goalProjection(g, plan, today)
+        val action = InsightAction("Open goal", InsightRoute.GOALS, g.id?.toString())
+        fun insight(sev: Severity, title: String, msg: String, detail: String, score: Int) =
+            Insight(id, sev, title, msg, null, score, detail = detail, metrics = metrics, chart = chart, action = action)
+
+        val dateText = day(g.deadline)
+        val basics = "The goal is ${fmt(g.target)} by $dateText$loanNote, so ${fmt(toSave)} has to come from savings. " +
+            "You've saved ${fmt(g.saved)} and expect ${"%.1f".format(g.expectedReturnPct)}% a year on it."
+        return when {
+            plan.reached -> insight(
+                Severity.GOOD, if (g.loanAmount > 0) "${g.name}: savings target reached" else "Goal reached: ${g.name}",
+                "You've saved ${fmt(g.saved)}, enough for the ${fmt(toSave)} you planned to save.",
+                basics, 30,
+            )
+            plan.overdue -> {
+                val remaining = toSave - g.saved
+                val pace = capacity?.takeIf { it > 0 }
+                val newDate = pace?.let { Goals.monthsToReach(toSave, g.saved, it, g.expectedReturnPct) }?.let { today.plusMonths(it.toLong()) }
+                insight(
+                    Severity.ALERT, "${g.name}: the date has passed",
+                    "${fmt(remaining)} is still to save. " +
+                        (newDate?.let { "At your usual surplus you'd finish around ${realDay(it)} — update the date." } ?: "Set a new date to get a fresh plan."),
+                    basics, 80,
                 )
-                !plan.isOnTrack(monthlySaving) -> Insight(
-                    id, Severity.WARNING, "${g.name} is off track",
-                    "Save ${fmt(plan.requiredMonthly)} a month for the next ${plan.monthsLeft} months to reach ${fmt(g.target)}. " +
-                        "You've been saving about ${fmt(maxOf(0, monthlySaving))} a month.",
-                    null, 65,
-                )
-                else -> Insight(
-                    id, Severity.GOOD, "${g.name} is on track",
-                    "${pct(plan.progress)} done. ${fmt(plan.requiredMonthly)} a month keeps you on schedule.", null, 15,
+            }
+            surplus == null -> insight(
+                Severity.TIP, "${g.name}: save ${fmt(plan.requiredMonthly)} a month",
+                "Saving ${fmt(plan.requiredMonthly)} a month gets you ${fmt(toSave)} by $dateText$loanNote.",
+                "$basics Kosh needs a full month of income and spending to judge whether this fits your budget.", 25,
+            )
+            capacity != null && capacity > 0 && plan.requiredMonthly <= capacity * GOAL_COMFORT_SHARE -> insight(
+                Severity.GOOD, "${g.name} is on track",
+                "At ${fmt(plan.requiredMonthly)} a month you'll reach ${fmt(toSave)} by $dateText$loanNote.",
+                "$basics That's ${pct(plan.requiredMonthly.toDouble() / capacity)} of what's left of your usual monthly surplus of " +
+                    "${fmt(surplus)} after earlier goals.", 15,
+            )
+            capacity != null && capacity > 0 && plan.requiredMonthly <= capacity -> insight(
+                Severity.TIP, "${g.name} is tight",
+                "Needs ${fmt(plan.requiredMonthly)} a month to save ${fmt(toSave)} by $dateText$loanNote — about " +
+                    "${pct(plan.requiredMonthly.toDouble() / capacity)} of your usual surplus of ${fmt(capacity)}.",
+                "$basics It fits, but leaves little room for surprises. A later date or a bigger loan would ease it.", 40,
+            )
+            else -> {
+                val pace = (capacity ?: 0).coerceAtLeast(0)
+                val options = mutableListOf("save ${fmt(plan.requiredMonthly)} a month")
+                if (pace > 0) {
+                    Goals.monthsToReach(toSave, g.saved, pace, g.expectedReturnPct)?.let {
+                        options += "move the date to ${realDay(today.plusMonths(it.toLong()))} at ${fmt(pace)} a month"
+                    }
+                    val reachable = Goals.futureValue(g.saved, pace, plan.monthsLeft, g.expectedReturnPct)
+                    val extraLoan = (toSave - reachable).coerceAtLeast(0)
+                    if (extraLoan > 0) {
+                        val loan = g.loanAmount + extraLoan
+                        options += "take a ${fmt(loan)} loan (EMI ${fmt(GoalLoan.emi(loan, g.loanRatePct, g.loanTenureMonths))} for ${g.loanTenureMonths} months)"
+                    }
+                }
+                val usual = if (pace > 0) "Your usual surplus after earlier goals is ${fmt(pace)} a month."
+                else "Your recent months leave no surplus after earlier goals."
+                insight(
+                    Severity.WARNING, "${g.name} is off track",
+                    "$usual To reach it by $dateText, ${options.joinToString(", or ")}.",
+                    basics, 65,
                 )
             }
         }
+    }
+
+    /** Saved amount month by month if the user saves the required amount, up to the deadline. */
+    private fun goalProjection(g: GoalInput, plan: GoalPlan, today: LocalDate): InsightChart? {
+        if (plan.reached || plan.overdue || plan.monthsLeft <= 0) return null
+        val step = maxOf(1, plan.monthsLeft / 6)
+        val months = (0..plan.monthsLeft step step).toMutableList().apply { if (last() != plan.monthsLeft) add(plan.monthsLeft) }
+        val values = months.map { Goals.futureValue(g.saved, plan.requiredMonthly, it, g.expectedReturnPct).coerceAtMost(plan.target) }
+        val labels = months.map { today.plusMonths(it.toLong()).let { d -> d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) } }
+        return InsightChart(InsightChart.Kind.LINE, labels, values, reference = plan.target, caption = "Savings if you stick to the plan")
     }
 
     private fun emergencyFund(c: Context): List<Insight> {
@@ -598,7 +713,6 @@ object InsightEngine {
                     action = InsightAction("See activity", InsightRoute.ACTIVITY),
                 )
             }
-            id.startsWith("goal_") -> i.copy(action = InsightAction("Open goals", InsightRoute.GOALS))
             id == "emergency_fund" || id == "idle_cash" -> {
                 val avg = c.avgMonthlyExpense
                 i.copy(

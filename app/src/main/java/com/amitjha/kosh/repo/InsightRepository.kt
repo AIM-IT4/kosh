@@ -95,7 +95,20 @@ class InsightRepository(
             today = today,
             transactions = txns,
             budgets = db.budgets().all().map { BudgetInput(it.categoryKey, it.monthlyLimit) },
-            goals = db.goals().all().map { GoalInput(it.name, it.target, it.saved, LocalDate.ofEpochDay(it.deadline)) },
+            goals = db.goals().all().map {
+                GoalInput(
+                    name = it.name,
+                    target = it.target,
+                    saved = it.saved,
+                    deadline = LocalDate.ofEpochDay(it.deadline),
+                    expectedReturnPct = it.expectedReturnPct,
+                    loanAmount = it.loanAmount,
+                    loanRatePct = it.loanRatePct,
+                    loanTenureMonths = it.loanTenureMonths,
+                    createdAt = Time.toDate(it.createdAt),
+                    id = it.id,
+                )
+            },
             // Accounts the user hasn't confirmed have no trustworthy balance, so balance rules ignore them.
             accounts = accountList.filter { it.counted }.map { a ->
                 AccountInput(

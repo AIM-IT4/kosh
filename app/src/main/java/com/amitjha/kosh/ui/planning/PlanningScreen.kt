@@ -105,11 +105,23 @@ class PlanningViewModel(private val c: AppContainer) : ViewModel() {
     fun deleteGoal(goal: GoalEntity) = viewModelScope.launch { c.goals.delete(goal) }
 }
 
+/** Lets other screens (e.g. an insight's action) open Plan on a given tab: 0 = Budgets, 1 = Goals. */
+object PlanningTabRequest {
+    var pending by mutableStateOf<Int?>(null)
+}
+
 @Composable
 fun PlanningScreen(@Suppress("UNUSED_PARAMETER") nav: NavController) {
     val vm = koshViewModel { PlanningViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val requestedTab = PlanningTabRequest.pending
+    androidx.compose.runtime.LaunchedEffect(requestedTab) {
+        if (requestedTab != null) {
+            tab = requestedTab
+            PlanningTabRequest.pending = null
+        }
+    }
     var addBudget by remember { mutableStateOf(false) }
     var editGoal by remember { mutableStateOf<GoalEntity?>(null) }
     var newGoal by remember { mutableStateOf(false) }

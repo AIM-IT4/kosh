@@ -77,7 +77,7 @@ class DemoData(private val db: KoshDatabase, private val investments: Investment
         db.bills().insertIgnore(
             CardBillEntity(accountId = hdfcCard, totalDue = rupees(28_430.0), minimumDue = rupees(1_430.0),
                 dueDate = today.plusDays(4).toEpochDay(), statementDate = today.minusDays(16).toEpochDay(),
-                source = TxnSource.EMAIL, fingerprint = "demo-hdfc-bill"),
+                source = TxnSource.SMS, fingerprint = "demo-hdfc-bill"),
         )
         db.bills().insertIgnore(
             CardBillEntity(accountId = iciciCard, totalDue = rupees(9_870.0), minimumDue = rupees(500.0),

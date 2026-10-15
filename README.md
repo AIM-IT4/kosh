@@ -3,13 +3,13 @@
 <p align="center"><b>A private, offline-first personal finance tracker for Android, built for Indian banking.</b></p>
 
 Kosh (Sanskrit: *treasury*) tracks income, expenses, credit cards, bills and investments. It reads bank
-SMS and credit-card statement emails automatically, and turns your data into insights, all on the phone.
+SMS automatically, and turns your data into insights, all on the phone.
 
 ## Features
 
 - **Automatic import:**
   - **Bank SMS:** ICICI, HDFC, Kotak and DBS messages, with a generic parser for other banks. New messages are picked up live, de-duplicated and sorted into categories.
-  - **Credit-card bills:** read from SMS and from Gmail statement emails (read-only Gmail access), with due-date reminders.
+  - **Credit-card bills:** read from card SMS, with due-date reminders.
   - **Review inbox:** confirm or fix imported transactions. Recategorising a merchant can remember that category for future imports.
 - **Accounts and cards:** balances that reconcile with what bank SMS report, card outstanding and utilisation, and "mark paid" recording the transfer from your bank account.
 - **Investments that update themselves:**
@@ -31,9 +31,8 @@ SMS and credit-card statement emails automatically, and turns your data into ins
 | `core:model` | Money (paise, Indian formatting), shared types |
 | `core:sms` | Bank SMS parsers, merchant normalisation, category guessing |
 | `core:finance` | FD/EPF/NPS valuation, NAV client, budgets and goals, insight engine |
-| `core:mail` | Gmail REST client, credit-card statement parsers |
 | `core:designsystem` | Compose theme, charts, components, logo |
-| `app` | Room database, repositories, SMS import, Gmail sign-in, WorkManager jobs, UI screens |
+| `app` | Room database, repositories, SMS import, WorkManager jobs, UI screens |
 
 Kotlin, Jetpack Compose with Material 3, Room, WorkManager, DataStore and Google Identity Services.
 The engine modules are plain Kotlin with unit tests.
@@ -47,6 +46,3 @@ The engine modules are plain Kotlin with unit tests.
 
 Release signing reads `keystore/kosh-release.jks` and the `KOSH_STORE_PASSWORD` / `KOSH_KEY_PASSWORD`
 Gradle properties from `~/.gradle/gradle.properties`. Neither is committed.
-
-Gmail statement import needs an Android OAuth client in Google Cloud: package `com.amitjha.kosh`, the release
-key's SHA-1, the Gmail API enabled, and your account added as a test user.

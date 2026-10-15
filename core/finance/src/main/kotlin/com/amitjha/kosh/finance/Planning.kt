@@ -77,3 +77,53 @@ object Goals {
         return if (from.plusMonths(whole.toLong()).isBefore(to)) whole + 1 else whole
     }
 }
+
+/** The optional loan a user is willing to take when buying a goal, and what it costs. */
+object GoalLoan {
+
+    /** The part of the target the user still has to save. */
+    fun savingsTarget(target: Paise, loanAmount: Paise): Paise = (target - loanAmount.coerceIn(0, target)).coerceAtLeast(0)
+
+    /** Standard EMI: P·r·(1+r)^n / ((1+r)^n − 1), with r the monthly rate; P/n when the rate is 0. */
+    fun emi(principal: Paise, annualRatePct: Double, months: Int): Paise {
+        if (principal <= 0 || months <= 0) return 0
+        val r = annualRatePct / 100.0 / 12.0
+        if (r == 0.0) return (principal.toDouble() / months).roundToLong()
+        val f = (1 + r).pow(months)
+        return (principal * r * f / (f - 1)).roundToLong()
+    }
+
+    /** Interest paid over the whole loan. */
+    fun totalInterest(principal: Paise, annualRatePct: Double, months: Int): Paise =
+        (emi(principal, annualRatePct, months) * months - principal).coerceAtLeast(0)
+}
+
+/**
+ * The plan for a goal as the user set it up: a purchase loan reduces what has to be saved, and the
+ * savings grow at the expected return. The Goals screen and the insights both use this, so they
+ * always show the same numbers.
+ */
+fun Goals.planGoal(
+    target: Paise,
+    saved: Paise,
+    deadline: LocalDate,
+    today: LocalDate,
+    expectedAnnualReturnPct: Double,
+    loanAmount: Paise = 0,
+): GoalPlan = plan(GoalLoan.savingsTarget(target, loanAmount), saved, deadline, today, expectedAnnualReturnPct)
+
+/** Value after [months] of saving [monthly] at month end on top of [saved], growing at [annualReturnPct]. */
+fun Goals.futureValue(saved: Paise, monthly: Paise, months: Int, annualReturnPct: Double): Paise {
+    if (months <= 0) return saved
+    val i = annualReturnPct / 100.0 / 12.0
+    if (i == 0.0) return saved + monthly * months
+    val g = (1 + i).pow(months)
+    return (saved * g + monthly * (g - 1) / i).roundToLong()
+}
+
+/** Months needed to reach [target] saving [monthly] a month, or null if it can't be reached within [maxMonths]. */
+fun Goals.monthsToReach(target: Paise, saved: Paise, monthly: Paise, annualReturnPct: Double, maxMonths: Int = 600): Int? {
+    if (saved >= target) return 0
+    for (n in 1..maxMonths) if (futureValue(saved, monthly, n, annualReturnPct) >= target) return n
+    return null
+}

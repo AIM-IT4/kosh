@@ -40,7 +40,7 @@ fun rememberSmsPermissionRequest(onGranted: () -> Unit): () -> Unit {
                 Text("Kosh needs SMS permission to read bank messages on this phone. " +
                     "Open app settings, then Permissions › SMS › Allow. " +
                     "If SMS is unavailable or disabled, Android or your app installer may be restricting access. " +
-                    "You can still use Gmail or add transactions manually.")
+                    "You can still add transactions manually.")
             },
             confirmButton = {
                 TextButton(onClick = {

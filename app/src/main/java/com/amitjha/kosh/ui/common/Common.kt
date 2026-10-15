@@ -50,6 +50,13 @@ object Fmt {
     fun date(d: LocalDate): String = if (d.year == LocalDate.now().year) dayMonth.format(d) else dayMonthYear.format(d)
     fun fullDate(d: LocalDate): String = dayMonthYear.format(d)
     fun month(m: YearMonth): String = monthYear.format(m)
+
+    /** "October 2026" for calendar months, "October 2026 · 25 Sep – 24 Oct" when the month starts on another day. */
+    fun periodLabel(p: com.amitjha.kosh.util.Period): String {
+        val name = monthYear.format(p.label)
+        if (p.start.dayOfMonth == 1) return name
+        return "$name · ${dayMonth.format(p.start)} – ${dayMonth.format(p.endExclusive.minusDays(1))}"
+    }
     fun shortMonth(m: YearMonth): String = shortMonth.format(m)
     fun time(millis: Long): String = time.format(java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()))
 

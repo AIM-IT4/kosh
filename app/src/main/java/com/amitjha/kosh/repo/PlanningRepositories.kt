@@ -12,6 +12,7 @@ import com.amitjha.kosh.finance.BudgetProjection
 import com.amitjha.kosh.finance.Budgets
 import com.amitjha.kosh.finance.GoalPlan
 import com.amitjha.kosh.finance.Goals
+import com.amitjha.kosh.finance.planGoal
 import com.amitjha.kosh.model.Paise
 import com.amitjha.kosh.model.TxnType
 import com.amitjha.kosh.util.Period
@@ -142,7 +143,7 @@ class GoalRepository(private val db: KoshDatabase) {
 
     fun observeStatuses(): Flow<List<GoalStatus>> = combine(db.goals().observeAll(), db.transactions().observeChanges()) { goals, _ ->
         val today = Time.today()
-        goals.map { g -> GoalStatus(g, Goals.plan(com.amitjha.kosh.domain.GoalLoan.savingsTarget(g.target, g.loanAmount), g.saved, LocalDate.ofEpochDay(g.deadline), today, g.expectedReturnPct)) }
+        goals.map { g -> GoalStatus(g, Goals.planGoal(g.target, g.saved, LocalDate.ofEpochDay(g.deadline), today, g.expectedReturnPct, g.loanAmount)) }
     }
 
     suspend fun upsert(goal: GoalEntity): Long = db.goals().upsert(goal)

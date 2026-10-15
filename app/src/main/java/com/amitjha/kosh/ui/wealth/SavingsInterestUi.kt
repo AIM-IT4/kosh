@@ -44,7 +44,8 @@ private fun periodName(i: AccountInterest) = if (i.frequency == CreditFrequency.
 fun rateLine(i: AccountInterest): String = if (i.userRate) {
     "${rate(i.estimate.ratePct)} a year · your rate"
 } else {
-    "${rate(i.estimate.ratePct)} a year · as of ${Fmt.date(i.rateCard.asOf)} · ${i.rateCard.confidence.label}"
+    (if (i.rateCard.isFlat) "${rate(i.estimate.ratePct)} a year" else "${i.rateCard.describe()} a year") +
+        " · as of ${Fmt.date(i.rateCard.asOf)} · ${i.rateCard.confidence.label}"
 }
 
 /** Wealth: interest earned on savings balances this quarter, across bank accounts. */
@@ -162,7 +163,7 @@ fun InterestRateDialog(
         text = {
             Column {
                 Text(
-                    "Built-in rate for ${i.account.bank.shortName}: ${rate(builtIn.headlineRatePct())} " +
+                    "Built-in rate for ${i.account.bank.shortName}: ${builtIn.describe()} " +
                         "(as of ${Fmt.date(builtIn.asOf)}, ${builtIn.confidence.label}). Leave blank to use it.",
                     style = MaterialTheme.typography.bodySmall,
                     color = KoshTheme.colors.subtleText,

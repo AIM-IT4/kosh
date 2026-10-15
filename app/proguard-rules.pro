@@ -12,14 +12,9 @@
 -keep class com.amitjha.kosh.KoshApp { *; }
 
 # Investment specs are serialised with org.json by field names in code (no reflection), but keep the
-# finance and mail engines' data classes readable in crash traces.
+# finance and SMS engines' data classes readable in crash traces.
 -keepnames class com.amitjha.kosh.finance.** { *; }
--keepnames class com.amitjha.kosh.mail.** { *; }
 -keepnames class com.amitjha.kosh.sms.** { *; }
-
-# Google Play services auth.
--keep class com.google.android.gms.auth.api.identity.** { *; }
--dontwarn com.google.android.gms.**
 
 # Coroutines.
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}

@@ -12,7 +12,6 @@ work = "2.9.0"
 datastore = "1.1.1"
 biometric = "1.1.0"
 coroutines = "1.9.0"
-playServicesAuth = "21.2.0"
 junit = "4.13.2"
 
 [libraries]
@@ -36,7 +35,6 @@ androidx-datastore-preferences = { module = "androidx.datastore:datastore-prefer
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
-play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

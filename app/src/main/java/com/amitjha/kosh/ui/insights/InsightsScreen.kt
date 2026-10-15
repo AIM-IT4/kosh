@@ -109,7 +109,10 @@ fun openInsightAction(nav: NavController, action: InsightAction) {
             nav.navigate(Routes.TRANSACTIONS) { launchSingleTop = true }
         }
         InsightRoute.ACTIVITY -> nav.navigate(Routes.TRANSACTIONS) { launchSingleTop = true }
-        InsightRoute.BUDGETS, InsightRoute.GOALS -> nav.navigate(Routes.PLANNING) { launchSingleTop = true }
+        InsightRoute.BUDGETS, InsightRoute.GOALS -> {
+            com.amitjha.kosh.ui.planning.PlanningTabRequest.pending = if (action.route == InsightRoute.GOALS) 1 else 0
+            nav.navigate(Routes.PLANNING) { launchSingleTop = true }
+        }
         InsightRoute.BILLS -> nav.navigate(Routes.BILLS)
         InsightRoute.WEALTH -> nav.navigate(Routes.WEALTH) { launchSingleTop = true }
         InsightRoute.ACCOUNTS -> nav.navigate(Routes.ACCOUNTS)

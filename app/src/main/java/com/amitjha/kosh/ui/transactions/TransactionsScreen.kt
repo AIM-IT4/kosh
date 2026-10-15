@@ -59,6 +59,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import com.amitjha.kosh.designsystem.theme.KoshTheme
+import com.amitjha.kosh.repo.TransactionRepository
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -68,12 +71,11 @@ private const val F_EXPENSE = "Expenses"
 private const val F_INCOME = "Income"
 private const val F_TRANSFER = "Transfers"
 internal const val F_SMS = "From SMS"
-internal const val F_EMAIL = "From email"
 private const val F_MANUAL = "Manual"
 
 /** Opens the fix-uncategorised screen rather than filtering the list. */
 internal const val F_OTHER = "Other"
-private val FILTERS = listOf(F_SMS, F_EMAIL, F_OTHER, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL)
+private val FILTERS = listOf(F_SMS, F_OTHER, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL)
 
 /** One-shot filter requested by another screen (e.g. Settings → "View email transactions"). */
 object ActivityFilterRequest {
@@ -102,20 +104,22 @@ data class TxnListState(
     val categoryName: String? = null,
     /** Imported expenses this period still in "Other". */
     val uncategorised: Int = 0,
+    /** True when a category, type, source or search narrows the list; the totals then cover only what's shown. */
+    val narrowed: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
-    private val period = MutableStateFlow(Period.containing(Time.today()))
+    /** Months before the current budgeting month (0 = this month). */
+    private val offset = MutableStateFlow(0)
+    private val period = combine(c.settings.settings, offset) { s, o ->
+        var p = Period.containing(Time.today(), s.monthStartDay)
+        repeat(o) { p = p.previous() }
+        p
+    }.distinctUntilChanged()
     private val query = MutableStateFlow("")
     private val filters = MutableStateFlow<Set<String>>(emptySet())
     private val category = MutableStateFlow<String?>(null)
-
-    init {
-        viewModelScope.launch {
-            period.value = Period.containing(Time.today(), c.settings.settings.first().monthStartDay)
-        }
-    }
 
     val state: StateFlow<TxnListState> = combine(period, query, filters, category) { p, q, f, cat -> listOf(p, q, f, cat) }
         .flatMapLatest { values ->
@@ -124,19 +128,28 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
             @Suppress("UNCHECKED_CAST") val f = values[2] as Set<String>
             val cat = values[3] as String?
             c.transactions.observe(TxnFilter(period = p, query = q, categoryKey = cat)).let { flow ->
-                combine(flow, c.transactions.observeSummary(p)) { list, summary ->
+                combine(flow, c.categories.observeAll()) { list, cats ->
                     val filtered = list.filter { matches(it, f) }
+                    // Totals come from exactly the rows shown, with the same rules as Home and Insights
+                    // (transfers, excluded and held-for-review rows don't count).
+                    val summary = TransactionRepository.summarise(p, filtered.map { it.txn }, cats.associateBy { it.key })
                     val groups = filtered.groupBy { it.date }.toSortedMap(compareByDescending { it })
                         .map { (d, items) -> DayGroup(d, items, items.sumOf { it.signedAmount }) }
                     val catName = cat?.let { key -> list.firstOrNull()?.category?.name ?: c.categories.byKey(key)?.name ?: key }
                     val other = list.count {
                         it.txn.type == TxnType.EXPENSE && it.txn.categoryKey == "other" && it.txn.source != TxnSource.MANUAL
                     }
-                    TxnListState(p, q, f, groups, summary.income, summary.expense, loaded = true, categoryName = catName, uncategorised = other)
+                    TxnListState(
+                        p, q, f, groups, summary.income, summary.expense, loaded = true, categoryName = catName,
+                        uncategorised = other, narrowed = cat != null || f.isNotEmpty() || q.isNotBlank(),
+                    )
                 }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TxnListState(Period.containing(Time.today())))
+
+    /** The period currently shown (for callers that need it synchronously). */
+    val currentPeriod: Period get() = state.value.period
 
     private fun matches(t: TransactionItem, f: Set<String>): Boolean {
         val types = f.mapNotNull {
@@ -150,7 +163,6 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
         val sources = f.mapNotNull {
             when (it) {
                 F_SMS -> TxnSource.SMS
-                F_EMAIL -> TxnSource.EMAIL
                 F_MANUAL -> TxnSource.MANUAL
                 else -> null
             }
@@ -158,8 +170,8 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
         return (types.isEmpty() || t.txn.type in types) && (sources.isEmpty() || t.txn.source in sources)
     }
 
-    fun previous() { period.value = period.value.previous() }
-    fun next() { period.value = period.value.next() }
+    fun previous() { offset.value = offset.value + 1 }
+    fun next() { offset.value = (offset.value - 1).coerceAtLeast(0) }
     fun setQuery(q: String) { query.value = q }
     fun toggle(f: String) {
         if (f.startsWith(CATEGORY_CHIP_PREFIX)) {
@@ -168,7 +180,13 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
         }
         filters.value = if (f in filters.value) filters.value - f else filters.value + f
     }
-    fun filterCategory(key: String) { category.value = key }
+    /** Opened from Home or an insight: show this budgeting month's [key] transactions, matching the figure tapped. */
+    fun filterCategory(key: String) {
+        offset.value = 0
+        filters.value = emptySet()
+        query.value = ""
+        category.value = key
+    }
     fun only(f: String) { filters.value = setOf(f) }
 
     suspend fun delete(id: Long): TransactionEntity? {
@@ -240,13 +258,21 @@ fun TransactionsContent(
                 Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp)) {
                     Text("Activity", style = KoshText.screenTitle)
                     MonthSwitcher(
-                        label = Fmt.month(state.period.label),
+                        label = Fmt.periodLabel(state.period),
                         onPrevious = onPrevious,
                         onNext = onNext,
                         canGoNext = canGoNext,
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                     KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+                        if (state.narrowed) {
+                            Text(
+                                (state.categoryName?.let { "$it · " } ?: "") + "totals for the transactions shown",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = KoshTheme.colors.subtleText,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                        }
                         Row(Modifier.fillMaxWidth()) {
                             StatChip("Income", state.income, Modifier.weight(1f), type = TxnType.INCOME, hidden = hidden)
                             StatChip("Spent", state.expense, Modifier.weight(1f), type = TxnType.EXPENSE, hidden = hidden)

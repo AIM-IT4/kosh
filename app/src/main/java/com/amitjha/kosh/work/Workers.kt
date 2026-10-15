@@ -19,7 +19,7 @@ import java.time.LocalTime
 
 /**
  * Daily auto-update: revalues FD/EPF/NPS (fetching NAVs and applying NPS contributions), catches up on SMS,
- * syncs Gmail bills, records net worth and posts alert-level insights and FD maturity reminders.
+ * records net worth and posts alert-level insights and FD maturity reminders.
  */
 class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
@@ -30,7 +30,6 @@ class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : Corout
 
         runCatching { c.investments.revalueAll(today) }
         if (settings.smsAutoImport && c.smsImporter.hasPermission()) runCatching { c.smsImporter.importInbox() }
-        if (settings.gmailConnected) runCatching { c.gmailSync.sync() }
         runCatching { c.netWorth.snapshot(today) }
 
         if (settings.notifyInsights) {

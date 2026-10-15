@@ -1,6 +1,7 @@
 package com.amitjha.kosh.finance
 
 import com.amitjha.kosh.model.Bank
+import com.amitjha.kosh.model.Money
 import com.amitjha.kosh.model.Paise
 import java.time.LocalDate
 
@@ -37,6 +38,20 @@ data class SavingsRateCard(
 
     /** True when every balance earns the same rate. */
     val isFlat: Boolean get() = slabs.map { it.ratePct }.distinct().size == 1
+
+    /** Short description of the rate card: "2.50%" or "2.50% up to ₹2L · 5.00% to ₹50L · 4.00% above". */
+    fun describe(): String {
+        fun r(x: Double) = "%.2f%%".format(x)
+        if (isFlat) return r(slabs.first().ratePct)
+        return slabs.mapIndexed { i, slab ->
+            val next = slabs.getOrNull(i + 1)
+            when {
+                next == null -> "${r(slab.ratePct)} above ${Money.compact(slab.minBalance)}"
+                i == 0 -> "${r(slab.ratePct)} up to ${Money.compact(next.minBalance)}"
+                else -> "${r(slab.ratePct)} to ${Money.compact(next.minBalance)}"
+            }
+        }.joinToString(" · ")
+    }
 }
 
 /**
@@ -49,12 +64,18 @@ object SavingsRates {
         SavingsRateCard(bank, listOf(RateSlab(0, pct)), asOf, confidence, source)
 
     val table: Map<Bank, SavingsRateCard> = listOf(
-        flat(Bank.HDFC, 2.50, LocalDate.of(2025, 6, 24), RateConfidence.OFFICIAL, "HDFC Bank rate page: 2.50% on all balances"),
-        flat(Bank.ICICI, 2.50, LocalDate.of(2026, 8, 1), RateConfidence.REPORTED, "Comparison sites, Aug 2026"),
-        flat(Bank.KOTAK, 2.50, LocalDate.of(2026, 8, 1), RateConfidence.REPORTED, "Comparison sites, Aug 2026"),
-        flat(Bank.SBI, 2.50, LocalDate.of(2026, 8, 1), RateConfidence.REPORTED, "Comparison sites, Aug 2026"),
-        flat(Bank.AXIS, 3.00, LocalDate.of(2026, 10, 1), RateConfidence.UNVERIFIED, "Sources conflict; confirm with Axis Bank"),
-        flat(Bank.DBS, 2.50, LocalDate.of(2026, 10, 1), RateConfidence.UNVERIFIED, "No current official figure; confirm with DBS"),
+        flat(Bank.HDFC, 2.50, LocalDate.of(2025, 6, 24), RateConfidence.OFFICIAL, "hdfc.bank.in: 2.50% on all balances"),
+        flat(Bank.ICICI, 2.50, LocalDate.of(2025, 6, 26), RateConfidence.OFFICIAL, "icici.bank.in: 2.50% on all balances"),
+        flat(Bank.KOTAK, 2.50, LocalDate.of(2025, 7, 9), RateConfidence.OFFICIAL, "kotak.bank.in: 2.50% on all balances"),
+        flat(Bank.SBI, 2.50, LocalDate.of(2026, 8, 20), RateConfidence.REPORTED, "Reported from SBI's rate page: 2.50% on all balances"),
+        flat(Bank.AXIS, 2.50, LocalDate.of(2026, 4, 1), RateConfidence.OFFICIAL, "axis.bank.in: 2.50% on all balances"),
+        SavingsRateCard(
+            Bank.DBS,
+            listOf(RateSlab(0, 2.50), RateSlab(200_000_00, 5.00), RateSlab(50_00_000_00, 4.00)),
+            LocalDate.of(2025, 10, 24),
+            RateConfidence.REPORTED,
+            "Paisabazaar/Policybazaar: 2.50% up to ₹2L, 5.00% ₹2L–₹50L, 4.00% above ₹50L (DBS: \"up to 5%\")",
+        ),
         flat(Bank.OTHER, 2.50, LocalDate.of(2026, 10, 1), RateConfidence.UNVERIFIED, "Typical savings rate; set your bank's rate"),
     ).associateBy { it.bank }
 

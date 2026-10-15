@@ -112,4 +112,33 @@ class SavingsInterestTest {
         assertEquals(RateConfidence.OFFICIAL, SavingsRates.forBank(Bank.HDFC).confidence)
         assertEquals(2.5, SavingsRates.forBank(Bank.HDFC).headlineRatePct(), 0.0)
     }
+
+    @Test
+    fun verifiedRates() {
+        listOf(Bank.HDFC, Bank.ICICI, Bank.KOTAK, Bank.AXIS).forEach {
+            val card = SavingsRates.forBank(it)
+            assertEquals("$it", 2.5, card.headlineRatePct(), 0.0)
+            assertEquals("$it", RateConfidence.OFFICIAL, card.confidence)
+            assertEquals(true, card.isFlat)
+        }
+        assertEquals(2.5, SavingsRates.forBank(Bank.SBI).headlineRatePct(), 0.0)
+        assertEquals(LocalDate.of(2025, 6, 26), SavingsRates.forBank(Bank.ICICI).asOf)
+        assertEquals(LocalDate.of(2025, 7, 9), SavingsRates.forBank(Bank.KOTAK).asOf)
+    }
+
+    @Test
+    fun dbsTiersByPortion() {
+        val dbs = SavingsRates.forBank(Bank.DBS)
+        assertEquals(false, dbs.isFlat)
+        assertEquals("2.50% up to ₹2L · 5.00% to ₹50L · 4.00% above ₹50L", dbs.describe())
+        // ₹3,00,000 for 30 days: ₹2L at 2.5% plus ₹1L at 5%.
+        val perDay = SavingsRates.dailyInterest(300_000_00, dbs.slabs)
+        val expected = (200_000_00 * 2.5 + 100_000_00 * 5.0) / 100.0 / 365.0
+        assertEquals(expected, perDay, 1e-9)
+        assertEquals(82192, Math.round(perDay * 30)) // ₹821.92 over 30 days
+        // Above ₹50L the top band earns 4%.
+        val big = SavingsRates.dailyInterest(60_00_000_00, dbs.slabs)
+        val expBig = (200_000_00 * 2.5 + (50_00_000_00 - 200_000_00) * 5.0 + 10_00_000_00 * 4.0) / 100.0 / 365.0
+        assertEquals(expBig, big, 1e-6)
+    }
 }

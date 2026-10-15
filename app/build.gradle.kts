@@ -14,8 +14,8 @@ android {
         applicationId = "com.amitjha.kosh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.6.0"
+        versionCode = 9
+        versionName = "1.7.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -60,7 +60,6 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:sms"))
     implementation(project(":core:finance"))
-    implementation(project(":core:mail"))
     implementation(project(":core:designsystem"))
 
     implementation(libs.androidx.core.ktx)
@@ -83,7 +82,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.biometric)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.play.services.auth)
 
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")

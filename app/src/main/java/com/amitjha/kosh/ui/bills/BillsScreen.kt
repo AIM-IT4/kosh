@@ -164,9 +164,9 @@ fun BillsContent(
             EmptyState(
                 title = "No bills due",
                 message = if (state.cards.isEmpty()) {
-                    "Add a credit card to track its bills. Statements are read from your card SMS and Gmail."
+                    "Add a credit card to track its bills. Statements are read from your card SMS."
                 } else {
-                    "You're all paid up. New statements from SMS or Gmail will show here with due dates."
+                    "You're all paid up. New statements from your card SMS will show here with due dates."
                 },
                 icon = Icons.Outlined.CreditScore,
                 modifier = Modifier.padding(padding).padding(top = 60.dp),

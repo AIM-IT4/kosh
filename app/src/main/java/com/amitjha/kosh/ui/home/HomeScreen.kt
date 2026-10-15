@@ -592,9 +592,9 @@ private fun ReviewBanner(count: Int, modifier: Modifier, onClick: () -> Unit, fr
                 fontWeight = FontWeight.Medium,
                 color = KoshTheme.colors.ink,
             )
-            if (fromSms + fromEmail > 0) {
+            if (fromSms > 0) {
                 Text(
-                    "Imported from SMS ($fromSms) & email ($fromEmail)",
+                    if (fromEmail > 0) "Imported from SMS ($fromSms) and earlier email imports ($fromEmail)" else "$fromSms imported from SMS",
                     style = MaterialTheme.typography.bodySmall,
                     color = KoshTheme.colors.subtleText,
                 )

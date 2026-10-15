@@ -24,11 +24,6 @@ data class Settings(
     val themeMode: ThemeMode = ThemeMode.LIGHT,
     val smsAutoImport: Boolean = true,
     val smsLastScanMillis: Long = 0L,
-    val gmailAccountEmail: String? = null,
-    val gmailLastSyncMillis: Long = 0L,
-    val gmailReconnectNeeded: Boolean = false,
-    /** Summary of the last Gmail sync, e.g. "Scanned 120 emails · 2 bills · 35 transactions". */
-    val gmailLastSummary: String? = null,
     val monthStartDay: Int = 1,
     val notifyTransactions: Boolean = true,
     val notifyBills: Boolean = true,
@@ -37,7 +32,6 @@ data class Settings(
     val dismissedInsightIds: Set<String> = emptySet(),
 ) {
     val currencySymbol: String get() = "₹"
-    val gmailConnected: Boolean get() = gmailAccountEmail != null
 }
 
 /** App preferences backed by DataStore. */
@@ -49,11 +43,11 @@ class SettingsStore(private val context: Context) {
         val themeMode = stringPreferencesKey("theme_mode")
         val smsAutoImport = booleanPreferencesKey("sms_auto_import")
         val smsLastScan = longPreferencesKey("sms_last_scan")
-        val gmailEmail = stringPreferencesKey("gmail_email")
-        val gmailLastSync = longPreferencesKey("gmail_last_sync")
-        val gmailReconnect = booleanPreferencesKey("gmail_reconnect")
-        val processedEmailIds = stringSetPreferencesKey("processed_email_ids")
-        val gmailLastSummary = stringPreferencesKey("gmail_last_summary")
+        // Left by the removed Gmail import; cleared on start.
+        val legacyGmail = listOf(
+            stringPreferencesKey("gmail_email"), longPreferencesKey("gmail_last_sync"), booleanPreferencesKey("gmail_reconnect"),
+            stringSetPreferencesKey("processed_email_ids"), stringPreferencesKey("gmail_last_summary"),
+        )
         val monthStartDay = intPreferencesKey("month_start_day")
         val notifyTransactions = booleanPreferencesKey("notify_transactions")
         val notifyBills = booleanPreferencesKey("notify_bills")
@@ -72,10 +66,6 @@ class SettingsStore(private val context: Context) {
             themeMode = p[Keys.themeMode]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.LIGHT,
             smsAutoImport = p[Keys.smsAutoImport] ?: true,
             smsLastScanMillis = p[Keys.smsLastScan] ?: 0L,
-            gmailAccountEmail = p[Keys.gmailEmail],
-            gmailLastSyncMillis = p[Keys.gmailLastSync] ?: 0L,
-            gmailReconnectNeeded = p[Keys.gmailReconnect] ?: false,
-            gmailLastSummary = p[Keys.gmailLastSummary],
             monthStartDay = p[Keys.monthStartDay] ?: 1,
             notifyTransactions = p[Keys.notifyTransactions] ?: true,
             notifyBills = p[Keys.notifyBills] ?: true,
@@ -98,32 +88,13 @@ class SettingsStore(private val context: Context) {
     suspend fun setNotifyInsights(enabled: Boolean) = edit { it[Keys.notifyInsights] = enabled }
     suspend fun setHideAmounts(hidden: Boolean) = edit { it[Keys.hideAmounts] = hidden }
 
-    suspend fun setGmailAccount(email: String?) = edit {
-        if (email == null) {
-            it.remove(Keys.gmailEmail)
-            it.remove(Keys.processedEmailIds)
-        } else {
-            it[Keys.gmailEmail] = email
-        }
-        it[Keys.gmailReconnect] = false
-    }
-
-    suspend fun setGmailReconnectNeeded(needed: Boolean) = edit { it[Keys.gmailReconnect] = needed }
-    suspend fun setGmailLastSync(millis: Long) = edit { it[Keys.gmailLastSync] = millis }
-    suspend fun setGmailLastSummary(summary: String) = edit { it[Keys.gmailLastSummary] = summary }
+    /** Clears preferences left by the removed Gmail import. */
+    suspend fun clearLegacyGmail() = edit { prefs -> Keys.legacyGmail.forEach { prefs.remove(it) } }
 
     /** Version of the last one-time data repair applied after an update (see `repo.DataRepairs`). */
     suspend fun repairVersion(): Int = context.dataStore.data.first()[Keys.repairVersion] ?: 0
 
     suspend fun setRepairVersion(version: Int) = edit { it[Keys.repairVersion] = version }
-
-    suspend fun processedEmailIds(): Set<String> = context.dataStore.data.first()[Keys.processedEmailIds] ?: emptySet()
-
-    /** Remembers processed Gmail message ids, keeping only the most recent [MAX_IDS]. */
-    suspend fun addProcessedEmailIds(ids: Collection<String>) = edit {
-        val current = (it[Keys.processedEmailIds] ?: emptySet()).toList()
-        it[Keys.processedEmailIds] = (current + ids).distinct().takeLast(MAX_EMAIL_IDS).toSet()
-    }
 
     suspend fun dismissInsight(id: String) = edit {
         val current = (it[Keys.dismissedInsights] ?: emptySet()).toList()
@@ -153,6 +124,5 @@ class SettingsStore(private val context: Context) {
 
     companion object {
         const val MAX_IDS = 500
-        const val MAX_EMAIL_IDS = 4000
     }
 }
