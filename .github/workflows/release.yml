@@ -1,13 +1,15 @@
 name: Release
 
 # Builds both editions signed with the Kosh release key and publishes them as a GitHub release.
-# Runs when a version tag is pushed: `git tag v2.0.1 && git push origin v2.0.1`.
+# Runs when a version tag is pushed (`git tag v2.0.1 && git push origin v2.0.1`), or from the Actions tab
+# (Release > Run workflow), which tags the chosen commit with v<versionName> itself.
 # Needs three repository secrets: KOSH_KEYSTORE_BASE64 (`base64 -w0 keystore/kosh-release.jks`),
 # KOSH_STORE_PASSWORD and KOSH_KEY_PASSWORD.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,9 +28,11 @@ jobs:
         run: |
           VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
           VERSION_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
-          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+          TAG="v$VERSION"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$TAG" != "$GITHUB_REF_NAME" ]; then
             echo "Tag $GITHUB_REF_NAME does not match versionName $VERSION"; exit 1
           fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
       - name: Restore the release keystore
@@ -66,7 +70,11 @@ jobs:
             cat "fastlane/metadata/android/en-US/changelogs/$VERSION_CODE.txt" 2>/dev/null
             echo "Tip: make a backup (More > Backup) before updating."
           } > notes.txt
-          gh release create "$GITHUB_REF_NAME" Kosh.apk Kosh-offline.apk --title "Kosh $VERSION" --notes-file notes.txt
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" Kosh.apk Kosh-offline.apk --clobber
+          else
+            gh release create "$TAG" Kosh.apk Kosh-offline.apk --target "$GITHUB_SHA" --title "Kosh $VERSION" --notes-file notes.txt
+          fi
       - name: Remove the keystore
         if: always()
         run: rm -f keystore/kosh-release.jks
