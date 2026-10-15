@@ -96,11 +96,12 @@ class InsightRepository(
             },
             upcomingBills = db.bills().unpaid().mapNotNull { b ->
                 val due = b.dueDate ?: return@mapNotNull null
-                BillInput(byId[b.accountId]?.account?.name ?: "Card", b.totalDue, LocalDate.ofEpochDay(due), b.paid)
+                BillInput(byId[b.accountId]?.account?.name ?: "Card", b.totalDue, LocalDate.ofEpochDay(due), b.paid, accountId = b.accountId)
             },
             investments = db.investments().active().map {
                 InvestmentInput(it.name, it.type, it.currentValue, it.maturityDate?.let(LocalDate::ofEpochDay))
             },
+            categoryNames = db.categories().all().associate { it.key to it.name },
         )
     }
 }

@@ -92,6 +92,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.Dispatchers
+import com.amitjha.kosh.designsystem.components.BarChart
+import com.amitjha.kosh.designsystem.components.LineAreaChart
+import com.amitjha.kosh.designsystem.components.SegmentedTabs
+import com.amitjha.kosh.designsystem.components.SpendHeatmap
+import com.amitjha.kosh.designsystem.components.SpendPaceChart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -107,6 +115,7 @@ data class HomeState(
     val insights: List<Insight> = emptyList(),
     val recent: List<TransactionItem> = emptyList(),
     val accounts: List<AccountWithBalance> = emptyList(),
+    val charts: HomeCharts = HomeCharts(),
 ) {
     val isEmpty: Boolean get() = !loading && accounts.isEmpty() && recent.isEmpty()
 }
@@ -139,8 +148,20 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         )
     }
 
-    val state: StateFlow<HomeState> = combine(money, lists) { (nw, trend, s), l ->
+    private val charts = combine(
+        period,
+        c.db.transactions().observeChanges(),
+        c.netWorth.observeHistory(),
+    ) { p, _, history -> p to history }
+        .mapLatest { (p, history) ->
+            val since = Time.startOfDay(p.start.minusMonths(6))
+            HomeCharts.build(c.db.transactions().since(since), p, Time.today(), history)
+        }
+        .flowOn(Dispatchers.Default)
+
+    val state: StateFlow<HomeState> = combine(money, lists, charts) { (nw, trend, s), l, ch ->
         HomeState(
+            charts = ch,
             loading = false,
             netWorth = nw,
             trend = trend,
@@ -149,7 +170,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             reviewFromSms = l.fromSms,
             reviewFromEmail = l.fromEmail,
             bills = l.bills.take(6),
-            insights = l.insights.take(5),
+            insights = l.insights.filterNot { it.isSummary }.take(5),
             recent = l.recent,
             accounts = l.accounts,
         )
@@ -185,6 +206,11 @@ fun HomeScreen(nav: NavController) {
         onReview = { nav.navigate(Routes.REVIEW) },
         onBills = { nav.navigate(Routes.BILLS) },
         onActivity = { nav.navigate(Routes.TRANSACTIONS) },
+        onCategory = { key ->
+            com.amitjha.kosh.ui.transactions.ActivityFilterRequest.pendingCategory = key
+            nav.navigate(Routes.TRANSACTIONS) { launchSingleTop = true }
+        },
+        onWealth = { nav.navigate(Routes.WEALTH) { launchSingleTop = true } },
         onTransaction = { nav.navigate(Routes.txn(it)) },
         onAccounts = { nav.navigate(Routes.ACCOUNTS) },
         onAccount = { nav.navigate(Routes.account(it)) },
@@ -211,15 +237,19 @@ fun HomeContent(
     onReview: () -> Unit = {},
     onBills: () -> Unit = {},
     onActivity: () -> Unit = {},
+    onCategory: (String) -> Unit = {},
+    onWealth: () -> Unit = {},
     onTransaction: (Long) -> Unit = {},
     onAccounts: () -> Unit = {},
     onAccount: (Long) -> Unit = {},
     onAddAccount: () -> Unit = {},
     onLoadDemo: () -> Unit = {},
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     val pad = Modifier.padding(horizontal = 20.dp)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(bottom = 112.dp),
     ) {
         item(key = "header") {
@@ -275,6 +305,23 @@ fun HomeContent(
                         StatChip("Spent", s?.expense ?: 0, Modifier.weight(1f).padding(start = 14.dp), type = TxnType.EXPENSE, hidden = hidden)
                         VerticalHairline()
                         StatChip("Saved", s?.savings ?: 0, Modifier.weight(1f).padding(start = 14.dp), hidden = hidden)
+                    }
+                }
+            }
+        }
+
+        if (state.charts.hasPace) {
+            item(key = "pace") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Spending pace", actionLabel = "Details", onAction = onActivity)
+                    KoshCard {
+                        SpendPaceChart(
+                            current = state.charts.paceCurrent,
+                            previous = state.charts.pacePrevious,
+                            daysInMonth = state.charts.periodDays,
+                            projected = state.charts.projected,
+                            hidden = hidden,
+                        )
                     }
                 }
             }
@@ -347,19 +394,94 @@ fun HomeContent(
                     spend.take(6).map { ChartSlice(it.category?.name ?: it.categoryKey, it.total, it.category.color()) }
                 }
                 Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Spending", actionLabel = "Details", onAction = onActivity)
+                    SectionHeader("Where it went", actionLabel = "Details", onAction = onActivity)
                     KoshCard {
-                        StackedBar(slices = slices, height = 8.dp, showLegend = false, hidden = hidden)
-                        Spacer(Modifier.height(12.dp))
-                        spend.take(5).forEach { c ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            DonutChart(
+                                slices = slices,
+                                size = 188.dp,
+                                thickness = 12.dp,
+                                centerLabel = "Spent",
+                                centerValue = state.summary?.expense,
+                                hidden = hidden,
+                            )
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        spend.take(6).forEachIndexed { i, c ->
+                            if (i > 0) ListHairline(start = 18.dp)
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onCategory(c.categoryKey) }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Box(Modifier.size(8.dp).clip(CircleShape).background(c.category.color()))
                                 Spacer(Modifier.width(10.dp))
                                 Text(c.category?.name ?: c.categoryKey, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1)
                                 Text(Fmt.pct(c.share * 100, 0), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.tertiaryText)
                                 Spacer(Modifier.width(12.dp))
                                 AmountText(c.total, style = AmountStyles.small, hidden = hidden, compact = true)
+                                Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = KoshTheme.colors.tertiaryText, modifier = Modifier.size(16.dp))
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (state.charts.hasSixMonths) {
+            item(key = "six") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Income vs spending")
+                    KoshCard {
+                        BarChart(groups = state.charts.sixMonths, height = 170.dp, hidden = hidden)
+                        Spacer(Modifier.height(10.dp))
+                        Text("SAVINGS RATE", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.tertiaryText)
+                        Spacer(Modifier.height(4.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            state.charts.savingsRates.forEach { r ->
+                                Text(
+                                    r,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (r.startsWith("-")) KoshTheme.colors.alert else KoshTheme.colors.ink,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (state.charts.hasHeat) {
+            item(key = "heat") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Daily spending")
+                    KoshCard {
+                        SpendHeatmap(weeks = state.charts.heatWeeks, dayLabels = state.charts.heatLabels, hidden = hidden)
+                    }
+                }
+            }
+        }
+
+        if (state.charts.netWorth.size >= 2) {
+            item(key = "networth") {
+                var range by remember { mutableStateOf(1) }
+                val ranges = listOf(30, 90, 180, 365)
+                val points = remember(state.charts.netWorth, range) { state.charts.netWorthPoints(ranges[range]) }
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SectionHeader("Net worth trend", actionLabel = "Wealth", onAction = onWealth)
+                    KoshCard {
+                        SegmentedTabs(listOf("1M", "3M", "6M", "1Y"), range, { range = it })
+                        Spacer(Modifier.height(14.dp))
+                        if (points.size >= 2) {
+                            LineAreaChart(points = points, height = 150.dp, hidden = hidden)
+                        } else {
+                            Text("Not enough history for this range yet.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
                         }
                     }
                 }

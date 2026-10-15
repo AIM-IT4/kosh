@@ -101,7 +101,7 @@ object SmsParser {
         val last4 = Extract.last4(body)
         val ref = Extract.reference(body)
         val time = Dates.transactionTime(Dates.first(body), msg.timestampMillis)
-        val category = if (isCardPayment) "transfer" else CategoryGuesser.guess(merchant, body, type)
+        val category = if (isCardPayment) "transfer" else CategoryGuesser.guess(merchant, body, type, channel)
         return ParsedTransaction(
             bank = bank,
             accountLast4 = last4,

@@ -105,6 +105,7 @@ class GmailSync(
         for (t in result.transactions) {
             if (importTransaction(t, rules)) txnsAdded++
         }
+        runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
         val processed = result.processedIds.ifEmpty { result.bills.map { it.emailId } + result.payments.map { it.emailId } }
         settings.addProcessedEmailIds(processed)
         if (result.error == null && !result.moreAvailable && result.failedMessageIds.isEmpty()) {
@@ -130,7 +131,7 @@ class GmailSync(
         )
         if (near.any { it.type == p.type || it.type == com.amitjha.kosh.model.TxnType.TRANSFER }) return false
         if (p.referenceNo != null && db.transactions().countReference(p.referenceNo!!) > 0) return false
-        val entity = SmsMapping.toTransaction(p, account.id, p.merchant?.let(rules::get))
+        val entity = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
             .copy(source = TxnSource.EMAIL, reviewed = false)
         return db.transactions().insertIgnore(entity) > 0
     }

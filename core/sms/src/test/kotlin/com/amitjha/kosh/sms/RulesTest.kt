@@ -126,12 +126,12 @@ class CategoryGuesserTest {
         assertEquals("travel", CategoryGuesser.guess("IRCTC", "", TxnType.EXPENSE))
         assertEquals("bills", CategoryGuesser.guess("Airtel", "", TxnType.EXPENSE))
         assertEquals("investment", CategoryGuesser.guess("Zerodha", "", TxnType.EXPENSE))
-        assertEquals("transfer", CategoryGuesser.guess("UPI XXXXXX3210", "Sent Rs.500", TxnType.EXPENSE))
+        assertEquals("people", CategoryGuesser.guess("UPI XXXXXX3210", "Sent Rs.500", TxnType.EXPENSE))
         assertEquals("salary", CategoryGuesser.guess("Acme", "NEFT SALARY DEC", TxnType.INCOME))
         assertEquals("interest", CategoryGuesser.guess(null, "Interest of Rs 120 credited to your a/c", TxnType.INCOME))
         assertEquals("cashback", CategoryGuesser.guess(null, "Cashback of Rs 50 credited", TxnType.INCOME))
         assertEquals("other_income", CategoryGuesser.guess("Rahul", "credited", TxnType.INCOME))
-        assertEquals("other", CategoryGuesser.guess("Sharma General Stores", "", TxnType.EXPENSE))
+        assertEquals("groceries", CategoryGuesser.guess("Sharma General Stores", "", TxnType.EXPENSE))
         assertTrue(CategoryGuesser.CATEGORY_KEYS.containsAll(listOf("food", "other", "emi")))
     }
 }

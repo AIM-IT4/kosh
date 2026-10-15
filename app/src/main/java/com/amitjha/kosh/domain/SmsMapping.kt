@@ -50,6 +50,44 @@ object SmsMapping {
         )
     }
 
+    /** Lower-case letters and digits only, so "Swiggy Ltd", "SWIGGY" and "swiggy" share one rule. */
+    fun merchantKey(merchant: String): String =
+        merchant.lowercase().replace(Regex("^(upi|vpa|pos)[ :/-]+"), "").replace(Regex("[^a-z0-9]"), "")
+
+    /**
+     * The user's learned category for [merchant]: an exact rule, then a rule for the same merchant spelled
+     * differently, then a rule whose first word (4+ letters) matches, e.g. "Sharma Store" → "Sharma Stores".
+     */
+    fun ruleFor(rules: Map<String, String>, merchant: String?): String? {
+        if (merchant.isNullOrBlank()) return null
+        rules[merchant]?.let { return it }
+        val key = merchantKey(merchant)
+        if (key.isEmpty()) return null
+        rules.entries.firstOrNull { merchantKey(it.key) == key }?.let { return it.value }
+        val first = firstWord(merchant)
+        if (first.length < 4) return null
+        return rules.entries.firstOrNull { firstWord(it.key) == first }?.value
+    }
+
+    private fun firstWord(s: String): String =
+        s.trim().substringBefore(' ').lowercase().filter { it.isLetterOrDigit() }
+
+    /**
+     * Picks a better category for an imported transaction stuck in "other" (or in the old "transfer"
+     * bucket for payments to a person), using the user's rules first and the category guesser second.
+     * Returns null when nothing should change. Manual entries are never touched.
+     */
+    fun recategorised(txn: TransactionEntity, rules: Map<String, String>): TransactionEntity? {
+        if (txn.source == TxnSource.MANUAL || txn.type != TxnType.EXPENSE) return null
+        val legacyPersonTransfer = txn.categoryKey == TRANSFER_CATEGORY && !txn.reviewed && txn.toAccountId == null &&
+            txn.merchant?.startsWith("UPI X", ignoreCase = true) == true
+        if (txn.categoryKey != "other" && !legacyPersonTransfer) return null
+        val next = ruleFor(rules, txn.merchant)
+            ?: com.amitjha.kosh.sms.CategoryGuesser.guess(txn.merchant, txn.note.orEmpty(), txn.type, txn.channel)
+        if (next == txn.categoryKey || next == "other") return null
+        return txn.copy(categoryKey = next, excludeFromStats = next == TRANSFER_CATEGORY)
+    }
+
     fun toTransaction(parsed: ParsedTransaction, accountId: Long, categoryOverride: String?): TransactionEntity {
         val cardPayment = parsed.isCardPayment
         return TransactionEntity(

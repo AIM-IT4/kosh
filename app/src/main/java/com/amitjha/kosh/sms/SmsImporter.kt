@@ -127,6 +127,7 @@ class SmsImporter(
                     }
                 }
             }
+            runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
             result
         }
     }
@@ -141,7 +142,7 @@ class SmsImporter(
             return ImportResult(duplicates = 1, accountsCreated = created)
         }
 
-        val entity = SmsMapping.toTransaction(p, account.id, p.merchant?.let(rules::get))
+        val entity = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
         val id = txnDao.insertIgnore(entity)
         var balances = 0
         if (id > 0) {

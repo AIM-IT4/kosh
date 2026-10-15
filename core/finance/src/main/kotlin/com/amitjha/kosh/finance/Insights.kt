@@ -26,7 +26,14 @@ data class InsightTxn(
 data class BudgetInput(val category: String?, val monthlyLimit: Paise)
 data class GoalInput(val name: String, val target: Paise, val saved: Paise, val deadline: LocalDate)
 data class AccountInput(val id: Long, val name: String, val type: AccountType, val balance: Paise, val creditLimit: Paise? = null)
-data class BillInput(val cardName: String, val amount: Paise, val dueDate: LocalDate, val paid: Boolean = false)
+data class BillInput(
+    val cardName: String,
+    val amount: Paise,
+    val dueDate: LocalDate,
+    val paid: Boolean = false,
+    /** The card account the bill belongs to, when known (links new card spends to the bill). */
+    val accountId: Long? = null,
+)
 data class InvestmentInput(val name: String, val type: InvestmentType, val value: Paise, val maturityDate: LocalDate? = null)
 
 data class InsightInput(
@@ -38,10 +45,32 @@ data class InsightInput(
     val upcomingBills: List<BillInput> = emptyList(),
     val investments: List<InvestmentInput> = emptyList(),
     val monthlyIncomeHint: Paise? = null,
+    /** Display names for category keys ("food" → "Food & Dining"); keys are shown as-is when missing. */
+    val categoryNames: Map<String, String> = emptyMap(),
 )
 
 /** Severity, from most to least urgent. */
 enum class Severity { ALERT, WARNING, TIP, GOOD }
+
+/** A labelled figure shown as a chip on an insight, e.g. "3-mo avg" / "₹8,100". */
+data class InsightMetric(val label: String, val value: String)
+
+/** Small chart data attached to an insight. Values are in paise unless [percent] is set. */
+data class InsightChart(
+    val kind: Kind,
+    val labels: List<String>,
+    val values: List<Long>,
+    /** An optional reference line, e.g. the budget limit on a cumulative spend line. */
+    val reference: Long? = null,
+    val caption: String? = null,
+) {
+    enum class Kind { BARS, LINE }
+}
+
+/** Where an insight's action button leads. */
+enum class InsightRoute { CATEGORY, BUDGETS, GOALS, BILLS, ACTIVITY, WEALTH, ACCOUNTS }
+
+data class InsightAction(val label: String, val route: InsightRoute, val argument: String? = null)
 
 data class Insight(
     /** Stable across runs for the same underlying situation, so the UI can dismiss it. */
@@ -52,7 +81,19 @@ data class Insight(
     val category: String? = null,
     /** Higher is more important within a severity. */
     val score: Int = 0,
-)
+    /** A longer explanation with the numbers behind the insight. */
+    val detail: String? = null,
+    val metrics: List<InsightMetric> = emptyList(),
+    val chart: InsightChart? = null,
+    val action: InsightAction? = null,
+) {
+    /** The monthly overview shown as the header of the insights screen rather than as a card. */
+    val isSummary: Boolean get() = id.startsWith(SUMMARY_PREFIX)
+
+    companion object {
+        const val SUMMARY_PREFIX = "summary_month_"
+    }
+}
 
 /** Offline rule engine: turns transactions, budgets, goals and balances into ranked insights. */
 object InsightEngine {
@@ -91,8 +132,10 @@ object InsightEngine {
             ::budgetRules, ::categorySpikes, ::savingsRate, ::noIncome, ::goalRules, ::emergencyFund,
             ::idleCash, ::cardUtilisation, ::billsDue, ::fdMaturity, ::subscriptions, ::frequentSmallSpends,
             ::weekendSpending, ::largeTransactions, ::merchantConcentration, ::spendingDown, ::startInvesting,
+            ::monthlySummary, ::topMerchants, ::categoryMovers, ::cashFlowForecast, ::recurringPayments, ::cardSpendVsBill,
         )
         return rules.flatMap { it(ctx) }
+            .map { enrich(ctx, it) }
             .sortedWith(compareBy<Insight> { it.severity.ordinal }.thenByDescending { it.score }.thenBy { it.id })
     }
 
@@ -119,9 +162,31 @@ object InsightEngine {
         val liquid: Paise by lazy {
             input.accounts.filter { it.type != AccountType.CREDIT_CARD }.sumOf { maxOf(0, it.balance) }
         }
+
+        fun label(category: String?): String =
+            category?.let { input.categoryNames[it] ?: it.replace('_', ' ').replaceFirstChar { ch -> ch.uppercase() } } ?: "Overall"
+
+        /** The last [n] months, oldest first, ending with this month. */
+        fun lastMonths(n: Int = 6): List<YearMonth> = (n - 1 downTo 0).map { month.minusMonths(it.toLong()) }
+
+        fun monthLabel(m: YearMonth): String = m.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
+
+        /** Spending this month accumulated day by day, up to today. */
+        fun cumulativeThisMonth(category: String? = null): List<Long> {
+            var acc = 0L
+            val byDay = expensesIn(month, category).groupBy { it.date.dayOfMonth }.mapValues { (_, t) -> t.sumOf { it.amount } }
+            return (1..today.dayOfMonth).map { d -> acc += byDay[d] ?: 0L; acc }
+        }
+
+        val daysInMonth: Int get() = month.lengthOfMonth()
+        val daysLeft: Int get() = daysInMonth - today.dayOfMonth
     }
 
     private fun fmt(p: Paise) = Money.format(p, showPaise = false)
+    private fun day(d: LocalDate) = "${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}"
+
+    /** Regular commitments that a "still using it?" nudge makes no sense for. */
+    private val NON_DISCRETIONARY = setOf("rent", "emi", "insurance", "investment", "taxes", "people", "transfer", "bills", "education", "salary")
     private fun pct(x: Double) = "${(x * 100).roundToInt()}%"
     private fun slug(s: String) = s.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
 
@@ -130,7 +195,7 @@ object InsightEngine {
     private fun budgetRules(c: Context): List<Insight> = c.input.budgets.mapNotNull { b ->
         val spent = c.spent(c.month, b.category)
         val p = Budgets.project(b.monthlyLimit, spent, c.today)
-        val label = b.category ?: "Overall"
+        val label = c.label(b.category)
         val id = "budget_${slug(label)}_${c.month}"
         when {
             p.isExceeded -> Insight(
@@ -161,8 +226,8 @@ object InsightEngine {
             val now = c.spent(c.month, cat)
             if (avg >= SPIKE_MIN_BASE && now > avg * SPIKE_FACTOR) {
                 Insight(
-                    "spike_${slug(cat)}_${c.month}", Severity.WARNING, "$cat spending is up",
-                    "You've spent ${fmt(now)} on $cat this month, ${((now.toDouble() / avg - 1) * 100).roundToInt()}% more than " +
+                    "spike_${slug(cat)}_${c.month}", Severity.WARNING, "${c.label(cat)} spending is up",
+                    "You've spent ${fmt(now)} on ${c.label(cat)} this month, ${((now.toDouble() / avg - 1) * 100).roundToInt()}% more than " +
                         "your 3-month average of ${fmt(avg)}.",
                     cat, 60,
                 )
@@ -294,14 +359,14 @@ object InsightEngine {
         when {
             days < 0 -> Insight(
                 id, Severity.ALERT, "${b.cardName} bill overdue",
-                "${fmt(b.amount)} was due on ${b.dueDate}. Pay it now to limit late fees and interest.", null, 100,
+                "${fmt(b.amount)} was due on ${day(b.dueDate)}. Pay it now to limit late fees and interest.", null, 100,
             )
             days <= BILL_ALERT_DAYS -> Insight(
                 id, Severity.ALERT, "${b.cardName} bill due ${if (days == 0L) "today" else "in $days day${if (days == 1L) "" else "s"}"}",
-                "Pay ${fmt(b.amount)} by ${b.dueDate} to avoid late fees.", null, 85 + (3 - days.toInt()),
+                "Pay ${fmt(b.amount)} by ${day(b.dueDate)} to avoid late fees.", null, 85 + (3 - days.toInt()),
             )
             days <= BILL_NOTICE_DAYS -> Insight(
-                id, Severity.TIP, "${b.cardName} bill due on ${b.dueDate}", "${fmt(b.amount)} is due in $days days.", null, 30,
+                id, Severity.TIP, "${b.cardName} bill due on ${day(b.dueDate)}", "${fmt(b.amount)} is due in $days days.", null, 30,
             )
             else -> null
         }
@@ -314,12 +379,12 @@ object InsightEngine {
             when {
                 days in 0..FD_MATURITY_DAYS -> Insight(
                     "fd_maturing_${slug(fd.name)}", Severity.TIP, "${fd.name} matures ${if (days == 0L) "today" else "in $days days"}",
-                    "It will be worth about ${fmt(fd.value)}. Decide whether to renew, reinvest or move it before ${fd.maturityDate}.",
+                    "It will be worth about ${fmt(fd.value)}. Decide whether to renew, reinvest or move it before ${day(fd.maturityDate!!)}.",
                     null, 50,
                 )
                 days < 0 && days >= -FD_MATURITY_DAYS -> Insight(
                     "fd_matured_${slug(fd.name)}", Severity.TIP, "${fd.name} has matured",
-                    "${fmt(fd.value)} matured on ${fd.maturityDate}. Make sure it's been renewed or reinvested.", null, 45,
+                    "${fmt(fd.value)} matured on ${day(fd.maturityDate!!)}. Make sure it's been renewed or reinvested.", null, 45,
                 )
                 else -> null
             }
@@ -327,7 +392,7 @@ object InsightEngine {
 
     private fun subscriptions(c: Context): List<Insight> {
         val since = c.today.minusDays(120)
-        return c.expenses.filter { !it.date.isBefore(since) && !it.merchant.isNullOrBlank() }
+        return c.expenses.filter { !it.date.isBefore(since) && !it.merchant.isNullOrBlank() && it.category !in NON_DISCRETIONARY }
             .groupBy { it.merchant!!.trim().lowercase() }
             .mapNotNull { (_, txns) ->
                 if (txns.size < SUBSCRIPTION_MIN_OCCURRENCES) return@mapNotNull null
@@ -353,8 +418,8 @@ object InsightEngine {
                 if (txns.size < SMALL_SPEND_MIN_COUNT) return@mapNotNull null
                 val total = txns.sumOf { it.amount }
                 Insight(
-                    "small_spends_${slug(cat)}_${c.month}", Severity.TIP, "Small $cat spends add up",
-                    "${txns.size} payments under ${fmt(SMALL_SPEND_MAX)} on $cat this month total ${fmt(total)}.",
+                    "small_spends_${slug(cat)}_${c.month}", Severity.TIP, "Small ${c.label(cat)} spends add up",
+                    "${txns.size} payments under ${fmt(SMALL_SPEND_MAX)} on ${c.label(cat)} this month total ${fmt(total)}.",
                     cat, 25 + txns.size,
                 )
             }
@@ -391,7 +456,7 @@ object InsightEngine {
             .map { t ->
                 Insight(
                     "large_txn_${t.date}_${t.amount}", Severity.WARNING, "Unusually large payment",
-                    "${fmt(t.amount)}${t.merchant?.let { " to $it" } ?: ""} on ${t.date} is far above your typical spend of ${fmt(median)}. " +
+                    "${fmt(t.amount)}${t.merchant?.let { " to $it" } ?: ""} on ${day(t.date)} is far above your typical spend of ${fmt(median)}. " +
                         "Check it's expected.",
                     t.category, 50,
                 )
@@ -443,4 +508,315 @@ object InsightEngine {
             ),
         )
     }
+
+    // ------------------------------------------------------------------ richer detail
+
+    private fun compact(p: Paise) = Money.compact(p)
+    private fun m(label: String, value: String) = InsightMetric(label, value)
+
+    private fun monthlyBars(c: Context, category: String? = null, caption: String? = null) = InsightChart(
+        InsightChart.Kind.BARS,
+        c.lastMonths().map { c.monthLabel(it) },
+        c.lastMonths().map { c.spent(it, category) },
+        caption = caption,
+    )
+
+    private fun changeText(now: Paise, before: Paise): String =
+        if (before <= 0) "new" else ((now.toDouble() / before - 1) * 100).roundToInt().let { if (it >= 0) "+$it%" else "$it%" }
+
+    /** Adds detail text, metric chips, a small chart and an action to the insights produced by the rules. */
+    private fun enrich(c: Context, i: Insight): Insight {
+        if (i.detail != null || i.metrics.isNotEmpty()) return i
+        val id = i.id
+        return when {
+            id.startsWith("budget_") -> {
+                val b = c.input.budgets.firstOrNull { id.startsWith("budget_${slug(c.label(it.category))}_") } ?: return i
+                val spent = c.spent(c.month, b.category)
+                val p = Budgets.project(b.monthlyLimit, spent, c.today)
+                i.copy(
+                    detail = "${c.label(b.category)} spending is ${fmt(spent)} after ${c.today.dayOfMonth} days, " +
+                        "${pct(p.usedFraction)} of the ${fmt(b.monthlyLimit)} budget. At the current pace the month ends near " +
+                        "${fmt(p.projected)}. With ${c.daysLeft} days left, about ${fmt(maxOf(0, p.dailyAllowance))} a day keeps you within it.",
+                    metrics = listOf(m("Spent", compact(spent)), m("Budget", compact(b.monthlyLimit)), m("Projected", compact(p.projected)),
+                        m("Per day left", compact(maxOf(0, p.dailyAllowance)))),
+                    chart = InsightChart(InsightChart.Kind.LINE, (1..c.today.dayOfMonth).map { "$it" }, c.cumulativeThisMonth(b.category),
+                        reference = b.monthlyLimit, caption = "Spent so far vs budget"),
+                    action = InsightAction("View budgets", InsightRoute.BUDGETS),
+                )
+            }
+            id.startsWith("spike_") && i.category != null -> {
+                val cat = i.category
+                val now = c.spent(c.month, cat)
+                val avg = (1..3).sumOf { c.spent(c.month.minusMonths(it.toLong()), cat) } / 3
+                val count = c.expensesIn(c.month, cat).size
+                i.copy(
+                    detail = "${c.label(cat)} is at ${fmt(now)} across $count payments this month, against a 3-month average of " +
+                        "${fmt(avg)}. The bars show the last six months, so you can see whether this is a one-off or a trend.",
+                    metrics = listOf(m("This month", compact(now)), m("3-mo avg", compact(avg)), m("Change", changeText(now, avg)),
+                        m("Payments", "$count")),
+                    chart = monthlyBars(c, cat, "${c.label(cat)}, last 6 months"),
+                    action = InsightAction("See ${c.label(cat)}", InsightRoute.CATEGORY, cat),
+                )
+            }
+            id.startsWith("savings_rate_") -> {
+                val income = c.income(c.month)
+                val spent = c.spent(c.month)
+                val saved = c.lastMonths().map { c.income(it) - c.spent(it) }
+                i.copy(
+                    detail = "Income this month is ${fmt(income)} and spending ${fmt(spent)}. A savings rate of 20% or more is a " +
+                        "healthy target; it builds an emergency fund and frees money to invest.",
+                    metrics = listOf(m("Income", compact(income)), m("Spent", compact(spent)), m("Saved", compact(income - spent))),
+                    chart = InsightChart(InsightChart.Kind.BARS, c.lastMonths().map { c.monthLabel(it) }, saved, caption = "Saved per month"),
+                    action = InsightAction("See activity", InsightRoute.ACTIVITY),
+                )
+            }
+            id.startsWith("goal_") -> i.copy(action = InsightAction("Open goals", InsightRoute.GOALS))
+            id == "emergency_fund" || id == "idle_cash" -> {
+                val avg = c.avgMonthlyExpense
+                i.copy(
+                    detail = "An emergency fund of six months' expenses protects you from job loss or medical bills without borrowing. " +
+                        "This counts bank and cash balances only, not investments or credit cards.",
+                    metrics = listOf(m("Bank & cash", compact(c.liquid)), m("Avg monthly spend", compact(avg)),
+                        m("Months covered", if (avg > 0) "%.1f".format(c.liquid.toDouble() / avg) else "-"),
+                        m("6-month target", compact(avg * 6))),
+                    action = if (id == "idle_cash") InsightAction("Open wealth", InsightRoute.WEALTH) else InsightAction("Open accounts", InsightRoute.ACCOUNTS),
+                )
+            }
+            id.startsWith("card_util_") -> i.copy(
+                detail = "Card utilisation is the share of your credit limit in use. Lenders and credit bureaus like it below 30%; " +
+                    "paying the bill early in the cycle lowers it.",
+                action = InsightAction("Open accounts", InsightRoute.ACCOUNTS),
+            )
+            id.startsWith("bill_") -> i.copy(
+                detail = "Paying the full amount by the due date avoids late fees and interest of up to 3–4% a month on the unpaid balance.",
+                action = InsightAction("Open card bills", InsightRoute.BILLS),
+            )
+            id.startsWith("fd_") -> i.copy(action = InsightAction("Open wealth", InsightRoute.WEALTH))
+            id.startsWith("subscription_") -> {
+                val name = i.title.removePrefix("Recurring payment: ")
+                val payments = c.expenses.filter { it.merchant?.trim().equals(name, ignoreCase = true) }.sortedBy { it.date }.takeLast(6)
+                val next = payments.lastOrNull()?.date?.plusMonths(1)
+                i.copy(
+                    detail = "We spotted ${payments.size} similar payments to $name about a month apart. Cancelling services you no " +
+                        "longer use is the easiest saving there is.",
+                    metrics = listOfNotNull(
+                        m("Monthly", compact(payments.map { it.amount }.average().roundToLong())),
+                        m("Yearly", compact(payments.map { it.amount }.average().roundToLong() * 12)),
+                        next?.let { m("Next expected", "${it.dayOfMonth} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}") },
+                    ),
+                    chart = InsightChart(InsightChart.Kind.BARS, payments.map { c.monthLabel(YearMonth.from(it.date)) }, payments.map { it.amount }),
+                    action = i.category?.let { InsightAction("See ${c.label(it)}", InsightRoute.CATEGORY, it) },
+                )
+            }
+            id.startsWith("small_spends_") && i.category != null -> {
+                val txns = c.expensesIn(c.month, i.category).filter { it.amount <= SMALL_SPEND_MAX }
+                i.copy(
+                    detail = "Individually small, these payments add up over a month. Setting a weekly cap or a category budget helps.",
+                    metrics = listOf(m("Payments", "${txns.size}"), m("Total", compact(txns.sumOf { it.amount })),
+                        m("Average", compact(if (txns.isEmpty()) 0 else txns.sumOf { it.amount } / txns.size))),
+                    action = InsightAction("See ${c.label(i.category)}", InsightRoute.CATEGORY, i.category),
+                )
+            }
+            id == "weekend_spending" -> {
+                val from = c.today.minusDays(30)
+                val recent = c.expenses.filter { it.date.isAfter(from) && !it.date.isAfter(c.today) }
+                val byDow = DayOfWeek.entries.map { d -> recent.filter { it.date.dayOfWeek == d }.sumOf { it.amount } }
+                i.copy(
+                    detail = "Spending per day of the week over the last 30 days. Planning weekend outings in advance is a simple way to trim it.",
+                    chart = InsightChart(InsightChart.Kind.BARS, listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), byDow),
+                    action = InsightAction("See activity", InsightRoute.ACTIVITY),
+                )
+            }
+            id.startsWith("large_txn_") || id.startsWith("top_merchant_") || id.startsWith("no_income_") ->
+                i.copy(action = InsightAction("See activity", InsightRoute.ACTIVITY))
+            id.startsWith("spending_down_") -> i.copy(chart = monthlyBars(c, caption = "Spending, last 6 months"))
+            id == "start_investing" -> i.copy(action = InsightAction("Add investments", InsightRoute.WEALTH))
+            else -> i
+        }
+    }
+
+    // ------------------------------------------------------------------ overview rules
+
+    /** A month score from 0 to 100 combining savings rate, budgets and bills. */
+    private fun monthScore(c: Context): Int {
+        val income = c.income(c.month)
+        val spent = c.spent(c.month)
+        var score = 50.0
+        if (income > 0) score += ((income - spent).toDouble() / income).coerceIn(-0.5, 0.5) * 80
+        val budgets = c.input.budgets
+        if (budgets.isNotEmpty()) {
+            val over = budgets.count { Budgets.project(it.monthlyLimit, c.spent(c.month, it.category), c.today).willExceed }
+            score += 10 - 20.0 * over / budgets.size
+        }
+        val overdue = c.input.upcomingBills.count { !it.paid && it.dueDate.isBefore(c.today) }
+        score -= overdue * 15
+        return score.roundToInt().coerceIn(0, 100)
+    }
+
+    private fun monthlySummary(c: Context): List<Insight> {
+        val income = c.income(c.month)
+        val spent = c.spent(c.month)
+        if (income == 0L && spent == 0L) return emptyList()
+        val top = c.expensesIn(c.month).groupBy { it.category }.mapValues { (_, t) -> t.sumOf { it.amount } }
+            .entries.sortedByDescending { it.value }.take(3)
+        val projected = Budgets.project(Long.MAX_VALUE, spent, c.today).projected
+        val monthName = c.month.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
+        val share = if (income > 0) " (${pct(spent.toDouble() / income)} of income)" else ""
+        val topText = if (top.isEmpty()) "" else " Biggest categories: " + top.joinToString(", ") { "${c.label(it.key)} ${fmt(it.value)}" } + "."
+        val score = monthScore(c)
+        val verdict = when {
+            score >= 75 -> "A strong month so far"
+            score >= 50 -> "On a reasonable track"
+            else -> "This month needs attention"
+        }
+        return listOf(
+            Insight(
+                "${Insight.SUMMARY_PREFIX}${c.month}", Severity.TIP, verdict,
+                "In $monthName you've earned ${fmt(income)} and spent ${fmt(spent)}$share.",
+                null, 0,
+                detail = "In $monthName so far you've earned ${fmt(income)} and spent ${fmt(spent)}$share.$topText " +
+                    "With ${c.daysLeft} days to go, spending is heading for about ${fmt(projected)}.",
+                metrics = listOf(
+                    m("Score", "$score/100"),
+                    m("Income", compact(income)),
+                    m("Spent", compact(spent)),
+                    m("Saved", compact(income - spent)),
+                    m("Savings rate", if (income > 0) pct((income - spent).toDouble() / income) else "-"),
+                ),
+                chart = monthlyBars(c, caption = "Spending, last 6 months"),
+                action = InsightAction("See activity", InsightRoute.ACTIVITY),
+            ),
+        )
+    }
+
+    private fun topMerchants(c: Context): List<Insight> {
+        val byMerchant = c.expensesIn(c.month).filter { !it.merchant.isNullOrBlank() }
+            .groupBy { it.merchant!!.trim() }.mapValues { (_, t) -> t.sumOf { it.amount } }
+        val total = c.spent(c.month)
+        if (byMerchant.size < 3 || total < Money.fromRupees(2_000.0)) return emptyList()
+        val top = byMerchant.entries.sortedByDescending { it.value }.take(5)
+        val topShare = top.sumOf { it.value }.toDouble() / total
+        return listOf(
+            Insight(
+                "merchants_top5_${c.month}", Severity.TIP, "Where your money went",
+                "Your top ${top.size} merchants took ${pct(topShare)} of this month's spending; ${top.first().key} leads with ${fmt(top.first().value)}.",
+                null, 16,
+                detail = "These are the merchants you paid most this month. Concentrated spending is often the easiest to plan or trim.",
+                metrics = top.map { m(it.key, "${compact(it.value)} · ${pct(it.value.toDouble() / total)}") },
+                chart = InsightChart(InsightChart.Kind.BARS, top.map { it.key.take(8) }, top.map { it.value }),
+                action = InsightAction("See activity", InsightRoute.ACTIVITY),
+            ),
+        )
+    }
+
+    private fun categoryMovers(c: Context): List<Insight> {
+        if (c.today.dayOfMonth < 5) return emptyList()
+        val last = c.month.minusMonths(1)
+        val cutoff = minOf(c.today.dayOfMonth, last.lengthOfMonth())
+        val lastToDate = c.expensesIn(last).filter { it.date.dayOfMonth <= cutoff }.groupBy { it.category }
+            .mapValues { (_, t) -> t.sumOf { it.amount } }
+        val now = c.expensesIn(c.month).groupBy { it.category }.mapValues { (_, t) -> t.sumOf { it.amount } }
+        val deltas = (lastToDate.keys + now.keys).associateWith { (now[it] ?: 0L) - (lastToDate[it] ?: 0L) }
+            .filter { abs(it.value) >= Money.fromRupees(500.0) }
+        if (deltas.isEmpty() || lastToDate.isEmpty()) return emptyList()
+        val up = deltas.maxByOrNull { it.value }?.takeIf { it.value > 0 }
+        val down = deltas.minByOrNull { it.value }?.takeIf { it.value < 0 }
+        if (up == null && down == null) return emptyList()
+        val parts = listOfNotNull(
+            up?.let { "${c.label(it.key)} is up ${fmt(it.value)}" },
+            down?.let { "${c.label(it.key)} is down ${fmt(-it.value)}" },
+        )
+        return listOf(
+            Insight(
+                "movers_${c.month}", Severity.TIP, "Biggest changes vs last month",
+                parts.joinToString("; ") + " compared with the same point last month.",
+                up?.key, 17,
+                detail = "This compares spending so far this month with the first $cutoff days of last month, category by category, " +
+                    "so a half-finished month isn't compared with a full one.",
+                metrics = deltas.entries.sortedByDescending { abs(it.value) }.take(4).map {
+                    m(c.label(it.key), (if (it.value >= 0) "+" else "−") + compact(abs(it.value)))
+                },
+                action = up?.let { InsightAction("See ${c.label(it.key)}", InsightRoute.CATEGORY, it.key) },
+            ),
+        )
+    }
+
+    private fun cashFlowForecast(c: Context): List<Insight> {
+        if (c.input.accounts.none { it.type != AccountType.CREDIT_CARD } || c.daysLeft <= 0) return emptyList()
+        val spent = c.spent(c.month)
+        val dailyNow = if (c.today.dayOfMonth > 0) spent.toDouble() / c.today.dayOfMonth else 0.0
+        val dailyAvg = c.avgMonthlyExpense.toDouble() / 30.0
+        val daily = if (c.today.dayOfMonth >= 7 || dailyAvg == 0.0) dailyNow else dailyAvg
+        val expectedIncome = if (c.income(c.month) == 0L) c.income(c.month.minusMonths(1)) else 0L
+        val monthEnd = c.month.atEndOfMonth()
+        val billsDue = c.input.upcomingBills.filter { !it.paid && !it.dueDate.isAfter(monthEnd) && !it.dueDate.isBefore(c.today) }
+            .sumOf { it.amount }
+        val path = (0..c.daysLeft).map { d -> (c.liquid - daily * d).roundToLong() }
+        val endBalance = c.liquid + expectedIncome - (daily * c.daysLeft).roundToLong() - billsDue
+        val severity = if (endBalance < 0) Severity.WARNING else Severity.TIP
+        return listOf(
+            Insight(
+                "forecast_${c.month}", severity, "Month-end balance: about ${fmt(endBalance)}",
+                "If you keep spending about ${fmt(daily.roundToLong())} a day, bank and cash should be near ${fmt(endBalance)} on ${monthEnd.dayOfMonth} ${c.monthLabel(c.month)}.",
+                null, if (endBalance < 0) 58 else 14,
+                detail = "Starting from ${fmt(c.liquid)} today, this assumes ${fmt(daily.roundToLong())} of spending per day for the " +
+                    "${c.daysLeft} remaining days" +
+                    (if (expectedIncome > 0) ", income of ${fmt(expectedIncome)} like last month" else "") +
+                    (if (billsDue > 0) " and ${fmt(billsDue)} of card bills due before month end" else "") + ".",
+                metrics = listOfNotNull(
+                    m("Today", compact(c.liquid)),
+                    m("Daily spend", compact(daily.roundToLong())),
+                    if (expectedIncome > 0) m("Expected income", compact(expectedIncome)) else null,
+                    if (billsDue > 0) m("Bills due", compact(billsDue)) else null,
+                    m("Month end", compact(endBalance)),
+                ),
+                chart = InsightChart(InsightChart.Kind.LINE, (0..c.daysLeft).map { "${c.today.plusDays(it.toLong()).dayOfMonth}" }, path,
+                    caption = "Projected balance before income and bills"),
+                action = InsightAction("Open accounts", InsightRoute.ACCOUNTS),
+            ),
+        )
+    }
+
+    private fun recurringPayments(c: Context): List<Insight> {
+        val since = c.today.minusDays(100)
+        val recurring = c.expenses.filter { !it.date.isBefore(since) && !it.merchant.isNullOrBlank() }
+            .groupBy { it.merchant!!.trim().lowercase() }
+            .mapNotNull { (_, txns) ->
+                if (txns.size < 2) return@mapNotNull null
+                val sorted = txns.sortedBy { it.date }
+                val mean = sorted.map { it.amount }.average()
+                if (sorted.any { abs(it.amount - mean) > mean * SUBSCRIPTION_AMOUNT_TOLERANCE }) return@mapNotNull null
+                val gaps = sorted.zipWithNext { a, b -> ChronoUnit.DAYS.between(a.date, b.date) }
+                if (gaps.any { it !in SUBSCRIPTION_INTERVAL_DAYS }) return@mapNotNull null
+                Triple(sorted.last().merchant!!.trim(), mean.roundToLong(), sorted.last().date.plusMonths(1))
+            }.sortedBy { it.third }
+        if (recurring.size < 2) return emptyList()
+        val monthly = recurring.sumOf { it.second }
+        return listOf(
+            Insight(
+                "recurring_list", Severity.TIP, "${recurring.size} recurring payments",
+                "About ${fmt(monthly)} goes out every month on repeat payments, roughly ${fmt(monthly * 12)} a year.",
+                null, 19,
+                detail = "These merchants were paid similar amounts about a month apart. The next expected date helps you keep enough in the account.",
+                metrics = recurring.take(6).map { (name, amount, next) ->
+                    m(name, "${compact(amount)} · ${next.dayOfMonth} ${next.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}")
+                },
+                action = InsightAction("See activity", InsightRoute.ACTIVITY),
+            ),
+        )
+    }
+
+    private fun cardSpendVsBill(c: Context): List<Insight> = c.input.upcomingBills
+        .filter { !it.paid && it.accountId != null }
+        .mapNotNull { b ->
+            val newSpend = c.expensesIn(c.month).filter { it.accountId == b.accountId }.sumOf { it.amount }
+            if (newSpend <= 0) return@mapNotNull null
+            Insight(
+                "card_vs_bill_${slug(b.cardName)}_${b.dueDate}", Severity.TIP, "${b.cardName}: bill plus new spends",
+                "${fmt(b.amount)} is due on ${day(b.dueDate)}, and you've added ${fmt(newSpend)} of new spends this month that will appear on the next bill.",
+                null, 21,
+                metrics = listOf(m("Bill due", compact(b.amount)), m("New spends", compact(newSpend)), m("Total owed", compact(b.amount + newSpend))),
+                action = InsightAction("Open card bills", InsightRoute.BILLS),
+            )
+        }
 }

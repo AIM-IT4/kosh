@@ -18,7 +18,11 @@ class KoshApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container.notifications.createChannels()
-        appScope.launch { container.db.categories().insertAll(DefaultCategories.all) }
+        appScope.launch {
+            // Seeding with IGNORE adds categories introduced by an update without touching existing ones.
+            container.db.categories().insertAll(DefaultCategories.all)
+            runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(container.db) }
+        }
         WorkScheduler.schedule(this)
     }
 }

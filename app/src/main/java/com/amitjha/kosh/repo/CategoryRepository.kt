@@ -16,6 +16,8 @@ class CategoryRepository(private val db: KoshDatabase) {
 
     suspend fun all(): List<CategoryEntity> = db.categories().all()
 
+    suspend fun byKey(key: String): CategoryEntity? = all().firstOrNull { it.key == key }
+
     /** Adds a custom category; the key is derived from the name. */
     suspend fun addCustom(name: String, type: TxnType, icon: String, colorArgb: Long): String {
         val base = name.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_').ifEmpty { "custom" }

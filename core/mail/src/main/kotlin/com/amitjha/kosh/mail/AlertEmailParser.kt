@@ -90,7 +90,7 @@ object AlertEmailParser {
                 timestampMillis = email.dateMillis,
                 availableBalance = null,
                 availableCreditLimit = null,
-                suggestedCategory = CategoryGuesser.guess(merchant, core, TxnType.EXPENSE),
+                suggestedCategory = CategoryGuesser.guess(merchant, core, TxnType.EXPENSE, TxnChannel.CARD),
                 fingerprint = fingerprint(email.id),
             )
         }

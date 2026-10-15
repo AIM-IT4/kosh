@@ -72,7 +72,7 @@ data class BarGroup(val label: String, val income: Paise, val expense: Paise)
 data class ChartPoint(val label: String, val value: Paise)
 
 @Composable
-private fun rememberEntrance(key: Any?, durationMillis: Int = 900): Float {
+internal fun rememberEntrance(key: Any?, durationMillis: Int = 900): Float {
     // Previews and screenshot tests capture a single frame: show the finished chart there.
     if (LocalInspectionMode.current) return 1f
     val progress = remember { Animatable(0f) }
@@ -426,7 +426,7 @@ fun LineAreaChart(
 }
 
 /** Monotone-ish cubic smoothing: control points at a third of the distance between neighbours. */
-private fun smoothPath(points: List<Offset>): Path = Path().apply {
+internal fun smoothPath(points: List<Offset>): Path = Path().apply {
     if (points.isEmpty()) return@apply
     moveTo(points[0].x, points[0].y)
     for (i in 1 until points.size) {

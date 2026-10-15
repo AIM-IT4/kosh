@@ -165,6 +165,13 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions")
     suspend fun all(): List<TransactionEntity>
 
+    /** Imported expenses that are still uncategorised, or were filed as transfers to a phone-number payee. */
+    @Query(
+        """SELECT * FROM transactions WHERE source != 'MANUAL' AND type = 'EXPENSE' AND (categoryKey = 'other'
+           OR (categoryKey = 'transfer' AND reviewed = 0 AND toAccountId IS NULL AND merchant LIKE 'UPI X%'))""",
+    )
+    suspend fun recategoriseCandidates(): List<TransactionEntity>
+
     @Query("DELETE FROM transactions")
     suspend fun deleteAll()
 }

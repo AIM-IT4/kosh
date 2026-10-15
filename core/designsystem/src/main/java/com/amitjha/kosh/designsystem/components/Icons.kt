@@ -7,6 +7,14 @@ import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AddCard
+import androidx.compose.material.icons.outlined.CardGiftcard
+import androidx.compose.material.icons.outlined.Chair
+import androidx.compose.material.icons.outlined.FitnessCenter
+import androidx.compose.material.icons.outlined.Gavel
+import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.LocalAtm
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Spa
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Flight
@@ -59,6 +67,14 @@ object CategoryIcons {
         "savings" to Icons.Outlined.Savings,
         "redeem" to Icons.Outlined.Redeem,
         "add_card" to Icons.Outlined.AddCard,
+        "local_atm" to Icons.Outlined.LocalAtm,
+        "group" to Icons.Outlined.Group,
+        "shield" to Icons.Outlined.Shield,
+        "gavel" to Icons.Outlined.Gavel,
+        "fitness_center" to Icons.Outlined.FitnessCenter,
+        "spa" to Icons.Outlined.Spa,
+        "chair" to Icons.Outlined.Chair,
+        "card_giftcard" to Icons.Outlined.CardGiftcard,
     )
 
     /** All supported icon names, e.g. for an icon picker. */

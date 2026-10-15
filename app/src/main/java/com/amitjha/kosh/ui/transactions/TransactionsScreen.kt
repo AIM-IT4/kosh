@@ -76,8 +76,14 @@ private val FILTERS = listOf(F_SMS, F_EMAIL, F_EXPENSE, F_INCOME, F_TRANSFER, F_
 object ActivityFilterRequest {
     @Volatile var pending: String? = null
 
+    /** A category key to filter by, set by insights and the Home category chart before navigating. */
+    @Volatile var pendingCategory: String? = null
+
     fun consume(): String? = pending.also { pending = null }
+    fun consumeCategory(): String? = pendingCategory.also { pendingCategory = null }
 }
+
+internal const val CATEGORY_CHIP_PREFIX = "Category: "
 
 data class DayGroup(val date: LocalDate, val items: List<TransactionItem>, val net: Long)
 
@@ -89,6 +95,8 @@ data class TxnListState(
     val income: Long = 0,
     val expense: Long = 0,
     val loaded: Boolean = false,
+    /** Name of the category being filtered, if any; shown as a removable chip. */
+    val categoryName: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -96,6 +104,7 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     private val period = MutableStateFlow(Period.containing(Time.today()))
     private val query = MutableStateFlow("")
     private val filters = MutableStateFlow<Set<String>>(emptySet())
+    private val category = MutableStateFlow<String?>(null)
 
     init {
         viewModelScope.launch {
@@ -103,14 +112,19 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
         }
     }
 
-    val state: StateFlow<TxnListState> = combine(period, query, filters) { p, q, f -> Triple(p, q, f) }
-        .flatMapLatest { (p, q, f) ->
-            c.transactions.observe(TxnFilter(period = p, query = q)).let { flow ->
+    val state: StateFlow<TxnListState> = combine(period, query, filters, category) { p, q, f, cat -> listOf(p, q, f, cat) }
+        .flatMapLatest { values ->
+            val p = values[0] as Period
+            val q = values[1] as String
+            @Suppress("UNCHECKED_CAST") val f = values[2] as Set<String>
+            val cat = values[3] as String?
+            c.transactions.observe(TxnFilter(period = p, query = q, categoryKey = cat)).let { flow ->
                 combine(flow, c.transactions.observeSummary(p)) { list, summary ->
                     val filtered = list.filter { matches(it, f) }
                     val groups = filtered.groupBy { it.date }.toSortedMap(compareByDescending { it })
                         .map { (d, items) -> DayGroup(d, items, items.sumOf { it.signedAmount }) }
-                    TxnListState(p, q, f, groups, summary.income, summary.expense, loaded = true)
+                    val catName = cat?.let { key -> list.firstOrNull()?.category?.name ?: c.categories.byKey(key)?.name ?: key }
+                    TxnListState(p, q, f, groups, summary.income, summary.expense, loaded = true, categoryName = catName)
                 }
             }
         }
@@ -139,7 +153,14 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     fun previous() { period.value = period.value.previous() }
     fun next() { period.value = period.value.next() }
     fun setQuery(q: String) { query.value = q }
-    fun toggle(f: String) { filters.value = if (f in filters.value) filters.value - f else filters.value + f }
+    fun toggle(f: String) {
+        if (f.startsWith(CATEGORY_CHIP_PREFIX)) {
+            category.value = null
+            return
+        }
+        filters.value = if (f in filters.value) filters.value - f else filters.value + f
+    }
+    fun filterCategory(key: String) { category.value = key }
     fun only(f: String) { filters.value = setOf(f) }
 
     suspend fun delete(id: Long): TransactionEntity? {
@@ -156,7 +177,10 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
 fun TransactionsScreen(nav: NavController) {
     val vm = koshViewModel { TransactionsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
-    androidx.compose.runtime.LaunchedEffect(Unit) { ActivityFilterRequest.consume()?.let(vm::only) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        ActivityFilterRequest.consume()?.let(vm::only)
+        ActivityFilterRequest.consumeCategory()?.let(vm::filterCategory)
+    }
     val hidden = LocalHideAmounts.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -228,7 +252,13 @@ fun TransactionsContent(
                 }
             }
             item(key = "filters") {
-                FilterChipsRow(options = FILTERS, selected = state.filters, onToggle = onToggleFilter, modifier = Modifier.padding(vertical = 8.dp))
+                val categoryChip = state.categoryName?.let { "$CATEGORY_CHIP_PREFIX$it" }
+                FilterChipsRow(
+                    options = listOfNotNull(categoryChip) + FILTERS,
+                    selected = state.filters + listOfNotNull(categoryChip),
+                    onToggle = onToggleFilter,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
             }
             if (state.loaded && state.groups.isEmpty()) {
                 item(key = "empty") {
