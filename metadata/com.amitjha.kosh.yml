@@ -15,9 +15,9 @@ Repo: https://github.com/AIM-IT4/kosh.git
 
 Builds:
   # First release that contains the standard/offline flavours. Update to the tag you release.
-  - versionName: 1.9.0
-    versionCode: 11
-    commit: v1.9.0
+  - versionName: 2.0.1
+    versionCode: 12
+    commit: v2.0.1
     subdir: app
     gradle:
       - standard
@@ -25,5 +25,5 @@ Builds:
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.9.0
-CurrentVersionCode: 11
+CurrentVersion: 2.0.1
+CurrentVersionCode: 12

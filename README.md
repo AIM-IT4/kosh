@@ -92,6 +92,10 @@ can be installed side by side. CI builds both on every push (see `.github/workfl
 Release signing reads `keystore/kosh-release.jks` and the `KOSH_STORE_PASSWORD` / `KOSH_KEY_PASSWORD`
 Gradle properties from `~/.gradle/gradle.properties`. Neither is committed.
 
+Pushing a version tag (`git tag v2.0.1 && git push origin v2.0.1`) runs `.github/workflows/release.yml`, which
+builds both editions with the release key and publishes them as a GitHub release (`Kosh.apk`, `Kosh-offline.apk`).
+It reads the key from the `KOSH_KEYSTORE_BASE64`, `KOSH_STORE_PASSWORD` and `KOSH_KEY_PASSWORD` repository secrets.
+
 ## Contributing
 
 Contributions are welcome, especially **bank SMS formats** and **merchant categories**. The merchant rules

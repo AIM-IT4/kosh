@@ -1,0 +1,2 @@
+- New logo and app icon: the Gullak, the clay money pot, on a flat emerald tile
+- Matching themed icon (Android 13+), notification icon and quick-settings tile
