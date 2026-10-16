@@ -30,7 +30,14 @@ class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : Corout
 
         runCatching { c.investments.revalueAll(today) }
         if (settings.smsAutoImport && c.smsImporter.hasPermission()) runCatching { c.smsImporter.importInbox() }
+        runCatching { c.recurring.recordDue(today) }
         runCatching { c.netWorth.snapshot(today) }
+        runCatching {
+            val auto = c.featurePrefs.current().autoBackup
+            if (com.amitjha.kosh.security.AutoBackup.isDue(auto, System.currentTimeMillis())) {
+                com.amitjha.kosh.security.AutoBackup.run(applicationContext, c, auto)
+            }
+        }
 
         if (settings.notifyInsights) {
             runCatching {

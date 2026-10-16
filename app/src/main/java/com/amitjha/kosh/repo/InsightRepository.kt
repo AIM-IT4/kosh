@@ -34,6 +34,7 @@ class InsightRepository(
     private val db: KoshDatabase,
     private val accounts: AccountRepository,
     private val settings: SettingsStore,
+    private val budgetRepo: BudgetRepository,
 ) {
 
     /** Insights the user has not dismissed, most important first. */
@@ -77,8 +78,11 @@ class InsightRepository(
         val monthStartDay = settings.settings.first().monthStartDay
         val accountList = accounts.accounts()
         val cardIds = accountList.filter { it.isCard }.map { it.id }.toSet()
-        val txns = db.transactions().since(since)
-            .filter { SmsMapping.countsInStats(it) }
+        // Split transactions count as their parts, as on the Home and Budgets screens.
+        val txns = com.amitjha.kosh.domain.Splits.expand(
+            db.transactions().since(since).filter { SmsMapping.countsInStats(it) },
+            com.amitjha.kosh.domain.Splits.byTransaction(db.splits().all()),
+        )
             .map { t ->
                 InsightTxn(
                     date = Time.toDate(t.timestamp),
@@ -94,7 +98,8 @@ class InsightRepository(
         return InsightInput(
             today = today,
             transactions = txns,
-            budgets = db.budgets().all().map { BudgetInput(it.categoryKey, it.monthlyLimit) },
+            // Limits include what rolled over, matching the Budgets screen.
+            budgets = budgetRepo.observeStatuses().first().map { BudgetInput(it.budget.categoryKey, it.limit) },
             goals = db.goals().all().map {
                 GoalInput(
                     name = it.name,
@@ -152,29 +157,33 @@ data class NetWorth(
     val counted: List<AccountWithBalance> = emptyList(),
     val pending: List<AccountWithBalance> = emptyList(),
     val investmentItems: List<Triple<String, InvestmentType, Paise>> = emptyList(),
+    /** Still owed on loans (home, car, personal, education). */
+    val loans: Paise = 0,
+    val loanItems: List<Pair<String, Paise>> = emptyList(),
 ) {
-    val total: Paise get() = liquid - cardDebt + investments
+    val total: Paise get() = liquid - cardDebt - loans + investments
 }
 
 class NetWorthRepository(
     private val db: KoshDatabase,
     private val accounts: AccountRepository,
+    private val loanRepo: LoanRepository,
 ) {
 
     fun observeNetWorth(): Flow<NetWorth> =
-        combine(accounts.observeAccounts(), db.investments().observeActive()) { accs, invs ->
-            compute(accs, invs.map { Triple(it.name, it.type, it.currentValue) })
+        combine(accounts.observeAccounts(), db.investments().observeActive(), loanRepo.observe()) { accs, invs, loans ->
+            compute(accs, invs.map { Triple(it.name, it.type, it.currentValue) }, loans)
         }
 
     fun observeHistory(): Flow<List<NetWorthSnapshotEntity>> = db.netWorth().observeAll()
 
     suspend fun current(): NetWorth =
-        compute(accounts.accounts(), db.investments().active().map { Triple(it.name, it.type, it.currentValue) })
+        compute(accounts.accounts(), db.investments().active().map { Triple(it.name, it.type, it.currentValue) }, loanRepo.active())
 
-    /** Records today's net worth for the history chart (called by the daily worker). */
+    /** Records today's net worth for the history chart (called by the daily worker). Loans count with card dues as debt. */
     suspend fun snapshot(today: LocalDate = Time.today()) {
         val nw = current()
-        db.netWorth().upsert(NetWorthSnapshotEntity(today.toEpochDay(), nw.liquid, nw.cardDebt, nw.investments, nw.total))
+        db.netWorth().upsert(NetWorthSnapshotEntity(today.toEpochDay(), nw.liquid, nw.cardDebt + nw.loans, nw.investments, nw.total))
     }
 
     /** Clears the recorded history (used once after the v1.4 balance-rule repair) and records today afresh. */
@@ -183,7 +192,11 @@ class NetWorthRepository(
         snapshot(today)
     }
 
-    private fun compute(accs: List<AccountWithBalance>, investments: List<Triple<String, InvestmentType, Paise>>): NetWorth {
+    private fun compute(
+        accs: List<AccountWithBalance>,
+        investments: List<Triple<String, InvestmentType, Paise>>,
+        loans: List<LoanStatus> = emptyList(),
+    ): NetWorth {
         val counted = accs.filter { it.counted }
         val liquid = counted.filter { it.account.type != AccountType.CREDIT_CARD }.sumOf { it.balance }
         val debt = counted.filter { it.isCard }.sumOf { it.outstanding.coerceAtLeast(0) }
@@ -195,6 +208,8 @@ class NetWorthRepository(
             counted = counted,
             pending = accs.filter { it.isPending },
             investmentItems = investments,
+            loans = loans.sumOf { it.outstanding },
+            loanItems = loans.filter { it.outstanding > 0 }.map { it.loan.name to it.outstanding },
         )
     }
 }

@@ -39,6 +39,7 @@ data class TxnFilter(
     val type: TxnType? = null,
     val query: String = "",
     val onlyUnreviewed: Boolean = false,
+    val tag: String? = null,
 )
 
 data class CategorySpend(val category: CategoryEntity?, val categoryKey: String, val total: Paise, val count: Int, val share: Double)
@@ -73,31 +74,56 @@ class TransactionRepository(private val db: KoshDatabase) {
         withRefs(dao.observeById(id).map { listOfNotNull(it) }).map { it.firstOrNull() }
 
     fun observe(filter: TxnFilter): Flow<List<TransactionItem>> {
+        // "#goa" searches tags only; plain text also matches tags.
+        val q = filter.query.trim()
+        val tagQuery = q.startsWith("#") && q.length > 1
         val source = when {
             filter.onlyUnreviewed -> dao.observeUnreviewed()
             filter.period != null -> dao.observeBetween(filter.period.startMillis, filter.period.endMillis)
             filter.accountId != null -> dao.observeForAccount(filter.accountId)
-            else -> dao.search(filter.query)
+            else -> dao.search(if (tagQuery) q.drop(1) else q)
         }
         return withRefs(source).map { list ->
             list.filter { item ->
                 val t = item.txn
+                val tags = com.amitjha.kosh.data.Tags.decode(t.tags)
                 (filter.accountId == null || t.accountId == filter.accountId || t.toAccountId == filter.accountId) &&
                     (filter.categoryKey == null || t.categoryKey == filter.categoryKey) &&
                     (filter.type == null || t.type == filter.type) &&
-                    (filter.query.isBlank() || listOfNotNull(t.merchant, t.note, item.category?.name)
-                        .any { it.contains(filter.query.trim(), ignoreCase = true) })
+                    (filter.tag == null || com.amitjha.kosh.data.Tags.has(t.tags, filter.tag)) &&
+                    (q.isBlank() || if (tagQuery) tags.any { it.contains(q.drop(1), ignoreCase = true) }
+                    else (listOfNotNull(t.merchant, t.note, item.category?.name) + tags).any { it.contains(q, ignoreCase = true) })
             }
         }
     }
 
     fun observeSummary(period: Period): Flow<MonthSummary> =
-        combine(dao.observeBetween(period.startMillis, period.endMillis), db.categories().observeAll()) { txns, cats ->
-            summarise(period, txns, cats.associateBy { it.key })
+        combine(dao.observeBetween(period.startMillis, period.endMillis), db.categories().observeAll(), observeSplits()) { txns, cats, splits ->
+            summarise(period, txns, cats.associateBy { it.key }, splits)
         }
 
     suspend fun summary(period: Period): MonthSummary =
-        summarise(period, dao.between(period.startMillis, period.endMillis), db.categories().all().associateBy { it.key })
+        summarise(period, dao.between(period.startMillis, period.endMillis), db.categories().all().associateBy { it.key }, splitsByTransaction())
+
+    /** Split parts of every split transaction, by transaction id. */
+    fun observeSplits(): Flow<Map<Long, List<com.amitjha.kosh.data.SplitEntity>>> =
+        db.splits().observeAll().map(com.amitjha.kosh.domain.Splits::byTransaction)
+
+    suspend fun splitsByTransaction(): Map<Long, List<com.amitjha.kosh.data.SplitEntity>> =
+        com.amitjha.kosh.domain.Splits.byTransaction(db.splits().all())
+
+    fun observeSplitsFor(txnId: Long): Flow<List<com.amitjha.kosh.data.SplitEntity>> = db.splits().observeFor(txnId)
+
+    /** Replaces a transaction's split parts; an empty list makes it a single-category transaction again. */
+    suspend fun setSplits(txnId: Long, parts: List<com.amitjha.kosh.data.SplitEntity>) = db.splits().replace(txnId, parts)
+
+    suspend fun setTags(txnId: Long, tags: List<String>) {
+        dao.byId(txnId)?.let { dao.update(it.copy(tags = com.amitjha.kosh.data.Tags.encode(tags))) }
+    }
+
+    /** Every tag in use, most used first. */
+    suspend fun allTags(): List<String> = dao.all().flatMap { com.amitjha.kosh.data.Tags.decode(it.tags) }
+        .groupBy { it.lowercase() }.entries.sortedByDescending { it.value.size }.map { it.value.first() }
 
     suspend fun byId(id: Long): TransactionEntity? = dao.byId(id)
 
@@ -200,7 +226,12 @@ class TransactionRepository(private val db: KoshDatabase) {
         }
 
     companion object {
-        fun summarise(period: Period, txns: List<TransactionEntity>, categories: Map<String, CategoryEntity>): MonthSummary {
+        fun summarise(
+            period: Period,
+            txns: List<TransactionEntity>,
+            categories: Map<String, CategoryEntity>,
+            splits: Map<Long, List<com.amitjha.kosh.data.SplitEntity>> = emptyMap(),
+        ): MonthSummary {
             val counted = txns.filter { SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
             val expenses = counted.filter { it.type == TxnType.EXPENSE }
             val incomes = counted.filter { it.type == TxnType.INCOME }
@@ -237,8 +268,8 @@ class TransactionRepository(private val db: KoshDatabase) {
                 period = period,
                 income = income,
                 expense = expense,
-                byCategory = breakdown(expenses, expense),
-                incomeByCategory = breakdown(incomes, income),
+                byCategory = breakdown(com.amitjha.kosh.domain.Splits.expand(expenses, splits), expense),
+                incomeByCategory = breakdown(com.amitjha.kosh.domain.Splits.expand(incomes, splits), income),
                 daily = daily,
                 topMerchants = merchants,
                 transactionCount = counted.size,

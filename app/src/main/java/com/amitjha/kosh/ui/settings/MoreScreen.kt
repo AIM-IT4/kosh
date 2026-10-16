@@ -361,6 +361,7 @@ fun MoreScreen(nav: NavController) {
                 confirmErase = false
                 scope.launch {
                     c.demoData.clear()
+                    runCatching { c.attachmentStore.deleteAll() }
                     sampleLoaded = false
                     show("All data erased")
                 }

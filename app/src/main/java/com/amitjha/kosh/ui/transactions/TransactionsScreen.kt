@@ -283,7 +283,7 @@ fun TransactionsContent(
                     KoshTextField(
                         value = state.query,
                         onValue = onQuery,
-                        label = "Search merchant, note or category",
+                        label = "Search merchant, note, category or #tag",
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }

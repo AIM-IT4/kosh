@@ -319,7 +319,7 @@ fun HomeContent(
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         MiniFigure("Cash & bank", nw.liquid, hidden)
                         MiniFigure("Investments", nw.investments, hidden)
-                        MiniFigure("Card dues", nw.cardDebt, hidden)
+                        MiniFigure(if (nw.loans > 0) "Dues & loans" else "Card dues", nw.cardDebt + nw.loans, hidden)
                     }
                 }
             }

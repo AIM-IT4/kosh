@@ -1,6 +1,14 @@
 package com.amitjha.kosh.security
 
 import com.amitjha.kosh.data.AccountEntity
+import com.amitjha.kosh.data.AttachmentEntity
+import com.amitjha.kosh.data.BudgetEntity
+import com.amitjha.kosh.data.DebtEntity
+import com.amitjha.kosh.data.LoanEntity
+import com.amitjha.kosh.data.RecurringRuleEntity
+import com.amitjha.kosh.data.SplitEntity
+import com.amitjha.kosh.data.TransactionEntity
+import com.amitjha.kosh.model.TxnType
 import com.amitjha.kosh.data.DeletedFingerprintEntity
 import com.amitjha.kosh.data.GoalEntity
 import com.amitjha.kosh.model.AccountType
@@ -67,6 +75,46 @@ class BackupFormatTest {
         assertEquals(36, goal.loanTenureMonths)
         assertEquals(emptyList<DeletedFingerprintEntity>(), old.tombstones)
         assertNull(BackupJson.meta(o.toString()).repairVersion)
+    }
+
+    private val v3 = data.copy(
+        transactions = listOf(
+            TransactionEntity(7, 1, type = TxnType.EXPENSE, amount = 2_500_00, categoryKey = "shopping", timestamp = 1_000, tags = "|Goa trip|Reimbursable|"),
+        ),
+        budgets = listOf(BudgetEntity(3, "food", 8_000_00, rollover = true)),
+        splits = listOf(SplitEntity(1, 7, "groceries", 1_500_00, "veggies"), SplitEntity(2, 7, "shopping", 1_000_00)),
+        debts = listOf(DebtEntity(1, "Ravi", "LENT", 5_000_00, repaid = 1_000_00, date = 20_000, dueDate = 20_030, note = "trip", createdAt = 9)),
+        recurring = listOf(
+            RecurringRuleEntity(1, "Rent", TxnType.EXPENSE, 25_000_00, "rent", 1, cadence = "MONTHLY", anchorDay = 20_000, nextDay = 20_031, createdAt = 9),
+        ),
+        loans = listOf(
+            LoanEntity(1, "Home loan", "SBI", "HOME", 50_00_000_00, 8.5, 240, 20_000, emi = 43_391_00,
+                prepaymentsJson = """[{"day":20100,"amount":100000,"reduce":"TENURE"}]""", createdAt = 9),
+        ),
+        attachments = listOf(AttachmentEntity(1, 7, "a.bin", "image/jpeg", 3, "Bill", warrantyUntil = 20_365, createdAt = 9)),
+        attachmentFiles = mapOf("a.bin" to byteArrayOf(1, 2, 3)),
+    )
+
+    @Test
+    fun formatThreeRoundTripsEveryNewTableAndTheReceiptFiles() {
+        val back = BackupJson.decode(BackupJson.encode(v3))
+        assertEquals(v3.copy(attachmentFiles = emptyMap()), back.copy(attachmentFiles = emptyMap()))
+        assertEquals(v3.attachmentFiles.keys, back.attachmentFiles.keys)
+        assert(back.attachmentFiles.getValue("a.bin").contentEquals(byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
+    fun formatTwoFilesRestoreWithoutTheNewData() {
+        val o = JSONObject(BackupJson.encode(v3)).put("format", 2)
+        listOf("splits", "debts", "recurring", "loans", "attachments", "attachmentFiles").forEach { o.remove(it) }
+        o.getJSONArray("transactions").getJSONObject(0).remove("tags")
+        o.getJSONArray("budgets").getJSONObject(0).remove("rollover")
+        val old = BackupJson.decode(o.toString())
+        assertEquals("", old.transactions.single().tags)
+        assertEquals(false, old.budgets.single().rollover)
+        assertEquals(emptyList<SplitEntity>(), old.splits)
+        assertEquals(emptyList<LoanEntity>(), old.loans)
+        assertEquals(emptyMap<String, ByteArray>(), old.attachmentFiles)
     }
 
     @Test

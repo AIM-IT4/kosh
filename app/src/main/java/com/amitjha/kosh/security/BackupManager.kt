@@ -4,6 +4,12 @@ import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
 import com.amitjha.kosh.data.AccountEntity
+import com.amitjha.kosh.data.AttachmentEntity
+import com.amitjha.kosh.data.AttachmentStore
+import com.amitjha.kosh.data.DebtEntity
+import com.amitjha.kosh.data.LoanEntity
+import com.amitjha.kosh.data.RecurringRuleEntity
+import com.amitjha.kosh.data.SplitEntity
 import com.amitjha.kosh.data.BudgetEntity
 import com.amitjha.kosh.data.CardBillEntity
 import com.amitjha.kosh.data.CategoryEntity
@@ -38,13 +44,19 @@ data class BackupMeta(val format: Int, val exportedAt: Long?, val repairVersion:
  * Encrypted export/import of everything in the database. Files are written and read through Storage Access
  * Framework URIs (ACTION_CREATE_DOCUMENT / ACTION_OPEN_DOCUMENT), so the user picks where the backup lives.
  */
-class BackupManager(private val context: Context, private val db: KoshDatabase) {
+class BackupManager(private val context: Context, private val db: KoshDatabase, private val files: AttachmentStore) {
 
     suspend fun export(uri: Uri, password: CharArray, repairVersion: Int? = null): BackupStats = withContext(Dispatchers.IO) {
-        val json = BackupJson.encode(snapshot(), repairVersion = repairVersion)
-        val bytes = BackupCrypto.encrypt(json.toByteArray(Charsets.UTF_8), password)
+        val (bytes, stats) = encrypted(password, repairVersion)
         context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error("Can't write the backup file")
-        statsOf(json)
+        stats
+    }
+
+    /** The whole backup file, encrypted with [password], and what it holds. */
+    suspend fun encrypted(password: CharArray, repairVersion: Int? = null): Pair<ByteArray, BackupStats> = withContext(Dispatchers.IO) {
+        val data = snapshot()
+        val json = BackupJson.encode(data, repairVersion = repairVersion)
+        BackupCrypto.encrypt(json.toByteArray(Charsets.UTF_8), password) to statsOf(data)
     }
 
     /**
@@ -62,6 +74,7 @@ class BackupManager(private val context: Context, private val db: KoshDatabase) 
         withContext(NonCancellable) {
             db.withTransaction {
                 val r = db.restore()
+                r.clearAttachments(); r.clearSplits(); r.clearRecurring(); r.clearDebts(); r.clearLoans()
                 r.clearTransactions(); r.clearBills(); r.clearSnapshots()
                 r.clearAccounts(); r.clearInvestments(); r.clearCategories(); r.clearBudgets()
                 r.clearGoals(); r.clearRules(); r.clearNetWorth(); r.clearTombstones()
@@ -76,6 +89,17 @@ class BackupManager(private val context: Context, private val db: KoshDatabase) 
                 r.insertRules(data.rules)
                 r.insertNetWorth(data.netWorth)
                 r.insertTombstones(data.tombstones)
+                r.insertSplits(data.splits)
+                r.insertDebts(data.debts)
+                r.insertRecurring(data.recurring)
+                r.insertLoans(data.loans)
+                r.insertAttachments(data.attachments)
+            }
+            // Files follow the committed rows: the old ones go, the backup's are written back encrypted.
+            files.deleteAll()
+            data.attachmentFiles.forEach { (name, bytes) ->
+                val mime = data.attachments.firstOrNull { it.fileName == name }?.mimeType ?: AttachmentStore.JPEG
+                runCatching { files.saveBytes(bytes, mime, name) }
             }
         }
         RestoreResult(statsOf(data), meta)
@@ -96,10 +120,13 @@ class BackupManager(private val context: Context, private val db: KoshDatabase) 
             rules = r.rules(),
             netWorth = r.netWorth(),
             tombstones = r.tombstones(),
-        )
+            splits = r.splits(),
+            debts = r.debts(),
+            recurring = r.recurring(),
+            loans = r.loans(),
+            attachments = r.attachments(),
+        ).let { d -> d.copy(attachmentFiles = d.attachments.mapNotNull { a -> runCatching { a.fileName to files.read(a.fileName) }.getOrNull() }.toMap()) }
     }
-
-    private fun statsOf(json: String): BackupStats = statsOf(BackupJson.decode(json))
 
     private fun statsOf(d: BackupData) = BackupStats(d.accounts.size, d.transactions.size, d.bills.size, d.investments.size)
 }
@@ -116,15 +143,23 @@ data class BackupData(
     val rules: List<MerchantRuleEntity>,
     val netWorth: List<NetWorthSnapshotEntity>,
     val tombstones: List<DeletedFingerprintEntity> = emptyList(),
+    val splits: List<SplitEntity> = emptyList(),
+    val debts: List<DebtEntity> = emptyList(),
+    val recurring: List<RecurringRuleEntity> = emptyList(),
+    val loans: List<LoanEntity> = emptyList(),
+    val attachments: List<AttachmentEntity> = emptyList(),
+    /** Decrypted receipt files by [AttachmentEntity.fileName]. */
+    val attachmentFiles: Map<String, ByteArray> = emptyMap(),
 )
 
 /** JSON form of [BackupData]; nullable fields are omitted when null. */
 object BackupJson {
     /**
      * 1: original format. 2: adds goal loans, per-account savings interest settings, deleted-import fingerprints
-     * and the data-repair version. Older files still restore; missing fields take the migrations' defaults.
+     * and the data-repair version. 3: adds tags, split parts, budget rollover, money lent and borrowed, recurring
+     * rules, loans and receipts (with their files). Older files still restore; missing fields take the migrations' defaults.
      */
-    const val FORMAT_VERSION = 2
+    const val FORMAT_VERSION = 3
 
     fun meta(json: String): BackupMeta {
         val o = JSONObject(json)
@@ -157,6 +192,7 @@ object BackupJson {
                 .putOpt("merchant", t.merchant).putOpt("note", t.note).put("timestamp", t.timestamp)
                 .put("channel", t.channel.name).put("source", t.source.name).putOpt("fingerprint", t.fingerprint)
                 .putOpt("referenceNo", t.referenceNo).put("reviewed", t.reviewed).put("excludeFromStats", t.excludeFromStats).put("suspicious", t.suspicious)
+                .put("tags", t.tags)
         })
         .put("bills", arr(d.bills) { b ->
             JSONObject().put("id", b.id).put("accountId", b.accountId).put("totalDue", b.totalDue)
@@ -165,7 +201,7 @@ object BackupJson {
                 .putOpt("paidAt", b.paidAt).put("createdAt", b.createdAt)
         })
         .put("budgets", arr(d.budgets) { b ->
-            JSONObject().put("id", b.id).putOpt("categoryKey", b.categoryKey).put("monthlyLimit", b.monthlyLimit)
+            JSONObject().put("id", b.id).putOpt("categoryKey", b.categoryKey).put("monthlyLimit", b.monthlyLimit).put("rollover", b.rollover)
         })
         .put("goals", arr(d.goals) { g ->
             JSONObject().put("id", g.id).put("name", g.name).put("target", g.target).put("saved", g.saved)
@@ -187,6 +223,35 @@ object BackupJson {
                 .put("investments", n.investments).put("total", n.total)
         })
         .put("deletedFingerprints", arr(d.tombstones) { t -> JSONObject().put("fingerprint", t.fingerprint).put("deletedAt", t.deletedAt) })
+        .put("splits", arr(d.splits) { p ->
+            JSONObject().put("id", p.id).put("transactionId", p.transactionId).put("categoryKey", p.categoryKey)
+                .put("amount", p.amount).putOpt("note", p.note)
+        })
+        .put("debts", arr(d.debts) { x ->
+            JSONObject().put("id", x.id).put("person", x.person).put("direction", x.direction).put("amount", x.amount)
+                .put("repaid", x.repaid).put("date", x.date).putOpt("dueDate", x.dueDate).putOpt("note", x.note)
+                .put("closed", x.closed).put("createdAt", x.createdAt)
+        })
+        .put("recurring", arr(d.recurring) { x ->
+            JSONObject().put("id", x.id).put("name", x.name).put("type", x.type.name).put("amount", x.amount)
+                .put("categoryKey", x.categoryKey).put("accountId", x.accountId).putOpt("toAccountId", x.toAccountId)
+                .put("cadence", x.cadence).put("anchorDay", x.anchorDay).put("nextDay", x.nextDay).put("active", x.active)
+                .put("autoAdd", x.autoAdd).putOpt("note", x.note).put("createdAt", x.createdAt)
+        })
+        .put("loans", arr(d.loans) { x ->
+            JSONObject().put("id", x.id).put("name", x.name).put("lender", x.lender).put("kind", x.kind)
+                .put("principal", x.principal).put("ratePct", x.ratePct).put("tenureMonths", x.tenureMonths)
+                .put("firstEmiDay", x.firstEmiDay).putOpt("emi", x.emi).put("prepaymentsJson", x.prepaymentsJson)
+                .put("selfOccupied", x.selfOccupied).put("archived", x.archived).put("createdAt", x.createdAt)
+        })
+        .put("attachments", arr(d.attachments) { x ->
+            JSONObject().put("id", x.id).put("transactionId", x.transactionId).put("fileName", x.fileName)
+                .put("mimeType", x.mimeType).put("sizeBytes", x.sizeBytes).putOpt("label", x.label)
+                .putOpt("warrantyUntil", x.warrantyUntil).put("createdAt", x.createdAt)
+        })
+        .put("attachmentFiles", JSONObject().apply {
+            d.attachmentFiles.forEach { (name, bytes) -> put(name, java.util.Base64.getEncoder().encodeToString(bytes)) }
+        })
         .toString()
 
     fun decode(json: String): BackupData {
@@ -220,6 +285,7 @@ object BackupJson {
                     referenceNo = t.str("referenceNo"), reviewed = t.optBoolean("reviewed", true),
                     excludeFromStats = t.optBoolean("excludeFromStats"),
                     suspicious = t.optBoolean("suspicious"),
+                    tags = t.optString("tags", ""),
                 )
             },
             bills = list(o, "bills") { b ->
@@ -230,7 +296,9 @@ object BackupJson {
                     paid = b.optBoolean("paid"), paidAt = b.long("paidAt"), createdAt = b.optLong("createdAt"),
                 )
             },
-            budgets = list(o, "budgets") { b -> BudgetEntity(b.getLong("id"), b.str("categoryKey"), b.getLong("monthlyLimit")) },
+            budgets = list(o, "budgets") { b ->
+                BudgetEntity(b.getLong("id"), b.str("categoryKey"), b.getLong("monthlyLimit"), rollover = b.optBoolean("rollover"))
+            },
             goals = list(o, "goals") { g ->
                 GoalEntity(
                     id = g.getLong("id"), name = g.getString("name"), target = g.getLong("target"), saved = g.getLong("saved"),
@@ -258,6 +326,43 @@ object BackupJson {
             tombstones = list(o, "deletedFingerprints") { t ->
                 DeletedFingerprintEntity(t.getString("fingerprint"), t.optLong("deletedAt"))
             },
+            splits = list(o, "splits") { p ->
+                SplitEntity(p.getLong("id"), p.getLong("transactionId"), p.getString("categoryKey"), p.getLong("amount"), p.str("note"))
+            },
+            debts = list(o, "debts") { x ->
+                DebtEntity(
+                    id = x.getLong("id"), person = x.getString("person"), direction = x.getString("direction"), amount = x.getLong("amount"),
+                    repaid = x.optLong("repaid"), date = x.getLong("date"), dueDate = x.long("dueDate"), note = x.str("note"),
+                    closed = x.optBoolean("closed"), createdAt = x.optLong("createdAt"),
+                )
+            },
+            recurring = list(o, "recurring") { x ->
+                RecurringRuleEntity(
+                    id = x.getLong("id"), name = x.getString("name"), type = TxnType.valueOf(x.getString("type")), amount = x.getLong("amount"),
+                    categoryKey = x.getString("categoryKey"), accountId = x.getLong("accountId"), toAccountId = x.long("toAccountId"),
+                    cadence = x.getString("cadence"), anchorDay = x.getLong("anchorDay"), nextDay = x.getLong("nextDay"),
+                    active = x.optBoolean("active", true), autoAdd = x.optBoolean("autoAdd", true), note = x.str("note"),
+                    createdAt = x.optLong("createdAt"),
+                )
+            },
+            loans = list(o, "loans") { x ->
+                LoanEntity(
+                    id = x.getLong("id"), name = x.getString("name"), lender = x.optString("lender", ""), kind = x.optString("kind", "OTHER"),
+                    principal = x.getLong("principal"), ratePct = x.getDouble("ratePct"), tenureMonths = x.getInt("tenureMonths"),
+                    firstEmiDay = x.getLong("firstEmiDay"), emi = x.long("emi"), prepaymentsJson = x.optString("prepaymentsJson", "[]"),
+                    selfOccupied = x.optBoolean("selfOccupied", true), archived = x.optBoolean("archived"), createdAt = x.optLong("createdAt"),
+                )
+            },
+            attachments = list(o, "attachments") { x ->
+                AttachmentEntity(
+                    id = x.getLong("id"), transactionId = x.getLong("transactionId"), fileName = x.getString("fileName"),
+                    mimeType = x.getString("mimeType"), sizeBytes = x.optLong("sizeBytes"), label = x.str("label"),
+                    warrantyUntil = x.long("warrantyUntil"), createdAt = x.optLong("createdAt"),
+                )
+            },
+            attachmentFiles = o.optJSONObject("attachmentFiles")?.let { f ->
+                f.keys().asSequence().associateWith { java.util.Base64.getDecoder().decode(f.getString(it)) }
+            }.orEmpty(),
         )
     }
 

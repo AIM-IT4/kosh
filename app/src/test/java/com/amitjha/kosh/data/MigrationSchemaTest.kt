@@ -94,4 +94,48 @@ class MigrationSchemaTest {
         fun norm(s: String) = s.replace("IF NOT EXISTS", "").replace(Regex("\\s+"), " ").trim()
         assertEquals(expected.map(::norm).toSet(), sql.map(::norm).toSet())
     }
+
+    @Test
+    fun version7AddsTagsRolloverAndTheNewTables() {
+        val newTables = setOf("txn_splits", "debts", "recurring_rules", "loans", "attachments")
+        assertEquals(newTables, tables(schema(7)) - tables(schema(6)))
+        tables(schema(6)).forEach { table ->
+            val added = columns(schema(7), table).keys - columns(schema(6), table).keys
+            val expected = mapOf("transactions" to setOf("tags"), "budgets" to setOf("rollover"))[table].orEmpty()
+            assertEquals(table, expected, added)
+            assertTrue(table, columns(schema(6), table).keys.all { it in columns(schema(7), table) })
+        }
+        val tags = columns(schema(7), "transactions").getValue("tags")
+        assertTrue(tags.getBoolean("notNull"))
+        assertEquals("''", tags.getString("defaultValue"))
+        val rollover = columns(schema(7), "budgets").getValue("rollover")
+        assertTrue(rollover.getBoolean("notNull"))
+        assertEquals("0", rollover.getString("defaultValue"))
+    }
+
+    @Test
+    fun migration6To7RunsExactlyWhatRoomExpects() {
+        val sql = mutableListOf<String>()
+        val db = java.lang.reflect.Proxy.newProxyInstance(
+            javaClass.classLoader, arrayOf(androidx.sqlite.db.SupportSQLiteDatabase::class.java),
+        ) { _, m, args -> if (m.name == "execSQL") sql += args[0] as String; null } as androidx.sqlite.db.SupportSQLiteDatabase
+        KoshDatabase.MIGRATION_6_7.migrate(db)
+        val newTables = setOf("txn_splits", "debts", "recurring_rules", "loans", "attachments")
+        val entities = schema(7).getJSONArray("entities")
+        val expected = mutableListOf(
+            "ALTER TABLE transactions ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE budgets ADD COLUMN rollover INTEGER NOT NULL DEFAULT 0",
+        )
+        for (i in 0 until entities.length()) {
+            val e = entities.getJSONObject(i)
+            val name = e.getString("tableName")
+            if (name !in newTables) continue
+            expected += e.getString("createSql").replace("\${TABLE_NAME}", name)
+            val indices = e.optJSONArray("indices") ?: continue
+            for (j in 0 until indices.length()) expected += indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", name)
+        }
+        fun norm(s: String) = s.replace("IF NOT EXISTS", "").replace(Regex("\\s+"), " ").trim()
+        assertEquals(expected.map(::norm).toSet(), sql.map(::norm).toSet())
+        assertEquals(expected.size, sql.size)
+    }
 }

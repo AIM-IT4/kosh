@@ -89,37 +89,97 @@ data class BudgetStatus(
     val category: CategoryEntity?,
     val spent: Paise,
     val projection: BudgetProjection,
+    /** Rolled over from earlier periods (negative after overspending); 0 without rollover. */
+    val carry: Paise = 0,
 ) {
     val isOverall: Boolean get() = budget.categoryKey == null
+    /** This period's limit including what rolled over. */
+    val limit: Paise get() = (budget.monthlyLimit + carry).coerceAtLeast(0)
 }
 
-class BudgetRepository(private val db: KoshDatabase, private val settings: SettingsStore) {
+/** The zero-based view of a period: income, what category budgets assign, and what's left to assign. */
+data class EnvelopeStatus(val envelope: com.amitjha.kosh.finance.BudgetMath.Envelope, val period: Period)
+
+class BudgetRepository(
+    private val db: KoshDatabase,
+    private val settings: SettingsStore,
+    private val features: com.amitjha.kosh.data.prefs.FeaturePrefs,
+) {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeStatuses(): Flow<List<BudgetStatus>> = settings.settings.flatMapLatest { s ->
         val period = Period.containing(Time.today(), s.monthStartDay)
+        // Rollover looks back up to [MAX_ROLLOVER_PERIODS] periods.
+        var earliest = period
+        repeat(MAX_ROLLOVER_PERIODS) { earliest = earliest.previous() }
         combine(
-            db.budgets().observeAll(),
-            db.transactions().observeBetween(period.startMillis, period.endMillis),
+            combine(db.budgets().observeAll(), features.settings) { budgets, f -> budgets to f.rolloverSince },
+            db.transactions().observeBetween(earliest.startMillis, period.endMillis),
             db.categories().observeAll(),
-        ) { budgets, txns, cats ->
-            val expenses = txns.filter { it.type == TxnType.EXPENSE && SmsMapping.countsInStats(it) }
+            db.splits().observeAll(),
+        ) { (budgets, since), txns, cats, splits ->
+            val all = com.amitjha.kosh.domain.Splits.expand(
+                txns.filter { it.type == TxnType.EXPENSE && SmsMapping.countsInStats(it) },
+                com.amitjha.kosh.domain.Splits.byTransaction(splits),
+            )
+            val inPeriod = all.filter { Time.toDate(it.timestamp) in period }
             val byCat = cats.associateBy { it.key }
+            fun spentIn(b: BudgetEntity, list: List<com.amitjha.kosh.data.TransactionEntity>) =
+                list.filter { b.categoryKey == null || it.categoryKey == b.categoryKey }.sumOf { it.amount }
             budgets.map { b ->
-                val spent = expenses.filter { b.categoryKey == null || it.categoryKey == b.categoryKey }.sumOf { it.amount }
-                BudgetStatus(b, b.categoryKey?.let(byCat::get), spent, project(b.monthlyLimit, spent, period))
+                val spent = spentIn(b, inPeriod)
+                val carry = if (!b.rollover) 0L else {
+                    val start = since[b.id]
+                    val history = generateSequence(period.previous()) { it.previous() }.take(MAX_ROLLOVER_PERIODS)
+                        .filter { start == null || it.start.toEpochDay() >= start }
+                        .toList().asReversed()
+                        .map { p -> b.monthlyLimit to spentIn(b, all.filter { Time.toDate(it.timestamp) in p }) }
+                    com.amitjha.kosh.finance.BudgetMath.rolloverCarry(history)
+                }
+                val limit = (b.monthlyLimit + carry).coerceAtLeast(0)
+                BudgetStatus(b, b.categoryKey?.let(byCat::get), spent, project(limit, spent, period), carry)
             }.sortedWith(compareBy({ !it.isOverall }, { -it.projection.usedFraction }))
         }
     }
 
-    suspend fun upsert(categoryKey: String?, monthlyLimit: Paise) {
-        val existing = db.budgets().all().firstOrNull { it.categoryKey == categoryKey }
-        db.budgets().upsert(BudgetEntity(id = existing?.id ?: 0, categoryKey = categoryKey, monthlyLimit = monthlyLimit))
+    /** Income of the current period against what category budgets assign. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeEnvelope(): Flow<EnvelopeStatus> = settings.settings.flatMapLatest { s ->
+        val period = Period.containing(Time.today(), s.monthStartDay)
+        combine(db.budgets().observeAll(), db.transactions().observeBetween(period.startMillis, period.endMillis)) { budgets, txns ->
+            val income = txns.filter { it.type == TxnType.INCOME && SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
+                .sumOf { it.amount }
+            EnvelopeStatus(
+                com.amitjha.kosh.finance.BudgetMath.envelope(income, budgets.filter { it.categoryKey != null }.map { it.monthlyLimit }),
+                period,
+            )
+        }
     }
 
-    suspend fun delete(budget: BudgetEntity) = db.budgets().delete(budget)
+    suspend fun upsert(categoryKey: String?, monthlyLimit: Paise, rollover: Boolean? = null) {
+        val existing = db.budgets().all().firstOrNull { it.categoryKey == categoryKey }
+        val roll = rollover ?: existing?.rollover ?: false
+        val id = db.budgets().upsertReturning(
+            BudgetEntity(id = existing?.id ?: 0, categoryKey = categoryKey, monthlyLimit = monthlyLimit, rollover = roll),
+        )
+        val budgetId = existing?.id ?: id
+        if (roll && existing?.rollover != true) {
+            // Rollover starts with the current period: earlier months don't carry anything in.
+            val period = Period.containing(Time.today(), settings.current().monthStartDay)
+            features.setRolloverSince(budgetId, period.start.toEpochDay())
+        } else if (!roll) {
+            features.setRolloverSince(budgetId, null)
+        }
+    }
+
+    suspend fun delete(budget: BudgetEntity) {
+        db.budgets().delete(budget)
+        features.setRolloverSince(budget.id, null)
+    }
 
     companion object {
+        const val MAX_ROLLOVER_PERIODS = 12
+
         /** Projection over a custom-length period (the finance engine assumes calendar months). */
         fun project(limit: Paise, spent: Paise, period: Period, today: LocalDate = Time.today()): BudgetProjection {
             val elapsed = (ChronoUnit.DAYS.between(period.start, today).toInt() + 1).coerceIn(1, period.lengthDays)

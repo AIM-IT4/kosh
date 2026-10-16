@@ -197,7 +197,7 @@ fun WealthContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                             HeroPart("Cash & bank", nw.liquid, hidden)
                             HeroPart("Investments", nw.investments, hidden)
-                            HeroPart("Card dues", nw.cardDebt, hidden)
+                            HeroPart(if (nw.loans > 0) "Dues & loans" else "Card dues", nw.cardDebt + nw.loans, hidden)
                         }
                     }
                 }
