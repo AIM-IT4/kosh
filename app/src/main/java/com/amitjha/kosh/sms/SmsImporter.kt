@@ -165,7 +165,8 @@ class SmsImporter(
         if (msg != null && p.referenceNo == null && isKnownUnderReceivedTime(msg, p)) return ImportResult(duplicates = 1)
 
         var created = 0
-        val account = resolveAccount(p.bank, p.accountLast4, p.isCreditCard) { created++ }
+        val debitCard = !p.isCreditCard && SmsMapping.isDebitCardMessage(body)
+        val account = resolveAccount(p.bank, p.accountLast4, p.isCreditCard, debitCard) { created++ }
 
         // Without a reference number the fingerprint depends on the minute; the live receiver and an inbox
         // scan can see slightly different times for one message, so treat a near-identical import as the same.
@@ -179,7 +180,7 @@ class SmsImporter(
         }
 
         // "self", "own account" or "to a/c ..1234" (another own account) is a transfer, not spending.
-        val ownLast4s = db.accounts().all().mapNotNull { it.last4 }.toSet()
+        val ownLast4s = db.accounts().all().flatMap { it.allDigits }.toSet()
         val selfTransfer = p.type == TxnType.EXPENSE && !p.isCreditCard &&
             com.amitjha.kosh.domain.TransferPairing.looksLikeSelfTransfer(body, ownLast4s, account.last4)
         val parsedBase = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
@@ -234,19 +235,28 @@ class SmsImporter(
         return ImportResult(balancesUpdated = 1)
     }
 
-    private suspend fun resolveAccount(bank: Bank, last4: String?, isCard: Boolean, onCreate: () -> Unit): AccountEntity {
+    private suspend fun resolveAccount(bank: Bank, last4: String?, isCard: Boolean, debitCard: Boolean = false, onCreate: () -> Unit): AccountEntity {
         val accounts = db.accounts().all()
-        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return fillDigits(it, last4) }
+        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return fillDigits(it, last4, debitCard) }
+        // A debit card's number isn't the account's: file it under the user's account at that bank and remember it.
+        if (debitCard && last4 != null) SmsMapping.debitCardAccount(accounts, bank)?.let { return fillDigits(it, last4, debitCard = true) }
         val fresh = SmsMapping.newAccountFor(bank, last4, isCard, System.currentTimeMillis())
         val id = db.accounts().insert(fresh)
         onCreate()
         return fresh.copy(id = id)
     }
 
-    /** Remembers the digits from a message on an account the user added without them. */
-    private suspend fun fillDigits(account: AccountEntity, last4: String?): AccountEntity {
-        if (last4 == null || account.last4 != null || account.archived) return account
-        val updated = account.copy(last4 = last4)
+    /**
+     * Remembers the digits from a message on an account the user added without them. A debit card's digits are
+     * kept apart from the account number, so messages quoting the account still match.
+     */
+    private suspend fun fillDigits(account: AccountEntity, last4: String?, debitCard: Boolean = false): AccountEntity {
+        if (last4 == null || account.archived || last4 in account.allDigits) return account
+        val updated = when {
+            debitCard -> account.plusOtherDigits(last4)
+            account.last4 == null -> account.copy(last4 = last4)
+            else -> return account
+        }
         db.accounts().update(updated)
         return updated
     }

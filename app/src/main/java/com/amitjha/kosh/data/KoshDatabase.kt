@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LoanEntity::class,
         AttachmentEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class KoshDatabase : RoomDatabase() {
@@ -142,7 +142,14 @@ abstract class KoshDatabase : RoomDatabase() {
             "CREATE INDEX IF NOT EXISTS `index_attachments_transactionId` ON `attachments` (`transactionId`)",
         )
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+        /** v8 lets an account remember other digits its bank uses in messages (a debit card, a merged account). */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE accounts ADD COLUMN otherDigits TEXT")
+            }
+        }
+
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
 
         /**
          * Opens the database encrypted with SQLCipher (key in the Android Keystore). An existing plaintext
