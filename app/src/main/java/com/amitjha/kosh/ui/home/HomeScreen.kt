@@ -182,9 +182,13 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             runCatching {
                 val today = Time.today()
                 // Usual monthly spending: the average of the last three budget months that had any.
-                val previous = generateSequence(Period.containing(today, inp.payDay).previous()) { it.previous() }.take(3)
-                val usual = previous.map { c.transactions.summary(it).expense }.filter { it > 0 }.toList()
-                    .takeIf { it.isNotEmpty() }?.let { it.sum() / it.size }
+                val spends = mutableListOf<Long>()
+                var p = Period.containing(today, inp.payDay)
+                repeat(3) {
+                    p = p.previous()
+                    c.transactions.summary(p).expense.takeIf { it > 0 }?.let(spends::add)
+                }
+                val usual = spends.takeIf { it.isNotEmpty() }?.let { it.sum() / it.size }
                 com.amitjha.kosh.repo.SafeToSpend.compute(inp.accounts, inp.bills, inp.payDay, c.recurring, inp.budgets, inp.summary, usual, today)
             }.getOrNull()
         }
