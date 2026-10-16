@@ -48,7 +48,7 @@ class AppContainer(context: Context, sandbox: com.amitjha.kosh.security.DecoySan
     val netWorth = NetWorthRepository(db, accounts, loans)
     val interest = InterestRepository(db, accounts)
     val planningPrefs = com.amitjha.kosh.data.prefs.PlanningPrefs(app)
-    val tax = com.amitjha.kosh.repo.TaxRepository(db, investments, planningPrefs)
+    val tax = com.amitjha.kosh.repo.TaxRepository(db, investments, planningPrefs, loans)
     val goalOutlooks = com.amitjha.kosh.repo.GoalSimulations(goals, planningPrefs)
 
     val smsImporter = SmsImporter(sandbox?.smsContext ?: app, db, settings)
@@ -58,6 +58,8 @@ class AppContainer(context: Context, sandbox: com.amitjha.kosh.security.DecoySan
     val recurring = com.amitjha.kosh.repo.RecurringRepository(db, featurePrefs)
     val debts = com.amitjha.kosh.repo.DebtRepository(db)
     val attachments = com.amitjha.kosh.repo.AttachmentRepository(db, attachmentStore)
+    val statementImporter = com.amitjha.kosh.repo.StatementImporter(db)
+    val reports = com.amitjha.kosh.repo.ReportRepository(db, settings, transactions, recurring)
     val demoData = DemoData(db, investments)
     /** Household sync with a paired phone over local Wi-Fi (standard edition only). */
     val householdStore = com.amitjha.kosh.sync.HouseholdStore(app)

@@ -80,6 +80,7 @@ class TransactionDetailViewModel(private val c: AppContainer, private val id: Lo
     private val deleteGuard = com.amitjha.kosh.ui.common.ActionGuard()
 
     fun delete(onDone: () -> Unit) = launchGuarded(deleteGuard) {
+        runCatching { c.attachments.deleteAllFor(id) }
         c.tombstones.deleteTransaction(id)
         onDone()
     }
@@ -182,6 +183,8 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
             if (t.type != com.amitjha.kosh.model.TxnType.TRANSFER) {
                 com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.TXN, t.id)
             }
+            com.amitjha.kosh.ui.features.TxnExtras(t, state.categories)
+            Spacer(Modifier.height(24.dp))
         }
     }
 

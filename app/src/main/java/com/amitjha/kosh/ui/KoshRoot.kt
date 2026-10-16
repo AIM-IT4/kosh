@@ -332,6 +332,8 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
             Notifications.ROUTE_BILLS -> Routes.BILLS
             Notifications.ROUTE_INSIGHTS -> Routes.INSIGHTS
             Notifications.ROUTE_INVESTMENTS -> Routes.WEALTH
+            Notifications.ROUTE_WARRANTIES -> Routes.WARRANTIES
+            Notifications.ROUTE_RECURRING -> Routes.RECURRING
             com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_EXPENSE -> Routes.addTxn(TxnType.EXPENSE)
             com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_INCOME -> Routes.addTxn(TxnType.INCOME)
             else -> null
@@ -504,6 +506,34 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.UNCATEGORISED) { com.amitjha.kosh.ui.transactions.UncategorisedScreen(nav) }
         composable(Routes.TAX) { com.amitjha.kosh.ui.tax.TaxScreen(nav) }
         composable(Routes.HOUSEHOLD) { com.amitjha.kosh.ui.household.HouseholdScreen(nav) }
+        composable(Routes.RECURRING) { com.amitjha.kosh.ui.features.RecurringScreen(nav) }
+        composable(
+            Routes.RECURRING_EDIT,
+            arguments = listOf(
+                navArgument("id") { type = NavType.LongType; defaultValue = -1L },
+                navArgument("series") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
+            com.amitjha.kosh.ui.features.RecurringEditScreen(
+                nav,
+                entry.arguments!!.getLong("id").takeIf { it > 0 },
+                entry.arguments!!.getString("series")?.takeIf { it.isNotBlank() },
+            )
+        }
+        composable(Routes.LOANS) { com.amitjha.kosh.ui.features.LoansScreen(nav) }
+        composable(Routes.LOAN_DETAIL, arguments = idArg) { entry -> com.amitjha.kosh.ui.features.LoanDetailScreen(nav, entry.arguments!!.getLong("id")) }
+        composable(Routes.LOAN_EDIT, arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = -1L })) { entry ->
+            com.amitjha.kosh.ui.features.LoanEditScreen(nav, entry.arguments!!.getLong("id").takeIf { it > 0 })
+        }
+        composable(Routes.DEBTS) { com.amitjha.kosh.ui.features.DebtsScreen(nav) }
+        composable(Routes.AUTO_BACKUP) { com.amitjha.kosh.ui.features.AutoBackupScreen(nav) }
+        composable(Routes.STATEMENT_IMPORT) { com.amitjha.kosh.ui.features.StatementImportScreen(nav) }
+        composable(Routes.REPORTS) { com.amitjha.kosh.ui.features.ReportsScreen(nav) }
+        composable(Routes.YEAR_REVIEW, arguments = listOf(navArgument("year") { type = NavType.IntType })) { entry ->
+            com.amitjha.kosh.ui.features.YearReviewScreen(nav, entry.arguments!!.getInt("year"))
+        }
+        composable(Routes.CALENDAR) { com.amitjha.kosh.ui.features.CalendarScreen(nav) }
+        composable(Routes.WARRANTIES) { com.amitjha.kosh.ui.features.WarrantiesScreen(nav) }
     }
 }
 

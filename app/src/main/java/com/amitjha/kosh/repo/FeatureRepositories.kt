@@ -10,6 +10,7 @@ import com.amitjha.kosh.finance.Loans
 import com.amitjha.kosh.model.Paise
 import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,8 +37,17 @@ class DebtRepository(private val db: KoshDatabase) {
     }
 }
 
-/** A loan with its schedule worked out for today. */
-data class LoanStatus(val loan: LoanEntity, val spec: Loans.Spec, val outstanding: Paise, val emi: Paise, val endDate: LocalDate?, val paidMonths: Int)
+/** A loan with its schedule worked out for today. [spec] is null when the saved details can't make a schedule. */
+data class LoanStatus(
+    val loan: LoanEntity,
+    val spec: Loans.Spec?,
+    val outstanding: Paise,
+    val emi: Paise,
+    val endDate: LocalDate?,
+    val paidMonths: Int,
+    val totalMonths: Int,
+    val totalInterest: Paise,
+)
 
 class LoanRepository(private val db: KoshDatabase) {
     fun observe(): Flow<List<LoanStatus>> = db.loans().observeActive().map { list -> list.map { status(it) } }
@@ -51,25 +61,26 @@ class LoanRepository(private val db: KoshDatabase) {
     suspend fun delete(loan: LoanEntity) = db.loans().delete(loan)
 
     /** Total still owed on every active loan today. */
-    suspend fun totalOutstanding(today: LocalDate = Time.today()): Paise = active().sumOf { Loans.outstanding(it.spec, today) }
+    suspend fun totalOutstanding(): Paise = active().sumOf { it.outstanding }
 
     /** Home-loan interest and principal paid in the financial year starting April [fyStartYear], for the tax planner. */
-    suspend fun homeLoanYear(fyStartYear: Int): Loans.YearSplit {
-        val homes = db.loans().active().filter { it.kind == HOME }
-        return homes.map { Loans.financialYear(spec(it), fyStartYear) }
+    suspend fun homeLoanYear(fyStartYear: Int): Loans.YearSplit =
+        db.loans().active().filter { it.kind == HOME }
+            .mapNotNull { runCatching { Loans.financialYear(spec(it), fyStartYear) }.getOrNull() }
             .fold(Loans.YearSplit(0, 0)) { a, b -> Loans.YearSplit(a.interest + b.interest, a.principal + b.principal) }
-    }
 
     fun status(loan: LoanEntity, today: LocalDate = Time.today()): LoanStatus {
-        val spec = spec(loan)
-        val rows = runCatching { Loans.schedule(spec) }.getOrDefault(emptyList())
+        val spec = runCatching { spec(loan) }.getOrNull()
+        val rows = spec?.let { runCatching { Loans.schedule(it) }.getOrNull() }.orEmpty()
         return LoanStatus(
             loan = loan,
-            spec = spec,
-            outstanding = runCatching { Loans.outstanding(spec, today) }.getOrDefault(loan.principal),
-            emi = rows.firstOrNull { !it.date.isBefore(today) }?.emi ?: rows.lastOrNull()?.emi ?: 0,
+            spec = spec?.takeIf { rows.isNotEmpty() },
+            outstanding = spec?.let { runCatching { Loans.outstanding(it, today) }.getOrNull() } ?: loan.principal.coerceAtLeast(0),
+            emi = rows.firstOrNull { !it.date.isBefore(today) }?.emi ?: rows.lastOrNull()?.emi ?: (loan.emi ?: 0),
             endDate = rows.lastOrNull()?.date,
             paidMonths = rows.count { !it.date.isAfter(today) },
+            totalMonths = rows.size,
+            totalInterest = rows.sumOf { it.interest },
         )
     }
 
@@ -129,9 +140,12 @@ class AttachmentRepository(private val db: KoshDatabase, private val store: Atta
         store.delete(a.fileName)
     }
 
-    fun bytes(a: AttachmentEntity): ByteArray = store.read(a.fileName)
+    /** Deletes the files of [txnId] (used before the transaction itself is deleted). */
+    suspend fun deleteAllFor(txnId: Long) {
+        db.attachments().observeFor(txnId).first().forEach { delete(it) }
+    }
 
-    fun exportToCache(a: AttachmentEntity) = store.exportToCache(a.fileName, a.mimeType)
+    fun bytes(a: AttachmentEntity): ByteArray = store.read(a.fileName)
 
     suspend fun warranties(): List<AttachmentEntity> = db.attachments().warranties()
 }

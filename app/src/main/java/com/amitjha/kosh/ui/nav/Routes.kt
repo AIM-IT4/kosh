@@ -41,6 +41,18 @@ object Routes {
     const val UNCATEGORISED = "uncategorised"
     const val TAX = "tax"
     const val HOUSEHOLD = "household"
+    const val RECURRING = "recurring"
+    const val RECURRING_EDIT = "recurring/edit?id={id}&series={series}"
+    const val LOANS = "loans"
+    const val LOAN_DETAIL = "loan/{id}"
+    const val LOAN_EDIT = "loan/edit?id={id}"
+    const val DEBTS = "debts"
+    const val AUTO_BACKUP = "backup/auto"
+    const val STATEMENT_IMPORT = "import/statement"
+    const val REPORTS = "reports"
+    const val YEAR_REVIEW = "reports/year/{year}"
+    const val CALENDAR = "calendar"
+    const val WARRANTIES = "warranties"
 
     fun addTxn(type: TxnType = TxnType.EXPENSE, accountId: Long? = null) = "txn/add?type=${type.name}&account=${accountId ?: -1}"
     fun editTxn(id: Long) = "txn/edit/$id"
@@ -50,6 +62,11 @@ object Routes {
     fun addInvestment(type: InvestmentType) = "investment/add/${type.name}"
     fun editInvestment(id: Long) = "investment/edit/$id"
     fun investment(id: Long) = "investment/$id"
+    fun editRecurring(id: Long? = null, fromSeries: String? = null) =
+        "recurring/edit?id=${id ?: -1}" + (fromSeries?.let { "&series=" + android.net.Uri.encode(it) } ?: "")
+    fun loan(id: Long) = "loan/$id"
+    fun editLoan(id: Long? = null) = "loan/edit?id=${id ?: -1}"
+    fun yearReview(year: Int) = "reports/year/$year"
 }
 
 data class Tab(val route: String, val label: String, val icon: ImageVector, val selectedIcon: ImageVector)

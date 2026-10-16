@@ -121,6 +121,8 @@ data class HomeState(
     val pendingAccounts: Int = 0,
     /** Imported expenses this month still in "Other". */
     val uncategorised: Int = 0,
+    /** What can be spent each day until payday, once bills and repeating payments are set aside. */
+    val safeToSpend: com.amitjha.kosh.finance.BudgetMath.SafeToSpend? = null,
 ) {
     val isEmpty: Boolean get() = !loading && accounts.isEmpty() && recent.isEmpty()
 }
@@ -168,8 +170,21 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         rows.count { it.source != com.amitjha.kosh.model.TxnSource.MANUAL && Time.toDate(it.timestamp) in p }
     }
 
-    val state: StateFlow<HomeState> = combine(money, lists, charts, uncategorised) { (nw, trend, s), l, ch, other ->
+    private val safeToSpend = combine(
+        c.accounts.observeAccounts(),
+        c.bills.observeUnpaid(),
+        c.settings.settings,
+        c.recurring.observeRules(),
+        c.db.transactions().observeChanges(),
+    ) { accounts, bills, s, _, _ -> Triple(accounts, bills, s.monthStartDay) }
+        .mapLatest { (accounts, bills, payDay) ->
+            runCatching { com.amitjha.kosh.repo.SafeToSpend.compute(accounts, bills, payDay, c.recurring, Time.today()) }.getOrNull()
+        }
+        .flowOn(Dispatchers.Default)
+
+    val state: StateFlow<HomeState> = combine(money, lists, charts, uncategorised, safeToSpend) { (nw, trend, s), l, ch, other, safe ->
         HomeState(
+            safeToSpend = safe,
             pendingAccounts = nw.pending.size,
             uncategorised = other,
             charts = ch,
@@ -229,6 +244,7 @@ fun HomeScreen(nav: NavController) {
         onNetWorth = { nav.navigate(Routes.NET_WORTH) },
         onPendingAccounts = { nav.navigate(Routes.PENDING_ACCOUNTS) },
         onUncategorised = { nav.navigate(Routes.UNCATEGORISED) },
+        onSafeToSpend = { nav.navigate(Routes.RECURRING) },
         householdCard = if (com.amitjha.kosh.ui.household.householdAvailable) {
             { m -> com.amitjha.kosh.ui.household.HouseholdHomeCard(m) { nav.navigate(Routes.HOUSEHOLD) } }
         } else {
@@ -269,6 +285,7 @@ fun HomeContent(
     onNetWorth: () -> Unit = {},
     onPendingAccounts: () -> Unit = {},
     onUncategorised: () -> Unit = {},
+    onSafeToSpend: () -> Unit = {},
     /** Household sync's card (null in previews and in the offline edition); it draws nothing until paired. */
     householdCard: (@Composable (Modifier) -> Unit)? = null,
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
@@ -321,6 +338,14 @@ fun HomeContent(
                         MiniFigure("Investments", nw.investments, hidden)
                         MiniFigure(if (nw.loans > 0) "Dues & loans" else "Card dues", nw.cardDebt + nw.loans, hidden)
                     }
+                }
+            }
+        }
+
+        state.safeToSpend?.let { safe ->
+            item(key = "safe") {
+                Column(pad.padding(top = KoshTheme.spacing.section)) {
+                    SafeToSpendCard(safe, hidden, onSafeToSpend)
                 }
             }
         }
@@ -692,4 +717,37 @@ fun TxnRow(t: TransactionItem, hidden: Boolean, modifier: Modifier = Modifier, o
         hidden = hidden,
         onClick = onClick,
     )
+}
+
+@Composable
+private fun SafeToSpendCard(safe: com.amitjha.kosh.finance.BudgetMath.SafeToSpend, hidden: Boolean, onClick: () -> Unit) {
+    KoshCard(onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Safe to spend", style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    AmountText(
+                        safe.perDay,
+                        style = AmountStyles.large,
+                        hidden = hidden,
+                        color = if (safe.available < 0) KoshTheme.colors.alert else androidx.compose.ui.graphics.Color.Unspecified,
+                    )
+                    Text(" a day", style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("until ${Fmt.date(safe.payday)}", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                Text("${safe.days} days", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        val money = { p: Long -> if (hidden) "₹ ••••" else com.amitjha.kosh.model.Money.format(p, showPaise = false) }
+        Text(
+            if (safe.available < 0) "Bills and repeats due before payday are ${money(-safe.available)} more than your bank balance."
+            else "${money(safe.spendable)} in bank and cash − ${money(safe.dueBeforePayday)} due before payday (${safe.dues.size} " +
+                (if (safe.dues.size == 1) "payment" else "payments") + ")",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (safe.available < 0) KoshTheme.colors.alert else KoshTheme.colors.subtleText,
+        )
+    }
 }

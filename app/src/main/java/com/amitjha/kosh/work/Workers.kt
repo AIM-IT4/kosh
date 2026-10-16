@@ -55,6 +55,42 @@ class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : Corout
                 }
             }
             runCatching {
+                // Warranties ending within a month, once each.
+                val soon = c.attachments.warranties().filter { a -> a.warrantyUntil?.let { it - today.toEpochDay() in 0L..30L } == true }
+                val fresh = c.featurePrefs.claimWarrantyNotifications(soon.map { "w-${it.id}-${it.warrantyUntil}" })
+                soon.filter { "w-${it.id}-${it.warrantyUntil}" in fresh }.forEach { a ->
+                    val days = a.warrantyUntil!! - today.toEpochDay()
+                    c.notifications.warranty(
+                        a.id.toInt() and 0xFFFF,
+                        "${a.label ?: "A warranty"} ends ${if (days == 0L) "today" else "in $days days"}",
+                        "Check the item now so any claim is made in time.",
+                    )
+                }
+            }
+            runCatching {
+                // A subscription or repeat that just changed price.
+                val changed = c.recurring.detected(today).filter { s ->
+                    (s.priceChangePct ?: 0.0) >= PRICE_ALERT_PCT && !s.lastDate.isBefore(today.minusDays(7))
+                }
+                val fresh = c.featurePrefs.claimWarrantyNotifications(changed.map { "p-${it.key}-${it.lastDate}" })
+                changed.filter { "p-${it.key}-${it.lastDate}" in fresh }.take(MAX_INSIGHT_NOTIFICATIONS).forEach { s ->
+                    val text = if (settings.hideAmounts) "Open Kosh to see the details."
+                    else "${Money.format(s.previousAmount ?: 0, showPaise = false)} → ${Money.format(s.lastAmount, showPaise = false)}. Still worth it?"
+                    c.notifications.reminder(s.key.hashCode() and 0xFFFF, "${s.merchant} costs ${Math.round(s.priceChangePct ?: 0.0)}% more", text)
+                }
+            }
+            runCatching {
+                // Reminder-only schedules due today.
+                for (rule in c.recurring.remindersDue(today)) {
+                    val key = "r-${rule.id}-${rule.nextDay}"
+                    if (key in c.featurePrefs.claimWarrantyNotifications(listOf(key)) && rule.nextDay == today.toEpochDay()) {
+                        val amount = if (settings.hideAmounts) "" else " · ${Money.format(rule.amount, showPaise = false)}"
+                        c.notifications.reminder((rule.id.toInt() and 0xFFFF) + 1, "${rule.name} is due today", "Scheduled payment$amount")
+                    }
+                    c.recurring.advance(rule, today)
+                }
+            }
+            runCatching {
                 val maturing = c.investments.items().filter { it.type == InvestmentType.FD && it.daysToMaturity(today) in 0L..7L }
                 val fresh = c.settings.claimNewInsightNotifications(maturing.map { "fd-maturity-${it.id}-${it.entity.maturityDate}" })
                 maturing.filter { "fd-maturity-${it.id}-${it.entity.maturityDate}" in fresh }.forEach { fd ->
@@ -74,6 +110,7 @@ class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : Corout
 
     companion object {
         const val MAX_INSIGHT_NOTIFICATIONS = 3
+        const val PRICE_ALERT_PCT = 5.0
     }
 }
 

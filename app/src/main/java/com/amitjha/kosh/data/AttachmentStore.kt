@@ -53,11 +53,6 @@ class AttachmentStore(private val context: Context) {
     }
 
     /** Writes the decrypted file to the app cache, for sharing or opening in another app; the caller deletes it. */
-    fun exportToCache(fileName: String, mimeType: String): File {
-        val ext = if (mimeType == PDF) "pdf" else "jpg"
-        return File(context.cacheDir, "receipt-${fileName.substringBefore('.')}.$ext").apply { writeBytes(read(fileName)) }
-    }
-
     private fun safe(name: String): String {
         require(name.isNotBlank() && !name.contains('/') && !name.contains("..")) { "Bad file name" }
         return name

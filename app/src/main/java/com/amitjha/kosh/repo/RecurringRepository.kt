@@ -69,6 +69,15 @@ class RecurringRepository(private val db: KoshDatabase, private val features: Fe
         return added
     }
 
+    /** Reminder-only schedules due on or before [today]; [advance] moves each past today once it has been shown. */
+    suspend fun remindersDue(today: LocalDate = Time.today()): List<RecurringRuleEntity> =
+        db.recurringRules().all().filter { it.active && !it.autoAdd && it.nextDay <= today.toEpochDay() }
+
+    suspend fun advance(rule: RecurringRuleEntity, today: LocalDate = Time.today()) {
+        val cadence = cadenceOf(rule) ?: return
+        db.recurringRules().update(rule.copy(nextDay = Recurring.nextOccurrence(LocalDate.ofEpochDay(rule.anchorDay), cadence, today).toEpochDay()))
+    }
+
     /** Repeating payments found in the last ~13 months of spending, without the ones the user hid. */
     fun observeDetected(): Flow<List<Recurring.Series>> =
         combine(db.transactions().observeBetween(Time.startOfDay(Time.today().minusDays(LOOKBACK_DAYS)), Long.MAX_VALUE), features.settings) { txns, f ->

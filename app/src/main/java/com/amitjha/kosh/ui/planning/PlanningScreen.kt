@@ -91,6 +91,9 @@ data class PlanningState(
     val loaded: Boolean = false,
     /** Monte Carlo outlook per goal id (goals not yet reached and with time left). */
     val outlooks: Map<Long, com.amitjha.kosh.repo.GoalOutlook> = emptyMap(),
+    /** Zero-based view of this month, when envelope mode is on. */
+    val envelope: com.amitjha.kosh.repo.EnvelopeStatus? = null,
+    val envelopeMode: Boolean = false,
 )
 
 class PlanningViewModel(private val c: AppContainer) : ViewModel() {
@@ -99,10 +102,14 @@ class PlanningViewModel(private val c: AppContainer) : ViewModel() {
         c.goals.observeStatuses(),
         c.categories.observeByType(TxnType.EXPENSE),
         c.goalOutlooks.observe(),
-    ) { b, g, cats, outlooks -> PlanningState(b, g, cats, loaded = true, outlooks = outlooks) }
+        combine(c.budgets.observeEnvelope(), c.featurePrefs.settings) { e, f -> e to f.envelopeMode },
+    ) { b, g, cats, outlooks, env ->
+        PlanningState(b, g, cats, loaded = true, outlooks = outlooks, envelope = env.first.takeIf { env.second }, envelopeMode = env.second)
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanningState())
 
-    fun setBudget(categoryKey: String?, limit: Long) = viewModelScope.launch { c.budgets.upsert(categoryKey, limit) }
+    fun setBudget(categoryKey: String?, limit: Long, rollover: Boolean? = null) = viewModelScope.launch { c.budgets.upsert(categoryKey, limit, rollover) }
+    fun setEnvelopeMode(on: Boolean) = viewModelScope.launch { c.featurePrefs.setEnvelopeMode(on) }
     fun deleteBudget(s: BudgetStatus) = viewModelScope.launch { c.budgets.delete(s.budget) }
     private val guard = com.amitjha.kosh.ui.common.ActionGuard()
 
@@ -139,7 +146,8 @@ fun PlanningScreen(@Suppress("UNUSED_PARAMETER") nav: NavController) {
         onTab = { tab = it },
         onAddBudget = { addBudget = true },
         onNewGoal = { newGoal = true },
-        onSetBudget = vm::setBudget,
+        onSetBudget = { key, limit, roll -> vm.setBudget(key, limit, roll) },
+        onEnvelopeMode = vm::setEnvelopeMode,
         onDeleteBudget = vm::deleteBudget,
         onOpenGoal = { editGoal = it },
         onContribute = vm::contribute,
@@ -187,7 +195,8 @@ fun PlanningContent(
     onTab: (Int) -> Unit = {},
     onAddBudget: () -> Unit = {},
     onNewGoal: () -> Unit = {},
-    onSetBudget: (String?, Long) -> Unit = { _, _ -> },
+    onSetBudget: (String?, Long, Boolean?) -> Unit = { _, _, _ -> },
+    onEnvelopeMode: (Boolean) -> Unit = {},
     onDeleteBudget: (BudgetStatus) -> Unit = {},
     onOpenGoal: (GoalEntity) -> Unit = {},
     onContribute: (Long, Long) -> Unit = { _, _ -> },
@@ -206,7 +215,7 @@ fun PlanningContent(
             SegmentedTabs(listOf("Budgets", "Goals"), tab, onSelect = onTab, modifier = Modifier.padding(top = 8.dp, end = 8.dp))
         }
         if (tab == 0) {
-            BudgetsTab(state, onAdd = onAddBudget, onSet = onSetBudget, onDelete = onDeleteBudget)
+            BudgetsTab(state, onAdd = onAddBudget, onSet = onSetBudget, onDelete = onDeleteBudget, onEnvelopeMode = onEnvelopeMode)
         } else {
             GoalsTab(state, onAdd = onNewGoal, onOpen = onOpenGoal, onContribute = onContribute, onInflation = onInflation)
         }
@@ -217,8 +226,9 @@ fun PlanningContent(
 private fun BudgetsTab(
     state: PlanningState,
     onAdd: () -> Unit,
-    onSet: (String?, Long) -> Unit,
+    onSet: (String?, Long, Boolean?) -> Unit,
     onDelete: (BudgetStatus) -> Unit,
+    onEnvelopeMode: (Boolean) -> Unit = {},
 ) {
     val hidden = LocalHideAmounts.current
     var editing by remember { mutableStateOf<BudgetStatus?>(null) }
@@ -235,6 +245,18 @@ private fun BudgetsTab(
         return
     }
     LazyColumn(contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        state.envelope?.let { env ->
+            item(key = "envelope") {
+                KoshCard {
+                    Text("Give every rupee a job", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    EnvelopeLine("Income this month", env.envelope.income, hidden)
+                    EnvelopeLine("Assigned to budgets", env.envelope.assigned, hidden)
+                    EnvelopeLine(if (env.envelope.toAssign >= 0) "Left to assign" else "Over-assigned", env.envelope.toAssign, hidden,
+                        color = if (env.envelope.toAssign >= 0) KoshTheme.colors.good else KoshTheme.colors.alert)
+                }
+            }
+        }
         items(state.budgets.size, key = { state.budgets[it].budget.id }) { i ->
             val s = state.budgets[i]
             val p = s.projection
@@ -251,7 +273,15 @@ private fun BudgetsTab(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             AmountText(s.spent, style = AmountStyles.small, hidden = hidden)
                             Text(" of ", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
-                            AmountText(s.budget.monthlyLimit, style = AmountStyles.small, hidden = hidden, color = KoshTheme.colors.subtleText)
+                            AmountText(s.limit, style = AmountStyles.small, hidden = hidden, color = KoshTheme.colors.subtleText)
+                            if (s.budget.rollover && s.carry != 0L) {
+                                Text(
+                                    if (s.carry > 0) " · +${if (hidden) "₹ ••••" else Money.format(s.carry, showPaise = false)} rolled over"
+                                    else " · −${if (hidden) "₹ ••••" else Money.format(-s.carry, showPaise = false)} carried",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = KoshTheme.colors.subtleText,
+                                )
+                            }
                         }
                     }
                     Text(
@@ -265,7 +295,7 @@ private fun BudgetsTab(
                     )
                 }
                 Spacer(Modifier.height(10.dp))
-                BudgetProgressBar(s.spent, s.budget.monthlyLimit, projected = p.projected)
+                BudgetProgressBar(s.spent, s.limit, projected = p.projected)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     when {
@@ -280,13 +310,23 @@ private fun BudgetsTab(
                 )
             }
         }
+        item(key = "envelope-mode") {
+            KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp)) {
+                com.amitjha.kosh.ui.common.SwitchRow(
+                    "Envelope mode",
+                    "Assign this month's income to budgets until nothing is left over",
+                    state.envelopeMode,
+                    onEnvelopeMode,
+                )
+            }
+        }
     }
     editing?.let { s ->
         EditBudgetSheet(
             s,
             onDismiss = { editing = null },
-            onSave = {
-                onSet(s.budget.categoryKey, it)
+            onSave = { limit, roll ->
+                onSet(s.budget.categoryKey, limit, roll)
                 editing = null
             },
             onDelete = {
@@ -305,8 +345,9 @@ private fun BudgetsTab(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditBudgetSheet(s: BudgetStatus, onDismiss: () -> Unit, onSave: (Long) -> Unit, onDelete: () -> Unit) {
+private fun EditBudgetSheet(s: BudgetStatus, onDismiss: () -> Unit, onSave: (Long, Boolean) -> Unit, onDelete: () -> Unit) {
     var limit by remember { mutableStateOf<Long?>(s.budget.monthlyLimit) }
+    var rollover by remember { mutableStateOf(s.budget.rollover) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
             Text(
@@ -318,7 +359,13 @@ private fun EditBudgetSheet(s: BudgetStatus, onDismiss: () -> Unit, onSave: (Lon
             FormColumn {
                 AmountField("Monthly limit", limit, { limit = it }, allowZero = false)
                 com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.BUDGET, s.budget.id, card = false)
-                PrimaryButton("Save", enabled = (limit ?: 0) > 0, modifier = Modifier.fillMaxWidth(), onClick = { onSave(limit!!) })
+                com.amitjha.kosh.ui.common.SwitchRow(
+                    "Roll over",
+                    "Unspent money adds to next month; overspending comes out of it (up to one month's limit)",
+                    rollover,
+                    { rollover = it },
+                )
+                PrimaryButton("Save", enabled = (limit ?: 0) > 0, modifier = Modifier.fillMaxWidth(), onClick = { onSave(limit!!, rollover) })
                 TextButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) { Text("Delete budget", color = KoshTheme.colors.alert) }
             }
             Spacer(Modifier.height(16.dp))
@@ -623,5 +670,13 @@ private fun RequiredSaving(target: Long?, saved: Long, deadline: LocalDate, retu
                 color = KoshTheme.colors.subtleText,
             )
         }
+    }
+}
+
+@Composable
+private fun EnvelopeLine(label: String, amount: Long, hidden: Boolean, color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
+        AmountText(amount, style = AmountStyles.medium, hidden = hidden, color = color)
     }
 }
