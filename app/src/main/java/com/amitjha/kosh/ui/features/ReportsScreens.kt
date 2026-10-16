@@ -138,7 +138,7 @@ fun ReportsScreen(nav: NavController) {
                             style = MaterialTheme.typography.bodySmall,
                             color = KoshTheme.colors.subtleText,
                         )
-                        PrimaryButton("Save PDF", enabled = !busy, icon = Icons.Outlined.PictureAsPdf, modifier = Modifier.fillMaxWidth(), onClick = {
+                        PrimaryButton(if (busy) "Preparing…" else "Save PDF", enabled = !busy, icon = Icons.Outlined.PictureAsPdf, modifier = Modifier.fillMaxWidth(), onClick = {
                             export("kosh-$month.pdf") { c.reports.monthly(month) }
                         })
                     }
@@ -156,7 +156,7 @@ fun ReportsScreen(nav: NavController) {
                             onNext = { year++ },
                             canGoNext = year < maxYear,
                         )
-                        PrimaryButton("Save PDF", enabled = !busy, icon = Icons.Outlined.PictureAsPdf, modifier = Modifier.fillMaxWidth(), onClick = {
+                        PrimaryButton(if (busy) "Preparing…" else "Save PDF", enabled = !busy, icon = Icons.Outlined.PictureAsPdf, modifier = Modifier.fillMaxWidth(), onClick = {
                             export(if (fy) "kosh-fy-$year.pdf" else "kosh-$year.pdf") { c.reports.yearly(year, fy) }
                         })
                     }

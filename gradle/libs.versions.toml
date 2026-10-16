@@ -11,6 +11,9 @@ room = "2.6.1"
 work = "2.9.0"
 datastore = "1.1.1"
 biometric = "1.1.0"
+# biometric 1.1.0 pulls in fragment 1.2.5, whose FragmentActivity rejects the request codes the Activity Result
+# API uses, so every file picker crashed. Pin a current fragment.
+fragment = "1.8.5"
 coroutines = "1.9.0"
 junit = "4.13.2"
 sqlcipher = "4.6.1"
@@ -36,6 +39,7 @@ androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref =
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
+androidx-fragment = { module = "androidx.fragment:fragment-ktx", version.ref = "fragment" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 junit = { module = "junit:junit", version.ref = "junit" }

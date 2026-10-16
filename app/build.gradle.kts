@@ -14,8 +14,8 @@ android {
         applicationId = "com.amitjha.kosh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "2.1.0"
+        versionCode = 14
+        versionName = "2.1.1"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -100,6 +100,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.fragment)
     implementation(libs.kotlinx.coroutines.android)
     // QR codes for household pairing (Apache-2.0)
     implementation(libs.zxing.android.embedded)
