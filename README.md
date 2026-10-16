@@ -20,7 +20,7 @@ SMS automatically, and turns your data into insights, all on the phone.
 **[Download Kosh for Android](https://github.com/AIM-IT4/kosh/releases/latest/download/Kosh.apk)**:
 the standard edition, Android 8.0+.
 [Kosh-offline.apk](https://github.com/AIM-IT4/kosh/releases/latest/download/Kosh-offline.apk) has no
-internet permission at all. Website: [aim-it4.github.io/kosh-site](https://aim-it4.github.io/kosh-site/).
+internet permission at all. Website: [kosh.runs-on.dev](https://kosh.runs-on.dev/).
 
 Kosh isn't on the Play Store, so Android may ask you to allow the install. If Play Protect blocks it
 (it flags every app that reads SMS), pause scanning in **Play Store → Play Protect → ⚙**, install,
