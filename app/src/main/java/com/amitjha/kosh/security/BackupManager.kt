@@ -181,6 +181,7 @@ object BackupJson {
                 .putOpt("creditLimit", a.creditLimit).putOpt("statementDay", a.statementDay).putOpt("dueDay", a.dueDay)
                 .putOpt("colorArgb", a.colorArgb).put("archived", a.archived).put("autoCreated", a.autoCreated)
                 .putOpt("interestRatePct", a.interestRatePct).put("interestCreditFrequency", a.interestCreditFrequency)
+                .putOpt("otherDigits", a.otherDigits)
         })
         .put("categories", arr(d.categories) { c ->
             JSONObject().put("id", c.id).put("key", c.key).put("name", c.name).put("type", c.type.name)
@@ -267,6 +268,7 @@ object BackupJson {
                     colorArgb = a.long("colorArgb"), archived = a.optBoolean("archived"), autoCreated = a.optBoolean("autoCreated"),
                     interestRatePct = a.double("interestRatePct"),
                     interestCreditFrequency = a.optString("interestCreditFrequency", "QUARTERLY"),
+                    otherDigits = a.str("otherDigits"),
                 )
             },
             categories = list(o, "categories") { c ->

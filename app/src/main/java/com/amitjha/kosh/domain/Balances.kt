@@ -1,6 +1,7 @@
 package com.amitjha.kosh.domain
 
 import com.amitjha.kosh.data.AccountEntity
+import com.amitjha.kosh.data.TransactionEntity
 import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.Paise
 
@@ -35,6 +36,24 @@ data class AccountBalance(
     val known: Boolean get() = source !is BalanceSource.Unknown
 }
 
+/** Whether a transaction moves its account's balance, and why not when it doesn't (see [Balances.effectOf]). */
+sealed interface BalanceEffect {
+    /** Added to the balance. */
+    data object Moves : BalanceEffect
+
+    /** The amount looked implausible and is held for review; it moves nothing until confirmed. */
+    data object HeldForReview : BalanceEffect
+
+    /** Recorded in an account found in SMS that the user hasn't confirmed or merged, so it isn't counted. */
+    data object PendingAccount : BalanceEffect
+
+    /** Already part of the balance the bank's SMS reported at [at]. */
+    data class InReportedBalance(val at: Long) : BalanceEffect
+
+    /** Dated before the balance the user entered at [at], so already part of it. */
+    data class BeforeEnteredBalance(val at: Long) : BalanceEffect
+}
+
 /**
  * The balance rules.
  *
@@ -50,6 +69,23 @@ data class AccountBalance(
  * history has no known starting balance, so summing it would invent money.
  */
 object Balances {
+
+    /** Which balance anchor [compute] uses: the SMS report, or what the user entered. */
+    private fun usesReport(account: AccountEntity): Boolean {
+        val reportedAt = account.reportedAt ?: return false
+        if (account.reportedBalance == null) return false
+        if (account.type == AccountType.CREDIT_CARD && account.creditLimit == null) return false
+        return account.autoCreated || reportedAt >= account.openingDate
+    }
+
+    /** How [txn] affects the balance of [account] (the account it was recorded in), by the same rules as [compute]. */
+    fun effectOf(txn: TransactionEntity, account: AccountEntity): BalanceEffect = when {
+        txn.suspicious -> BalanceEffect.HeldForReview
+        account.autoCreated -> BalanceEffect.PendingAccount
+        usesReport(account) && txn.timestamp <= account.reportedAt!! -> BalanceEffect.InReportedBalance(account.reportedAt)
+        !usesReport(account) && txn.timestamp < account.openingDate -> BalanceEffect.BeforeEnteredBalance(account.openingDate)
+        else -> BalanceEffect.Moves
+    }
 
     /**
      * @param netFlowSinceOpening income - expense - transfers out + transfers in since `openingDate`.

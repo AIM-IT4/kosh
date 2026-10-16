@@ -31,21 +31,30 @@ object SmsMapping {
         // so an existing user's history and balance don't split into a second account.
         if (last4 == null || bank !in BANKS_FORMERLY_OTHER) return null
         val type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK
-        val other = accounts.filter { it.bank == Bank.OTHER.name && it.type == type && it.last4 == last4 }
+        val other = accounts.filter { it.bank == Bank.OTHER.name && it.type == type && last4 in it.allDigits }
         return other.firstOrNull { !it.archived } ?: other.firstOrNull()
     }
+
+    /**
+     * Whether two masked numbers are the same: banks show the last 3 or 4 digits ("XX123", "XX0123"), so a
+     * 3-digit number matches the end of a 4-digit one.
+     */
+    fun sameDigits(a: String, b: String): Boolean =
+        a == b || (minOf(a.length, b.length) >= 3 && (a.endsWith(b) || b.endsWith(a)))
 
     private fun matchSameBank(accounts: List<AccountEntity>, bank: Bank, last4: String?, isCard: Boolean): AccountEntity? {
         val type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK
         val sameKind = accounts.filter { it.bank == bank.name && it.type == type }
         val candidates = sameKind.filter { !it.archived }
         if (last4 != null) {
-            candidates.firstOrNull { it.last4 == last4 }?.let { return it }
+            candidates.firstOrNull { last4 in it.allDigits }?.let { return it }
+            // The same number masked to a different length, when only one account fits.
+            candidates.filter { a -> a.allDigits.any { sameDigits(it, last4) } }.singleOrNull()?.let { return it }
             // A message with digits never matches an account with different digits; an account the user added
             // without digits matches only when it is the sole account of this bank and kind.
             candidates.filter { it.last4 == null }.takeIf { it.size == 1 && candidates.size == 1 }?.let { return it.single() }
             // An account the user chose to ignore keeps receiving its messages, so it isn't recreated.
-            return sameKind.firstOrNull { it.archived && it.last4 == last4 }
+            return sameKind.firstOrNull { it.archived && last4 in it.allDigits }
         }
         candidates.singleOrNull()?.let { return it }
         return candidates.firstOrNull { it.last4 == null && it.autoCreated }
@@ -75,6 +84,15 @@ object SmsMapping {
     }
 
     /** The account to create when no existing account matches. */
+    /**
+     * A debit card has its own number, different from its account's. A debit-card message whose digits match no
+     * account belongs to the user's account at that bank when they have exactly one (confirmed) there.
+     */
+    fun debitCardAccount(accounts: List<AccountEntity>, bank: Bank): AccountEntity? =
+        accounts.filter { it.bank == bank.name && it.type == AccountType.BANK && !it.archived && !it.autoCreated }.singleOrNull()
+
+    fun isDebitCardMessage(body: String): Boolean = Regex("(?i)debit ?card").containsMatchIn(body)
+
     fun newAccountFor(bank: Bank, last4: String?, isCard: Boolean, now: Long): AccountEntity {
         val suffix = last4?.let { " ••$it" } ?: ""
         val kind = if (isCard) "Card" else "Account"
