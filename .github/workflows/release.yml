@@ -9,6 +9,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    # A version bump on main releases it, once: versions that already have a release are skipped.
+    branches: [main]
+    paths: ["app/build.gradle.kts", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 permissions:
@@ -35,7 +38,12 @@ jobs:
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = "branch" ] && [ "$GITHUB_EVENT_NAME" = "push" ] && GH_TOKEN="${{ github.token }}" gh release view "$TAG" > /dev/null 2>&1; then
+            echo "$TAG is already released; nothing to do."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+          fi
       - name: Restore the release keystore
+        if: env.SKIP != '1'
         env:
           KOSH_KEYSTORE_BASE64: ${{ secrets.KOSH_KEYSTORE_BASE64 }}
         run: |
@@ -45,6 +53,7 @@ jobs:
           mkdir -p keystore
           echo "$KOSH_KEYSTORE_BASE64" | base64 -d > keystore/kosh-release.jks
       - name: Build both editions (release-signed)
+        if: env.SKIP != '1'
         env:
           KOSH_STORE_PASSWORD: ${{ secrets.KOSH_STORE_PASSWORD }}
           KOSH_KEY_PASSWORD: ${{ secrets.KOSH_KEY_PASSWORD }}
@@ -52,6 +61,7 @@ jobs:
           ./gradlew :app:assembleStandardRelease :app:assembleOfflineRelease --console=plain \
             -PKOSH_STORE_PASSWORD="$KOSH_STORE_PASSWORD" -PKOSH_KEY_PASSWORD="$KOSH_KEY_PASSWORD"
       - name: Check signatures and that the offline edition has no INTERNET permission
+        if: env.SKIP != '1'
         env:
           # The key installed copies of Kosh are signed with; an APK signed with anything else can't update them.
           EXPECTED_SIGNER: 02283b8d09a5a1912906e9b5d3abed25ed4445de005f57a79cea0443f0317934
@@ -70,6 +80,7 @@ jobs:
             echo "Offline edition must not request INTERNET"; exit 1
           fi
       - name: Publish the GitHub release
+        if: env.SKIP != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
