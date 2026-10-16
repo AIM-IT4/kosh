@@ -8,6 +8,7 @@ import android.widget.RemoteViews
 import com.amitjha.kosh.KoshApp
 import com.amitjha.kosh.R
 import com.amitjha.kosh.data.TransactionEntity
+import com.amitjha.kosh.domain.MoneyIn
 import com.amitjha.kosh.domain.SmsMapping
 import com.amitjha.kosh.model.Money
 import com.amitjha.kosh.model.Paise
@@ -30,8 +31,8 @@ data class WidgetFigures(val income: Paise, val spent: Paise, val barPercent: In
     companion object {
         fun of(period: Period, txns: List<TransactionEntity>, overallBudget: Paise?): WidgetFigures {
             val counted = txns.filter { SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
-            val spent = counted.filter { it.type == TxnType.EXPENSE }.sumOf { it.amount }
-            val income = counted.filter { it.type == TxnType.INCOME }.sumOf { it.amount }
+            val spent = MoneyIn.netSpent(counted.filter { it.type == TxnType.EXPENSE }, counted.filter(MoneyIn::isGivenBack))
+            val income = counted.filter(MoneyIn::isEarned).sumOf { it.amount }
             val base = overallBudget?.takeIf { it > 0 } ?: income.takeIf { it > 0 }
             val pct = if (base == null) 0 else ((spent * 100) / base).toInt().coerceIn(0, 100)
             return WidgetFigures(income, spent, pct)

@@ -4,6 +4,7 @@ import com.amitjha.kosh.data.NetWorthSnapshotEntity
 import com.amitjha.kosh.data.TransactionEntity
 import com.amitjha.kosh.designsystem.components.BarGroup
 import com.amitjha.kosh.designsystem.components.ChartPoint
+import com.amitjha.kosh.domain.MoneyIn
 import com.amitjha.kosh.domain.SmsMapping
 import com.amitjha.kosh.model.Paise
 import com.amitjha.kosh.model.TxnType
@@ -56,11 +57,14 @@ data class HomeCharts(
             val counted = transactions.filter { SmsMapping.countsInStats(it) }
             val expenseByDay = counted.filter { it.type == TxnType.EXPENSE }
                 .groupBy { Time.toDate(it.timestamp) }.mapValues { (_, t) -> t.sumOf { it.amount } }
+            val backByDay = counted.filter(MoneyIn::isGivenBack)
+                .groupBy { Time.toDate(it.timestamp) }.mapValues { (_, t) -> t.sumOf { it.amount } }
 
+            // Running spending for the period, with refunds and cashback taken off on the day they arrive.
             fun cumulative(p: Period, upTo: LocalDate): List<Paise> {
                 var acc = 0L
                 val days = generateSequence(p.start) { it.plusDays(1) }.takeWhile { !it.isAfter(upTo) && it.isBefore(p.endExclusive) }
-                return days.map { d -> acc += expenseByDay[d] ?: 0L; acc }.toList()
+                return days.map { d -> acc += (expenseByDay[d] ?: 0L) - (backByDay[d] ?: 0L); acc.coerceAtLeast(0) }.toList()
             }
 
             val current = cumulative(period, today)
@@ -75,8 +79,8 @@ data class HomeCharts(
                 val inP = counted.filter { Time.toDate(it.timestamp) in p }
                 BarGroup(
                     p.label.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
-                    inP.filter { it.type == TxnType.INCOME }.sumOf { it.amount },
-                    inP.filter { it.type == TxnType.EXPENSE }.sumOf { it.amount },
+                    inP.filter(MoneyIn::isEarned).sumOf { it.amount },
+                    MoneyIn.netSpent(inP.filter { it.type == TxnType.EXPENSE }, inP.filter(MoneyIn::isGivenBack)),
                 )
             }
             val rates = bars.map { b -> if (b.income > 0) "${((b.income - b.expense) * 100.0 / b.income).roundToInt()}%" else "–" }

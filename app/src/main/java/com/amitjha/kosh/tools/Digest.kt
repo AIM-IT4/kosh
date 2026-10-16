@@ -56,7 +56,8 @@ object DigestText {
         val expenses = periodTxns.filter { it.type == TxnType.EXPENSE && SmsMapping.countsInStats(it) }
         fun dateOf(t: TransactionEntity) = java.time.Instant.ofEpochMilli(t.timestamp).atZone(zone).toLocalDate()
         val spentToday = expenses.filter { dateOf(it) == today }.sumOf { it.amount }
-        val left = overallBudget?.let { it - expenses.sumOf { t -> t.amount } }
+        val givenBack = periodTxns.filter { com.amitjha.kosh.domain.MoneyIn.isGivenBack(it) && SmsMapping.countsInStats(it) }
+        val left = overallBudget?.let { it - com.amitjha.kosh.domain.MoneyIn.netSpent(expenses, givenBack) }
         return DigestFigures(spentToday, left, toReview)
     }
 }

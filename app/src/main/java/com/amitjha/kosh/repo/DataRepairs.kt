@@ -11,7 +11,7 @@ import com.amitjha.kosh.model.TxnSource
 object DataRepairs {
 
     /** Bump when adding a repair below. */
-    const val CURRENT = 2
+    const val CURRENT = 3
 
     suspend fun run(db: KoshDatabase, settings: SettingsStore, netWorth: NetWorthRepository) {
         val done = settings.repairVersion()
@@ -19,6 +19,11 @@ object DataRepairs {
         if (done < 1) repairBalancesV1(db, netWorth)
         // v1.5: money moved between own accounts was counted as expense and income.
         if (done < 2) TransferPairer.run(db)
+        // v2.1.4: only earnings count as income, so "Other Income" is now "Money received".
+        if (done < 3) {
+            db.categories().renameDefault("other_income", "Other Income", "Money received")
+            db.categories().renameDefault("interest", "Interest", "Interest & dividends")
+        }
         settings.setRepairVersion(CURRENT)
     }
 

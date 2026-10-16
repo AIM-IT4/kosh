@@ -55,6 +55,10 @@ interface CategoryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(categories: List<CategoryEntity>)
 
+    /** Renames a built-in category, unless the user already renamed it. */
+    @Query("UPDATE categories SET name = :name WHERE `key` = :key AND name = :oldName")
+    suspend fun renameDefault(key: String, oldName: String, name: String)
+
     @Upsert
     suspend fun upsert(category: CategoryEntity)
 }
