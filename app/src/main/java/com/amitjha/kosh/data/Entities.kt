@@ -88,6 +88,9 @@ data class TransactionEntity(
      */
     @androidx.room.ColumnInfo(defaultValue = "0")
     val suspicious: Boolean = false,
+    /** User tags such as "Goa trip" or "Reimbursable", stored as `|tag|tag|` (see [Tags]); empty when none. */
+    @androidx.room.ColumnInfo(defaultValue = "")
+    val tags: String = "",
 )
 
 @Entity(
@@ -118,6 +121,9 @@ data class BudgetEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val categoryKey: String?,
     val monthlyLimit: Paise,
+    /** Unspent budget carries into the next month (and overspending reduces it). */
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val rollover: Boolean = false,
 )
 
 @Entity(tableName = "goals")
@@ -186,4 +192,112 @@ data class NetWorthSnapshotEntity(
     val cardDebt: Paise,
     val investments: Paise,
     val total: Paise,
+)
+
+/** One part of a transaction split across categories; the parts replace the transaction's own category in stats. */
+@Entity(
+    tableName = "txn_splits",
+    foreignKeys = [
+        ForeignKey(entity = TransactionEntity::class, parentColumns = ["id"], childColumns = ["transactionId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index("transactionId")],
+)
+data class SplitEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val transactionId: Long,
+    val categoryKey: String,
+    val amount: Paise,
+    val note: String? = null,
+)
+
+/** Money lent to or borrowed from a person, settled over time. [direction] is LENT or BORROWED. */
+@Entity(tableName = "debts")
+data class DebtEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val person: String,
+    val direction: String,
+    val amount: Paise,
+    val repaid: Paise = 0,
+    /** Epoch day. */
+    val date: Long,
+    /** Epoch day the money is due back, when agreed. */
+    val dueDate: Long? = null,
+    val note: String? = null,
+    val closed: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/**
+ * A payment the user schedules (rent paid in cash, a SIP, a salary credit). When [autoAdd] is on, the daily refresh
+ * records each due occurrence as a transaction; [nextDay] is the next occurrence not yet recorded.
+ */
+@Entity(
+    tableName = "recurring_rules",
+    foreignKeys = [
+        ForeignKey(entity = AccountEntity::class, parentColumns = ["id"], childColumns = ["accountId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index("accountId")],
+)
+data class RecurringRuleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val type: TxnType,
+    val amount: Paise,
+    val categoryKey: String,
+    val accountId: Long,
+    val toAccountId: Long? = null,
+    /** A `finance.Recurring.Cadence` name. */
+    val cadence: String,
+    /** Epoch day of the first occurrence; later ones keep its day of month or weekday. */
+    val anchorDay: Long,
+    /** Epoch day of the next occurrence not yet recorded. */
+    val nextDay: Long,
+    val active: Boolean = true,
+    val autoAdd: Boolean = true,
+    val note: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** A home, car, personal or education loan; the schedule comes from `finance.Loans`. */
+@Entity(tableName = "loans")
+data class LoanEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val lender: String,
+    /** HOME, CAR, PERSONAL, EDUCATION or OTHER. */
+    val kind: String,
+    val principal: Paise,
+    val ratePct: Double,
+    val tenureMonths: Int,
+    /** Epoch day of the first EMI. */
+    val firstEmiDay: Long,
+    /** The EMI the lender charges, when it differs from the computed one. */
+    val emi: Paise? = null,
+    /** Prepayments as a JSON array of {day, amount, reduce}. */
+    val prepaymentsJson: String = "[]",
+    /** A home loan on a house the user lives in (section 24(b) limit of ₹2 lakh applies). */
+    val selfOccupied: Boolean = true,
+    val archived: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** A receipt or warranty photo kept (encrypted) in app storage and linked to a transaction. */
+@Entity(
+    tableName = "attachments",
+    foreignKeys = [
+        ForeignKey(entity = TransactionEntity::class, parentColumns = ["id"], childColumns = ["transactionId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index("transactionId")],
+)
+data class AttachmentEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val transactionId: Long,
+    /** File name inside the app's private attachments folder. */
+    val fileName: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val label: String? = null,
+    /** Epoch day the warranty ends, for a reminder before it does. */
+    val warrantyUntil: Long? = null,
+    val createdAt: Long = System.currentTimeMillis(),
 )

@@ -22,8 +22,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DeletedFingerprintEntity::class,
         DemoRowEntity::class,
         HouseholdItemEntity::class,
+        SplitEntity::class,
+        DebtEntity::class,
+        RecurringRuleEntity::class,
+        LoanEntity::class,
+        AttachmentEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class KoshDatabase : RoomDatabase() {
@@ -40,6 +45,11 @@ abstract class KoshDatabase : RoomDatabase() {
     abstract fun household(): HouseholdDao
     abstract fun restore(): RestoreDao
     abstract fun demoRows(): DemoRowDao
+    abstract fun splits(): SplitDao
+    abstract fun debts(): DebtDao
+    abstract fun recurringRules(): RecurringRuleDao
+    abstract fun loans(): LoanDao
+    abstract fun attachments(): AttachmentDao
 
     companion object {
         /** v2 adds `transactions.suspicious`; existing rows keep their data and start unflagged. */
@@ -95,7 +105,44 @@ abstract class KoshDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+        /**
+         * v7 adds tags and split parts to transactions, budget rollover, money lent and borrowed, scheduled recurring
+         * payments, loans and receipt attachments. Existing rows keep their data: no tags, no rollover, nothing else.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE budgets ADD COLUMN rollover INTEGER NOT NULL DEFAULT 0")
+                MIGRATION_6_7_TABLES.forEach { db.execSQL(it) }
+            }
+        }
+
+        /** Exactly the `createSql` Room exported for the v7 tables (see schemas/7.json). */
+        internal val MIGRATION_6_7_TABLES = listOf(
+            "CREATE TABLE IF NOT EXISTS `txn_splits` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, " +
+                "`categoryKey` TEXT NOT NULL, `amount` INTEGER NOT NULL, `note` TEXT, FOREIGN KEY(`transactionId`) REFERENCES " +
+                "`transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+            "CREATE INDEX IF NOT EXISTS `index_txn_splits_transactionId` ON `txn_splits` (`transactionId`)",
+            "CREATE TABLE IF NOT EXISTS `debts` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `person` TEXT NOT NULL, " +
+                "`direction` TEXT NOT NULL, `amount` INTEGER NOT NULL, `repaid` INTEGER NOT NULL, `date` INTEGER NOT NULL, `dueDate` INTEGER, " +
+                "`note` TEXT, `closed` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS `recurring_rules` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, " +
+                "`type` TEXT NOT NULL, `amount` INTEGER NOT NULL, `categoryKey` TEXT NOT NULL, `accountId` INTEGER NOT NULL, " +
+                "`toAccountId` INTEGER, `cadence` TEXT NOT NULL, `anchorDay` INTEGER NOT NULL, `nextDay` INTEGER NOT NULL, " +
+                "`active` INTEGER NOT NULL, `autoAdd` INTEGER NOT NULL, `note` TEXT, `createdAt` INTEGER NOT NULL, FOREIGN KEY(`accountId`) " +
+                "REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+            "CREATE INDEX IF NOT EXISTS `index_recurring_rules_accountId` ON `recurring_rules` (`accountId`)",
+            "CREATE TABLE IF NOT EXISTS `loans` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `lender` TEXT NOT NULL, " +
+                "`kind` TEXT NOT NULL, `principal` INTEGER NOT NULL, `ratePct` REAL NOT NULL, `tenureMonths` INTEGER NOT NULL, " +
+                "`firstEmiDay` INTEGER NOT NULL, `emi` INTEGER, `prepaymentsJson` TEXT NOT NULL, `selfOccupied` INTEGER NOT NULL, " +
+                "`archived` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS `attachments` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, " +
+                "`fileName` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `label` TEXT, `warrantyUntil` INTEGER, " +
+                "`createdAt` INTEGER NOT NULL, FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+            "CREATE INDEX IF NOT EXISTS `index_attachments_transactionId` ON `attachments` (`transactionId`)",
+        )
+
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 
         /**
          * Opens the database encrypted with SQLCipher (key in the Android Keystore). An existing plaintext
