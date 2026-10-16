@@ -1,0 +1,2 @@
+- Income now means what you earn: salary, interest and dividends, business and rent. Refunds and cashback come off your spending instead, and money from friends or family is shown as "Money received", not income
+- New income categories: Business & freelance, Rent received

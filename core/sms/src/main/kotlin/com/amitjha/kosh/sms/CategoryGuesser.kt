@@ -20,7 +20,7 @@ object CategoryGuesser {
         "food", "groceries", "shopping", "transport", "fuel", "bills", "rent", "entertainment", "health",
         "fitness", "education", "travel", "subscriptions", "emi", "investment", "insurance", "taxes", "cash",
         "people", "personal_care", "household", "gifts", "transfer", "salary", "refund", "interest", "cashback",
-        "other_income", "other",
+        "business", "rental", "other_income", "other",
     )
 
     private class Rule(val category: String, brands: String, generic: String = "") {

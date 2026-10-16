@@ -32,11 +32,14 @@ object DefaultCategories {
         expense("gifts", "Gifts & Donations", "card_giftcard", 0xFFE64980),
         expense("transfer", "Transfers", "swap_horiz", 0xFF868E96),
         expense("other", "Other", "category", 0xFFADB5BD),
+        // Income: what was earned. Refunds and cashback come off spending, and money received isn't income.
         income("salary", "Salary", "payments", 0xFF2F9E44),
+        income("interest", "Interest & dividends", "savings", 0xFF0CA678),
+        income("business", "Business & freelance", "work", 0xFF5C7CFA),
+        income("rental", "Rent received", "real_estate_agent", 0xFF845EF7),
         income("refund", "Refunds", "replay", 0xFF1C7ED6),
-        income("interest", "Interest", "savings", 0xFF0CA678),
         income("cashback", "Cashback", "redeem", 0xFFF59F00),
-        income("other_income", "Other Income", "add_card", 0xFF37B24D),
+        income("other_income", "Money received", "add_card", 0xFF37B24D),
     )
 
     private fun expense(key: String, name: String, icon: String, color: Long) =

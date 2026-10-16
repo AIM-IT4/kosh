@@ -5,6 +5,7 @@ import com.amitjha.kosh.data.CategoryEntity
 import com.amitjha.kosh.data.KoshDatabase
 import com.amitjha.kosh.data.MerchantRuleEntity
 import com.amitjha.kosh.data.TransactionEntity
+import com.amitjha.kosh.domain.MoneyIn
 import com.amitjha.kosh.domain.SmsMapping
 import com.amitjha.kosh.model.Paise
 import com.amitjha.kosh.model.TxnSource
@@ -46,7 +47,10 @@ data class CategorySpend(val category: CategoryEntity?, val categoryKey: String,
 data class DailyPoint(val date: LocalDate, val income: Paise, val expense: Paise)
 data class MerchantSpend(val merchant: String, val total: Paise, val count: Int)
 
-/** Income, expense and breakdowns for one budgeting period. Transfers between own accounts are excluded. */
+/**
+ * Income, expense and breakdowns for one budgeting period. Income is what was earned and expense is spending after
+ * refunds and cashback (see [MoneyIn]); transfers between own accounts are excluded.
+ */
 data class MonthSummary(
     val period: Period,
     val income: Paise,
@@ -56,6 +60,10 @@ data class MonthSummary(
     val daily: List<DailyPoint>,
     val topMerchants: List<MerchantSpend>,
     val transactionCount: Int,
+    /** Refunds and cashback, already taken off [expense]. */
+    val givenBack: Paise = 0,
+    /** Money received that isn't income (friends, family, credits Kosh can't place). */
+    val received: Paise = 0,
 ) {
     val savings: Paise get() = income - expense
     val savingsRate: Double? get() = if (income > 0) savings.toDouble() / income else null
@@ -233,9 +241,11 @@ class TransactionRepository(private val db: KoshDatabase) {
             splits: Map<Long, List<com.amitjha.kosh.data.SplitEntity>> = emptyMap(),
         ): MonthSummary {
             val counted = txns.filter { SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
-            val expenses = counted.filter { it.type == TxnType.EXPENSE }
-            val incomes = counted.filter { it.type == TxnType.INCOME }
-            val expense = expenses.sumOf { it.amount }
+            val parts = com.amitjha.kosh.domain.Splits.expand(counted, splits)
+            val expenses = parts.filter { it.type == TxnType.EXPENSE }
+            val incomes = parts.filter(MoneyIn::isEarned)
+            val givenBack = parts.filter(MoneyIn::isGivenBack)
+            val expense = MoneyIn.netSpent(expenses, givenBack)
             val income = incomes.sumOf { it.amount }
 
             fun breakdown(list: List<TransactionEntity>, total: Paise) = list.groupBy { it.categoryKey }
@@ -245,6 +255,13 @@ class TransactionRepository(private val db: KoshDatabase) {
                 }
                 .sortedByDescending { it.total }
 
+            val counts = expenses.groupingBy { it.categoryKey }.eachCount()
+            val history = txns.filter { it.type == TxnType.EXPENSE && SmsMapping.countsInStats(it) }
+            val byCategory = MoneyIn.netByCategory(expenses, givenBack, history)
+                .filter { it.value > 0 }
+                .map { (key, sum) -> CategorySpend(categories[key], key, sum, counts[key] ?: 0, if (expense > 0) sum.toDouble() / expense else 0.0) }
+                .sortedByDescending { it.total }
+
             val byDay = counted.groupBy { Time.toDate(it.timestamp) }
             val daily = generateSequence(period.start) { it.plusDays(1) }
                 .takeWhile { it.isBefore(period.endExclusive) }
@@ -252,15 +269,28 @@ class TransactionRepository(private val db: KoshDatabase) {
                     val items = byDay[day].orEmpty()
                     DailyPoint(
                         day,
-                        items.filter { it.type == TxnType.INCOME }.sumOf { it.amount },
+                        items.filter(MoneyIn::isEarned).sumOf { it.amount },
                         items.filter { it.type == TxnType.EXPENSE }.sumOf { it.amount },
                     )
                 }
                 .toList()
 
-            val merchants = expenses.filter { it.merchant != null }
+            // Refunds and cashback from a merchant come off what was spent there.
+            val backFrom = givenBack.filter { it.merchant != null }.groupBy { it.merchant!!.trim().lowercase() }
+                .mapValues { (_, items) -> items.sumOf { it.amount } }
+            val merchants = counted.filter { it.type == TxnType.EXPENSE && it.merchant != null }
                 .groupBy { it.merchant!! }
                 .map { (m, items) -> MerchantSpend(m, items.sumOf { it.amount }, items.size) }
+                .groupBy { it.merchant.trim().lowercase() }
+                .flatMap { (key, list) ->
+                    var back = backFrom[key] ?: 0L
+                    list.sortedByDescending { it.total }.map { m ->
+                        val cut = minOf(back, m.total)
+                        back -= cut
+                        m.copy(total = m.total - cut)
+                    }
+                }
+                .filter { it.total > 0 }
                 .sortedByDescending { it.total }
                 .take(10)
 
@@ -268,11 +298,13 @@ class TransactionRepository(private val db: KoshDatabase) {
                 period = period,
                 income = income,
                 expense = expense,
-                byCategory = breakdown(com.amitjha.kosh.domain.Splits.expand(expenses, splits), expense),
-                incomeByCategory = breakdown(com.amitjha.kosh.domain.Splits.expand(incomes, splits), income),
+                byCategory = byCategory,
+                incomeByCategory = breakdown(incomes, income),
                 daily = daily,
                 topMerchants = merchants,
                 transactionCount = counted.size,
+                givenBack = givenBack.sumOf { it.amount },
+                received = parts.filter(MoneyIn::isReceived).sumOf { it.amount },
             )
         }
     }

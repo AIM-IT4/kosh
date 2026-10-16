@@ -413,6 +413,10 @@ fun HomeContent(
                         VerticalHairline()
                         StatChip("Saved", s?.savings ?: 0, Modifier.weight(1f).padding(start = 14.dp), hidden = hidden)
                     }
+                    moneyInNote(s?.givenBack ?: 0, s?.received ?: 0, hidden)?.let {
+                        Spacer(Modifier.height(10.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                    }
                 }
             }
         }
@@ -905,4 +909,14 @@ private fun SalaryPlanSheet(
             Spacer(Modifier.height(12.dp))
         }
     }
+}
+
+/** Why the income and spending figures leave out some credits, or null when nothing was left out. */
+internal fun moneyInNote(givenBack: Long, received: Long, hidden: Boolean): String? {
+    val money = { p: Long -> if (hidden) "₹ ••••" else com.amitjha.kosh.model.Money.format(p, showPaise = false) }
+    val parts = listOfNotNull(
+        givenBack.takeIf { it > 0 }?.let { "${money(it)} refunds and cashback came off spending" },
+        received.takeIf { it > 0 }?.let { "${money(it)} received from others isn't counted as income" },
+    )
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }

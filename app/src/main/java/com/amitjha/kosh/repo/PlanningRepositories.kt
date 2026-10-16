@@ -7,6 +7,7 @@ import com.amitjha.kosh.data.CategoryEntity
 import com.amitjha.kosh.data.GoalEntity
 import com.amitjha.kosh.data.KoshDatabase
 import com.amitjha.kosh.data.prefs.SettingsStore
+import com.amitjha.kosh.domain.MoneyIn
 import com.amitjha.kosh.domain.SmsMapping
 import com.amitjha.kosh.finance.BudgetProjection
 import com.amitjha.kosh.finance.Budgets
@@ -118,22 +119,28 @@ class BudgetRepository(
             db.categories().observeAll(),
             db.splits().observeAll(),
         ) { (budgets, since), txns, cats, splits ->
-            val all = com.amitjha.kosh.domain.Splits.expand(
-                txns.filter { it.type == TxnType.EXPENSE && SmsMapping.countsInStats(it) },
+            val parts = com.amitjha.kosh.domain.Splits.expand(
+                txns.filter { SmsMapping.countsInStats(it) },
                 com.amitjha.kosh.domain.Splits.byTransaction(splits),
             )
-            val inPeriod = all.filter { Time.toDate(it.timestamp) in period }
+            val all = parts.filter { it.type == TxnType.EXPENSE }
+            val back = parts.filter(MoneyIn::isGivenBack)
             val byCat = cats.associateBy { it.key }
-            fun spentIn(b: BudgetEntity, list: List<com.amitjha.kosh.data.TransactionEntity>) =
-                list.filter { b.categoryKey == null || it.categoryKey == b.categoryKey }.sumOf { it.amount }
+            // Spending per category in each period, with refunds and cashback taken off.
+            val netIn = HashMap<Period, Map<String, Paise>>()
+            fun net(p: Period) = netIn.getOrPut(p) {
+                MoneyIn.netByCategory(all.filter { Time.toDate(it.timestamp) in p }, back.filter { Time.toDate(it.timestamp) in p }, all)
+            }
+            fun spentIn(b: BudgetEntity, p: Period): Paise =
+                net(p).let { m -> if (b.categoryKey == null) m.values.sum() else m[b.categoryKey] ?: 0L }
             budgets.map { b ->
-                val spent = spentIn(b, inPeriod)
+                val spent = spentIn(b, period)
                 val carry = if (!b.rollover) 0L else {
                     val start = since[b.id]
                     val history = generateSequence(period.previous()) { it.previous() }.take(MAX_ROLLOVER_PERIODS)
                         .filter { start == null || it.start.toEpochDay() >= start }
                         .toList().asReversed()
-                        .map { p -> b.monthlyLimit to spentIn(b, all.filter { Time.toDate(it.timestamp) in p }) }
+                        .map { p -> b.monthlyLimit to spentIn(b, p) }
                     com.amitjha.kosh.finance.BudgetMath.rolloverCarry(history)
                 }
                 val limit = (b.monthlyLimit + carry).coerceAtLeast(0)
@@ -147,7 +154,7 @@ class BudgetRepository(
     fun observeEnvelope(): Flow<EnvelopeStatus> = settings.settings.flatMapLatest { s ->
         val period = Period.containing(Time.today(), s.monthStartDay)
         combine(db.budgets().observeAll(), db.transactions().observeBetween(period.startMillis, period.endMillis)) { budgets, txns ->
-            val income = txns.filter { it.type == TxnType.INCOME && SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
+            val income = txns.filter { MoneyIn.isEarned(it) && SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
                 .sumOf { it.amount }
             EnvelopeStatus(
                 com.amitjha.kosh.finance.BudgetMath.envelope(income, budgets.filter { it.categoryKey != null }.map { it.monthlyLimit }),

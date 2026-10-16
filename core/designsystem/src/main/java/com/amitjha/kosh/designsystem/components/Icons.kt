@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.LocalGroceryStore
 import androidx.compose.material.icons.outlined.MedicalServices
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Payments
+import androidx.compose.material.icons.outlined.RealEstateAgent
 import androidx.compose.material.icons.outlined.Redeem
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Restaurant
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -75,6 +77,8 @@ object CategoryIcons {
         "spa" to Icons.Outlined.Spa,
         "chair" to Icons.Outlined.Chair,
         "card_giftcard" to Icons.Outlined.CardGiftcard,
+        "work" to Icons.Outlined.Work,
+        "real_estate_agent" to Icons.Outlined.RealEstateAgent,
     )
 
     /** All supported icon names, e.g. for an icon picker. */
