@@ -1,0 +1,2 @@
+- Safe to spend now works from your monthly plan (overall budget, else this month's income, else your usual spending), not your whole bank balance
+- Shows what it's based on: plan − spent − payments due before payday

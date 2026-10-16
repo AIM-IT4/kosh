@@ -123,7 +123,7 @@ data class HomeState(
     /** Imported expenses this month still in "Other". */
     val uncategorised: Int = 0,
     /** What can be spent each day until payday, once bills and repeating payments are set aside. */
-    val safeToSpend: com.amitjha.kosh.finance.BudgetMath.SafeToSpend? = null,
+    val safeToSpend: com.amitjha.kosh.repo.SafeToSpend.Result? = null,
 ) {
     val isEmpty: Boolean get() = !loading && accounts.isEmpty() && recent.isEmpty()
 }
@@ -172,16 +172,31 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     private val safeToSpend = combine(
-        c.accounts.observeAccounts(),
-        c.bills.observeUnpaid(),
+        combine(c.accounts.observeAccounts(), c.bills.observeUnpaid()) { a, b -> a to b },
         c.settings.settings,
+        summary,
+        c.budgets.observeStatuses(),
         c.recurring.observeRules(),
-        c.db.transactions().observeChanges(),
-    ) { accounts, bills, s, _, _ -> Triple(accounts, bills, s.monthStartDay) }
-        .mapLatest { (accounts, bills, payDay) ->
-            runCatching { com.amitjha.kosh.repo.SafeToSpend.compute(accounts, bills, payDay, c.recurring, Time.today()) }.getOrNull()
+    ) { (accounts, bills), s, sum, budgets, _ -> SafeInputs(accounts, bills, s.monthStartDay, sum, budgets) }
+        .mapLatest { inp ->
+            runCatching {
+                val today = Time.today()
+                // Usual monthly spending: the average of the last three budget months that had any.
+                val previous = generateSequence(Period.containing(today, inp.payDay).previous()) { it.previous() }.take(3)
+                val usual = previous.map { c.transactions.summary(it).expense }.filter { it > 0 }.toList()
+                    .takeIf { it.isNotEmpty() }?.let { it.sum() / it.size }
+                com.amitjha.kosh.repo.SafeToSpend.compute(inp.accounts, inp.bills, inp.payDay, c.recurring, inp.budgets, inp.summary, usual, today)
+            }.getOrNull()
         }
         .flowOn(Dispatchers.Default)
+
+    private data class SafeInputs(
+        val accounts: List<AccountWithBalance>,
+        val bills: List<BillItem>,
+        val payDay: Int,
+        val summary: MonthSummary,
+        val budgets: List<com.amitjha.kosh.repo.BudgetStatus>,
+    )
 
     val state: StateFlow<HomeState> = combine(money, lists, charts, uncategorised, safeToSpend) { (nw, trend, s), l, ch, other, safe ->
         HomeState(
@@ -721,7 +736,8 @@ fun TxnRow(t: TransactionItem, hidden: Boolean, modifier: Modifier = Modifier, o
 }
 
 @Composable
-private fun SafeToSpendCard(safe: com.amitjha.kosh.finance.BudgetMath.SafeToSpend, hidden: Boolean, onClick: () -> Unit) {
+private fun SafeToSpendCard(safe: com.amitjha.kosh.repo.SafeToSpend.Result, hidden: Boolean, onClick: () -> Unit) {
+    val over = safe.available < 0
     KoshCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -731,24 +747,40 @@ private fun SafeToSpendCard(safe: com.amitjha.kosh.finance.BudgetMath.SafeToSpen
                         safe.perDay,
                         style = AmountStyles.large,
                         hidden = hidden,
-                        color = if (safe.available < 0) KoshTheme.colors.alert else androidx.compose.ui.graphics.Color.Unspecified,
+                        color = if (over) KoshTheme.colors.alert else androidx.compose.ui.graphics.Color.Unspecified,
                     )
                     Text(" a day", style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("until ${Fmt.date(safe.payday)}", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
-                Text("${safe.days} days", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                Text(if (safe.days == 1) "1 day" else "${safe.days} days", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
             }
         }
         Spacer(Modifier.height(8.dp))
         val money = { p: Long -> if (hidden) "₹ ••••" else com.amitjha.kosh.model.Money.format(p, showPaise = false) }
+        val base = when (safe.basis) {
+            com.amitjha.kosh.repo.SafeToSpend.Basis.BUDGET -> "${money(safe.plan)} budget"
+            com.amitjha.kosh.repo.SafeToSpend.Basis.INCOME -> "${money(safe.plan)} income this month"
+            com.amitjha.kosh.repo.SafeToSpend.Basis.USUAL -> "Your usual ${money(safe.plan)} a month"
+        }
+        val due = if (safe.upcoming > 0) " − ${money(safe.upcoming)} due before payday" else ""
         Text(
-            if (safe.available < 0) "Bills and repeats due before payday are ${money(-safe.available)} more than your bank balance."
-            else "${money(safe.spendable)} in bank and cash − ${money(safe.dueBeforePayday)} due before payday (${safe.dues.size} " +
-                (if (safe.dues.size == 1) "payment" else "payments") + ")",
+            when {
+                over && safe.cashLimited -> "Card bills and payments due before payday are ${money(-safe.available)} more than your bank balance."
+                over -> "$base − ${money(safe.spent)} spent$due: ${money(-safe.available)} over already."
+                safe.cashLimited -> "Limited by your bank balance after card bills and payments due before payday."
+                else -> "$base − ${money(safe.spent)} spent$due"
+            },
             style = MaterialTheme.typography.bodySmall,
-            color = if (safe.available < 0) KoshTheme.colors.alert else KoshTheme.colors.subtleText,
+            color = if (over) KoshTheme.colors.alert else KoshTheme.colors.subtleText,
         )
+        if (safe.basis != com.amitjha.kosh.repo.SafeToSpend.Basis.BUDGET) {
+            Text(
+                "Set an overall budget in Plan to base this on your own limit.",
+                style = MaterialTheme.typography.bodySmall,
+                color = KoshTheme.colors.subtleText,
+            )
+        }
     }
 }
