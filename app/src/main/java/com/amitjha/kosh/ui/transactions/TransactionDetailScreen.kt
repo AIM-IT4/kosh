@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.transactions
 
+import com.amitjha.kosh.designsystem.components.tr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -80,6 +81,7 @@ class TransactionDetailViewModel(private val c: AppContainer, private val id: Lo
     private val deleteGuard = com.amitjha.kosh.ui.common.ActionGuard()
 
     fun delete(onDone: () -> Unit) = launchGuarded(deleteGuard) {
+        runCatching { c.attachments.deleteAllFor(id) }
         c.tombstones.deleteTransaction(id)
         onDone()
     }
@@ -182,6 +184,8 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
             if (t.type != com.amitjha.kosh.model.TxnType.TRANSFER) {
                 com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.TXN, t.id)
             }
+            com.amitjha.kosh.ui.features.TxnExtras(t, state.categories)
+            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -235,7 +239,7 @@ fun DetailRow(label: String, value: String, onClick: (() -> Unit)? = null, accen
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.4f))
+        Text(tr(label), color = KoshTheme.colors.subtleText, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.4f))
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,

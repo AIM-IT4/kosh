@@ -1,5 +1,8 @@
 package com.amitjha.kosh.ui.settings
 
+import com.amitjha.kosh.ui.common.NO_FILE_PICKER
+import com.amitjha.kosh.ui.common.launchOrFalse
+import com.amitjha.kosh.designsystem.components.tr
 import com.amitjha.kosh.designsystem.theme.KoshText
 import android.Manifest
 import android.content.Context
@@ -30,6 +33,11 @@ import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.Assessment
+import androidx.compose.material.icons.outlined.Autorenew
+import androidx.compose.material.icons.outlined.Handshake
+import androidx.compose.material.icons.outlined.RealEstateAgent
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Category
@@ -191,6 +199,17 @@ fun MoreScreen(nav: NavController) {
                     }
                 }
             }
+            item(key = "money") {
+                Section("Money tools") {
+                    ActionRow("Recurring & subscriptions", "Upcoming payments, AutoPay mandates, price changes", Icons.Outlined.Autorenew) {
+                        nav.navigate(Routes.RECURRING)
+                    }
+                    ActionRow("Loans & EMIs", "What's left, prepayment savings, tax split", Icons.Outlined.RealEstateAgent) { nav.navigate(Routes.LOANS) }
+                    ActionRow("Lent & borrowed", "Money between you and friends or family", Icons.Outlined.Handshake) { nav.navigate(Routes.DEBTS) }
+                    ActionRow("Reports", "Monthly and yearly PDF, year in review, calendar", Icons.Outlined.Assessment) { nav.navigate(Routes.REPORTS) }
+                    ActionRow("Warranties", "Receipts with a warranty end date", Icons.Outlined.VerifiedUser) { nav.navigate(Routes.WARRANTIES) }
+                }
+            }
             item(key = "appearance") {
                 Section("Appearance & privacy") {
                     SegmentedTabs(
@@ -198,6 +217,13 @@ fun MoreScreen(nav: NavController) {
                         ThemeMode.entries.indexOf(s.themeMode),
                         onSelect = { scope.launch { c.settings.setThemeMode(ThemeMode.entries[it]) } },
                         modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                    val lang = c.featurePrefs.settings.collectAsState(initial = null).value?.language
+                    SegmentedTabs(
+                        com.amitjha.kosh.ui.common.AppLanguage.entries.map { it.title },
+                        com.amitjha.kosh.ui.common.AppLanguage.entries.indexOf(com.amitjha.kosh.ui.common.AppLanguage.of(lang)),
+                        onSelect = { i -> scope.launch { c.featurePrefs.setLanguage(com.amitjha.kosh.ui.common.AppLanguage.entries[i].code) } },
+                        modifier = Modifier.padding(bottom = 8.dp),
                     )
                     SwitchRow("Hide amounts", "Show ₹ •••• until you tap the eye", s.hideAmounts, { v -> scope.launch { c.settings.setHideAmounts(v) } },
                         Icons.Outlined.VisibilityOff)
@@ -293,10 +319,14 @@ fun MoreScreen(nav: NavController) {
             item(key = "data") {
                 Section("Your data") {
                     ActionRow("Back up", "Encrypted file protected by a password", Icons.Outlined.Backup, enabled = busy == null) {
-                        createBackup.launch("kosh-backup-${LocalDate.now()}.kosh")
+                        if (!createBackup.launchOrFalse("kosh-backup-${LocalDate.now()}.kosh")) show(NO_FILE_PICKER)
                     }
+                    ActionRow("Automatic backups", "Daily or weekly, to a folder you choose", Icons.Outlined.Sync) { nav.navigate(Routes.AUTO_BACKUP) }
                     ActionRow("Restore from backup", "Replaces everything on this phone", Icons.Outlined.Restore, enabled = busy == null) {
-                        openBackup.launch(arrayOf("*/*"))
+                        if (!openBackup.launchOrFalse(arrayOf("*/*"))) show(NO_FILE_PICKER)
+                    }
+                    ActionRow("Import bank statement", "CSV from net banking, for history SMS missed", Icons.Outlined.Inbox) {
+                        nav.navigate(Routes.STATEMENT_IMPORT)
                     }
                     if (sampleLoaded) {
                         ActionRow("Remove sample data", "Deletes only the demo accounts, transactions and investments", Icons.Outlined.Science, enabled = busy == null) {
@@ -361,6 +391,7 @@ fun MoreScreen(nav: NavController) {
                 confirmErase = false
                 scope.launch {
                     c.demoData.clear()
+                    runCatching { c.attachmentStore.deleteAll() }
                     sampleLoaded = false
                     show("All data erased")
                 }
@@ -405,7 +436,7 @@ private const val NEW_BACKUP_MIN_PASSWORD = 8
 @Composable
 fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.padding(top = 24.dp)) {
-        Text(title.uppercase(), style = KoshText.sectionLabel, color = KoshTheme.colors.subtleText)
+        Text(tr(title).uppercase(), style = KoshText.sectionLabel, color = KoshTheme.colors.subtleText)
         Spacer(Modifier.height(8.dp))
         KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) { content() }
     }

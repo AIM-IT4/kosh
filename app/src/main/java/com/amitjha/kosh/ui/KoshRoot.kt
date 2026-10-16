@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui
 
+import com.amitjha.kosh.designsystem.components.tr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.WindowInsets
@@ -59,7 +60,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -152,8 +155,12 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
         onDispose {}
     }
 
+    val language by remember(container) {
+        container.featurePrefs.settings.map { com.amitjha.kosh.ui.common.AppLanguage.of(it.language) }
+    }.collectAsState(initial = com.amitjha.kosh.ui.common.AppLanguage.ENGLISH)
     KoshTheme(darkTheme = dark) {
         CompositionLocalProvider(
+            com.amitjha.kosh.designsystem.components.LocalTranslator provides remember(language) { language.translator() },
             LocalContainer provides container,
             LocalSettings provides (settings ?: Settings()),
             LocalHideAmounts provides (settings?.hideAmounts ?: false),
@@ -332,6 +339,8 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
             Notifications.ROUTE_BILLS -> Routes.BILLS
             Notifications.ROUTE_INSIGHTS -> Routes.INSIGHTS
             Notifications.ROUTE_INVESTMENTS -> Routes.WEALTH
+            Notifications.ROUTE_WARRANTIES -> Routes.WARRANTIES
+            Notifications.ROUTE_RECURRING -> Routes.RECURRING
             com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_EXPENSE -> Routes.addTxn(TxnType.EXPENSE)
             com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_INCOME -> Routes.addTxn(TxnType.INCOME)
             else -> null
@@ -420,7 +429,7 @@ fun KoshBottomBar(current: String?, onSelect: (String) -> Unit) {
                 ) {
                     Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.height(3.dp))
-                    Text(tab.label, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = tint)
+                    Text(tr(tab.label), fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = tint)
                     Spacer(Modifier.height(3.dp))
                     Box(
                         Modifier
@@ -504,6 +513,34 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.UNCATEGORISED) { com.amitjha.kosh.ui.transactions.UncategorisedScreen(nav) }
         composable(Routes.TAX) { com.amitjha.kosh.ui.tax.TaxScreen(nav) }
         composable(Routes.HOUSEHOLD) { com.amitjha.kosh.ui.household.HouseholdScreen(nav) }
+        composable(Routes.RECURRING) { com.amitjha.kosh.ui.features.RecurringScreen(nav) }
+        composable(
+            Routes.RECURRING_EDIT,
+            arguments = listOf(
+                navArgument("id") { type = NavType.LongType; defaultValue = -1L },
+                navArgument("series") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
+            com.amitjha.kosh.ui.features.RecurringEditScreen(
+                nav,
+                entry.arguments!!.getLong("id").takeIf { it > 0 },
+                entry.arguments!!.getString("series")?.takeIf { it.isNotBlank() },
+            )
+        }
+        composable(Routes.LOANS) { com.amitjha.kosh.ui.features.LoansScreen(nav) }
+        composable(Routes.LOAN_DETAIL, arguments = idArg) { entry -> com.amitjha.kosh.ui.features.LoanDetailScreen(nav, entry.arguments!!.getLong("id")) }
+        composable(Routes.LOAN_EDIT, arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = -1L })) { entry ->
+            com.amitjha.kosh.ui.features.LoanEditScreen(nav, entry.arguments!!.getLong("id").takeIf { it > 0 })
+        }
+        composable(Routes.DEBTS) { com.amitjha.kosh.ui.features.DebtsScreen(nav) }
+        composable(Routes.AUTO_BACKUP) { com.amitjha.kosh.ui.features.AutoBackupScreen(nav) }
+        composable(Routes.STATEMENT_IMPORT) { com.amitjha.kosh.ui.features.StatementImportScreen(nav) }
+        composable(Routes.REPORTS) { com.amitjha.kosh.ui.features.ReportsScreen(nav) }
+        composable(Routes.YEAR_REVIEW, arguments = listOf(navArgument("year") { type = NavType.IntType })) { entry ->
+            com.amitjha.kosh.ui.features.YearReviewScreen(nav, entry.arguments!!.getInt("year"))
+        }
+        composable(Routes.CALENDAR) { com.amitjha.kosh.ui.features.CalendarScreen(nav) }
+        composable(Routes.WARRANTIES) { com.amitjha.kosh.ui.features.WarrantiesScreen(nav) }
     }
 }
 

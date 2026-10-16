@@ -47,6 +47,10 @@ class Notifications(private val context: Context) {
 
     fun maturity(key: Int, title: String, text: String) = post(CH_MATURITY, NOTIF_MATURITY_BASE + key, title, text, ROUTE_INVESTMENTS)
 
+    fun warranty(key: Int, title: String, text: String) = post(CH_MATURITY, NOTIF_WARRANTY_BASE + key, title, text, ROUTE_WARRANTIES)
+
+    fun reminder(key: Int, title: String, text: String) = post(CH_INSIGHTS, NOTIF_REMINDER_BASE + key, title, text, ROUTE_RECURRING)
+
     private fun post(channel: String, id: Int, title: String, text: String, route: String) {
         if (!canNotify()) return
         val intent = Intent(context, MainActivity::class.java)
@@ -93,6 +97,8 @@ class Notifications(private val context: Context) {
         const val ROUTE_BILLS = "bills"
         const val ROUTE_INSIGHTS = "insights"
         const val ROUTE_INVESTMENTS = "investments"
+        const val ROUTE_WARRANTIES = "warranties"
+        const val ROUTE_RECURRING = "recurring"
 
         /** Lock-screen text per channel, with no amounts or merchants. */
         private val PUBLIC_TEXT = mapOf(
@@ -106,5 +112,7 @@ class Notifications(private val context: Context) {
         private const val NOTIF_BILL_BASE = 300_000
         private const val NOTIF_INSIGHT_BASE = 400_000
         private const val NOTIF_MATURITY_BASE = 500_000
+        private const val NOTIF_WARRANTY_BASE = 600_000
+        private const val NOTIF_REMINDER_BASE = 700_000
     }
 }

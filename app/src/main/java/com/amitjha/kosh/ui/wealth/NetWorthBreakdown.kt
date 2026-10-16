@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.wealth
 
+import com.amitjha.kosh.designsystem.components.tr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -94,6 +95,7 @@ fun NetWorthBreakdownContent(
                 Spacer(Modifier.height(12.dp))
                 Formula("Cash & bank", n.liquid, hidden, sign = "")
                 Formula("Card dues", n.cardDebt, hidden, sign = "−")
+                if (n.loans > 0) Formula("Loans", n.loans, hidden, sign = "−")
                 Formula("Investments", n.investments, hidden, sign = "+")
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -119,6 +121,23 @@ fun NetWorthBreakdownContent(
             item(key = "cards") {
                 Group("Card dues", -n.cardDebt, hidden) {
                     cards.forEach { AccountLine(it, hidden, amount = -it.outstanding) { onAccount(it.id) } }
+                }
+            }
+        }
+        if (n.loanItems.isNotEmpty()) {
+            item(key = "loans") {
+                Group("Loans", -n.loans, hidden) {
+                    n.loanItems.forEach { (name, owed) ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            AmountText(-owed, style = AmountStyles.small, hidden = hidden)
+                        }
+                    }
+                    Text(
+                        "What is still owed today, from each loan's EMI schedule and prepayments.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = KoshTheme.colors.subtleText,
+                    )
                 }
             }
         }
@@ -159,7 +178,7 @@ fun NetWorthBreakdownContent(
 @Composable
 private fun Formula(label: String, value: Paise, hidden: Boolean, sign: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(if (sign.isEmpty()) label else "$sign $label", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(if (sign.isEmpty()) tr(label) else "$sign ${tr(label)}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         AmountText(value, style = AmountStyles.small, hidden = hidden)
     }
 }

@@ -13,7 +13,8 @@ internal val IST: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /** Number as written in bank SMS: "1,23,456.70", "500", "120.0". */
 internal const val NUM = "([0-9][0-9,]*(?:\\.[0-9]{1,2})?)"
-internal const val CUR = "(?:rs\\.?|inr|₹)"
+/** Currency marker: "Rs.", "Rs", "Rs:" (Union Bank), "INR", "₹". */
+internal const val CUR = "(?:rs[.:]?|inr|₹)"
 
 internal object Extract {
 
@@ -70,6 +71,8 @@ internal object Extract {
     private val maskedRe = Regex("(?i)(?<![A-Za-z0-9])\\d{0,4}[x*]{1,12}\\s?(\\d{3,4})\\b")
     private val unmaskedRes = listOf(
         Regex("(?i)\\b(?:a/?c|acct)\\s*(?:no\\.?)?\\s*[x*]+\\s?(\\d{3,4})\\b"),
+        // "A/c ...1234" (Bank of Baroda)
+        Regex("(?i)\\b(?:a/?c|acct|account)(?:\\s*no\\.?)?\\s*\\.{2,}\\s?(\\d{3,4})\\b"),
         Regex("(?i)\\bending(?:\\s+(?:with|in))?\\s*(?:no\\.?)?\\s*:?\\s*(\\d{4})\\b"),
         Regex("(?i)\\bcard(?:\\s+no\\.?)?\\s+(\\d{4})\\b"),
         Regex("(?i)\\b(?:a/?c|acct|account)(?:\\s+no\\.?)?\\s+(\\d{4})\\b"),
@@ -88,10 +91,18 @@ internal object Extract {
 
     fun reference(body: String): String? = refRe.find(body)?.groupValues?.get(1)
 
+    /**
+     * Recurring debits the bank runs on its own: UPI AutoPay, e-mandates/NACH/ECS, standing instructions
+     * ("SI executed"), auto-debits and EMIs.
+     */
+    private val autoDebit = Regex(
+        "\\bnach\\b|\\be-?nach\\b|\\bach\\b|\\becs\\b|auto[- ]?debit|auto[- ]?pay|\\bsi\\b|standing instr|\\bemi\\b|mandate|" +
+            "recurring (?:payment|debit|mandate)",
+    )
+
     fun channel(lower: String): TxnChannel = when {
         Regex("\\batm\\b|withdrawn|cash withdrawal").containsMatchIn(lower) -> TxnChannel.ATM
-        Regex("\\bnach\\b|\\bach\\b|\\becs\\b|auto[- ]?debit|autopay|\\bsi\\b|standing instruction|\\bemi\\b|mandate")
-            .containsMatchIn(lower) -> TxnChannel.AUTO_DEBIT
+        autoDebit.containsMatchIn(lower) -> TxnChannel.AUTO_DEBIT
         Regex("\\bneft\\b").containsMatchIn(lower) -> TxnChannel.NEFT
         Regex("\\bimps\\b").containsMatchIn(lower) -> TxnChannel.IMPS
         Regex("\\brtgs\\b").containsMatchIn(lower) -> TxnChannel.RTGS
@@ -110,6 +121,8 @@ internal object Dates {
     private const val TIME = "(?:[:,]?\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?"
 
     private val iso = Regex("(?i)\\b(\\d{4})-(\\d{2})-(\\d{2})$TIME")
+    /** "2026:10:12 14:20:11" (Bank of Baroda). */
+    private val isoColon = Regex("(?i)\\b(\\d{4}):(\\d{2}):(\\d{2})$TIME")
     private val numeric = Regex("(?i)\\b(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{4}|\\d{2})(?![0-9])$TIME")
     private val named = Regex("(?i)\\b(\\d{1,2})[- ]?$MON[-, ]?\\s?(\\d{4}|\\d{2})(?![0-9])$TIME")
 
@@ -118,7 +131,7 @@ internal object Dates {
     /** All dates in [text], in order of appearance. */
     fun findAll(text: String): List<Found> {
         val out = mutableListOf<Found>()
-        iso.findAll(text).forEach { m ->
+        (iso.findAll(text) + isoColon.findAll(text)).forEach { m ->
             build(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt(), m, 4)
                 ?.let { out += Found(it.first, it.second, m.range.first) }
         }

@@ -128,7 +128,7 @@ fun BalanceHeroCard(
     Column(modifier = modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = label,
+                text = tr(label),
                 style = MaterialTheme.typography.bodyMedium,
                 color = KoshTheme.colors.subtleText,
             )

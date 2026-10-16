@@ -67,9 +67,15 @@ data class TaxView(
 )
 
 /** Builds the tax view from Kosh's own data plus the user's overrides. Estimates only. */
-class TaxRepository(private val db: KoshDatabase, private val investments: InvestmentRepository, private val prefs: PlanningPrefs) {
+class TaxRepository(
+    private val db: KoshDatabase,
+    private val investments: InvestmentRepository,
+    private val prefs: PlanningPrefs,
+    private val loans: LoanRepository? = null,
+) {
 
-    fun observe(): Flow<TaxView> = combine(prefs.taxOverrides, db.transactions().observeChanges(), investments.observeItems()) { o, _, _ -> o }
+    fun observe(): Flow<TaxView> =
+        combine(prefs.taxOverrides, db.transactions().observeChanges(), investments.observeItems(), db.loans().observeActive()) { o, _, _, _ -> o }
         .mapLatest { build(it) }
         .flowOn(Dispatchers.Default)
 
@@ -79,7 +85,11 @@ class TaxRepository(private val db: KoshDatabase, private val investments: Inves
         val fy = FinancialYear.containing(today)
         val auto = autoValues(fy, today)
         val hra = Tax.hraExemption(o.basicMonthly * 12, o.hraMonthly * 12, o.rentAnnual ?: auto.rent, o.metro)
-        val sec80C = o.sec80C ?: (auto.epfEmployee + auto.lifeInsuranceAndElss + o.homeLoanPrincipal)
+        // Home-loan figures typed in the planner win; otherwise they come from the loans added in Kosh.
+        val homeLoan = loans?.let { runCatching { it.homeLoanYear(fy.start.year) }.getOrNull() }
+        val homePrincipal = if (o.homeLoanPrincipal > 0) o.homeLoanPrincipal else homeLoan?.principal ?: 0
+        val homeInterest = if (o.homeLoanInterest > 0) o.homeLoanInterest else homeLoan?.interest ?: 0
+        val sec80C = o.sec80C ?: (auto.epfEmployee + auto.lifeInsuranceAndElss + homePrincipal)
         val inputs = Tax.Inputs(
             grossSalary = o.grossSalary ?: auto.grossSalary,
             savingsInterest = o.savingsInterest ?: auto.savingsInterest,
@@ -89,7 +99,7 @@ class TaxRepository(private val db: KoshDatabase, private val investments: Inves
             sec80CCD1B = o.sec80CCD1B ?: auto.npsContribution,
             sec80D = o.sec80D ?: auto.healthInsurance,
             hraExemption = hra,
-            homeLoanInterest = o.homeLoanInterest,
+            homeLoanInterest = homeInterest,
             senior = o.senior,
         )
         val comparison = Tax.compare(inputs)
@@ -106,7 +116,8 @@ class TaxRepository(private val db: KoshDatabase, private val investments: Inves
             DeductionLine(if (o.senior) "80TTB" else "80TTA", if (o.senior) "Interest on deposits" else "Savings account interest",
                 if (o.senior) inputs.savingsInterest + inputs.fdInterest else inputs.savingsInterest, interestCap, auto = o.savingsInterest == null),
             DeductionLine("HRA", "Rent exemption (old regime)", hra, null, auto = o.rentAnnual == null && o.basicMonthly > 0),
-            DeductionLine("24(b)", "Home-loan interest", inputs.homeLoanInterest, Tax.CAP_24B, auto = false),
+            DeductionLine("24(b)", "Home-loan interest", inputs.homeLoanInterest, Tax.CAP_24B,
+                auto = o.homeLoanInterest <= 0 && (homeLoan?.interest ?: 0) > 0),
         )
         val tdsLimit = if (o.senior) 50_000L * 100 else 40_000L * 100
         val tds = if (inputs.fdInterest > tdsLimit) {

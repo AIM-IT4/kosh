@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.wealth
 
+import com.amitjha.kosh.designsystem.components.tr
 import com.amitjha.kosh.designsystem.components.SecondaryButton
 import com.amitjha.kosh.designsystem.components.BalanceHeroCard
 import androidx.compose.ui.draw.clip
@@ -197,7 +198,7 @@ fun WealthContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                             HeroPart("Cash & bank", nw.liquid, hidden)
                             HeroPart("Investments", nw.investments, hidden)
-                            HeroPart("Card dues", nw.cardDebt, hidden)
+                            HeroPart(if (nw.loans > 0) "Dues & loans" else "Card dues", nw.cardDebt + nw.loans, hidden)
                         }
                     }
                 }
@@ -277,7 +278,7 @@ fun WealthContent(
 @Composable
 private fun HeroPart(label: String, value: Long, hidden: Boolean) {
     Column {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+        Text(tr(label), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
         AmountText(value, style = AmountStyles.small, compact = true, hidden = hidden, color = KoshTheme.colors.ink)
     }
 }

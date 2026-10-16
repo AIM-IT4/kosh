@@ -64,6 +64,10 @@ object SavingsRates {
     private fun flat(bank: Bank, pct: Double, asOf: LocalDate, confidence: RateConfidence, source: String) =
         SavingsRateCard(bank, listOf(RateSlab(0, pct)), asOf, confidence, source)
 
+    /** A bank whose rate card hasn't been checked yet: the typical rate, which the app asks the user to confirm. */
+    private fun unverified(bank: Bank) =
+        flat(bank, 2.50, LocalDate.of(2026, 10, 16), RateConfidence.UNVERIFIED, "Not yet verified for ${bank.displayName}; set your account's rate")
+
     val table: Map<Bank, SavingsRateCard> = listOf(
         flat(Bank.HDFC, 2.50, LocalDate.of(2025, 6, 24), RateConfidence.OFFICIAL, "hdfc.bank.in: 2.50% on all balances"),
         flat(Bank.ICICI, 2.50, LocalDate.of(2025, 6, 26), RateConfidence.OFFICIAL, "icici.bank.in: 2.50% on all balances"),
@@ -77,6 +81,9 @@ object SavingsRates {
             RateConfidence.REPORTED,
             "Paisabazaar/Policybazaar: 2.50% up to ₹2L, 5.00% ₹2L–₹50L, 4.00% above ₹50L (DBS: \"up to 5%\")",
         ),
+        // Recognised from SMS since October 2026; their rate cards (often slabbed) still need checking.
+        unverified(Bank.PNB), unverified(Bank.BOB), unverified(Bank.CANARA), unverified(Bank.UNION), unverified(Bank.IDFC),
+        unverified(Bank.INDUSIND), unverified(Bank.YES), unverified(Bank.AU), unverified(Bank.FEDERAL),
         flat(Bank.OTHER, 2.50, LocalDate.of(2026, 10, 1), RateConfidence.UNVERIFIED, "Typical savings rate; set your bank's rate"),
     ).associateBy { it.bank }
 

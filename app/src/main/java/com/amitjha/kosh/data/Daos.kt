@@ -78,7 +78,7 @@ interface TransactionDao {
 
     @Query(
         """SELECT * FROM transactions
-           WHERE (:query = '' OR merchant LIKE '%' || :query || '%' OR note LIKE '%' || :query || '%')
+           WHERE (:query = '' OR merchant LIKE '%' || :query || '%' OR note LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%')
            ORDER BY timestamp DESC LIMIT 500""",
     )
     fun search(query: String): Flow<List<TransactionEntity>>
@@ -262,6 +262,10 @@ interface BudgetDao {
 
     @Upsert
     suspend fun upsert(budget: BudgetEntity)
+
+    /** Inserts or updates; returns the new row id on insert (-1 on update). */
+    @Upsert
+    suspend fun upsertReturning(budget: BudgetEntity): Long
 
     @Delete
     suspend fun delete(budget: BudgetEntity)

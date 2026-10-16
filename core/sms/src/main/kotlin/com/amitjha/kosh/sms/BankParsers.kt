@@ -85,22 +85,26 @@ internal object AxisParser : BankParser {
 internal object GenericParser : BankParser {
     override val bank = Bank.OTHER
     override val merchantPatterns = rx(
-        // "Info: UPI/P2M/412345678901/SWIGGY LIMITED/..." and "UPI/123456789012/Rahul Kumar/..."
-        "upi/p2[ma]/\\d+/([^/\\n]+?)(?=/|\\.\\s|\\s+avl|$)",
+        // "Info: UPI/P2M/412345678901/SWIGGY LIMITED/...", "UPI/DR/412345678901/SWIGGY/YESB/..." and "UPI/123456789012/Rahul Kumar/..."
+        "upi/(?:p2[ma]|dr|cr)/\\d+/([^/\\n]+?)(?=/|\\.\\s|\\s+avl|$)",
         "upi/\\d{6,}/([^/\\n]+?)(?=/|\\.\\s|\\s+avl|$)",
+        // name first: "for UPI/NETFLIX/628512345678" (Federal Bank), "towards UPI/swiggy@icici"
+        "upi/(?!(?:p2[ma]|dr|cr|ref|rrn|txn)/)([a-z][^/\\n]{1,40}?)(?=/|\\.\\s|\\s+avl|$)",
         "(?:paid|payment|sent|transferred)\\s+to\\s+(.+?)(?=\\s+on\\s|\\s+via\\s|\\s+ref|\\s+upi|\\.\\s|\\.$|$)",
         "\\bat\\s+(.+?)(?=\\s+on\\s|\\.\\s|\\.$|\\s+avl|\\s+avbl|\\s+ref|$)",
         "\\bto\\s+vpa\\s+(\\S+)",
         "\\bto\\s+([a-z0-9.\\-_]+@[a-z]+)",
         "\\bfrom\\s+([a-z0-9.\\-_]+@[a-z]+)",
+        // "Credited ... by 9876543210@ybl" (Bank of Baroda)
+        "\\bby\\s+([a-z0-9.\\-_]+@[a-z]+)",
         "linked\\s+to\\s+vpa\\s+([a-z0-9.\\-_]+@[a-z]+)",
         "\\btrf\\s+to\\s+(.+?)(?=\\s+ref|\\.|$)",
         "\\btowards\\s+(.+?)(?=\\.\\s|\\s+avl|$)",
-        "\\bfrom\\s+([a-z][a-z .&']{2,40}?)(?=\\.|\\s+on\\s|\\s+upi|\\s+has\\s|\\s+ref|$)",
-        "\\bto\\s+([a-z][a-z .&']{2,40}?)(?=\\s+on\\s|\\.|\\s+ref|$)",
+        "\\bfrom\\s+([a-z][a-z .&']{2,40}?)(?=\\.|\\s+on\\s|\\s+upi|\\s+has\\s|\\s+ref|\\s+avl|\\s+avbl|$)",
+        "\\bto\\s+([a-z][a-z .&']{2,40}?)(?=\\s+on\\s|\\.|\\s+ref|\\s+avl|$)",
         "info:?\\s*(?:upi|neft|imps|rtgs)?[/\\-]?(.+?)(?=\\.\\s|\\s+avl|$)",
         // last resort: "... for NETFLIX on 05-01-25"
-        "\\bfor\\s+(?!rs\\b|inr\\b|upi\\b|the\\b|your\\b|a\\b)([a-z][a-z0-9 .&'-]{2,40}?)(?=\\s+on\\s|\\.\\s|\\.$|\\s+ref|\\s+via\\s|$)",
+        "\\bfor\\s+(?!rs\\b|inr\\b|upi\\b|the\\b|your\\b|a\\b)([a-z][a-z0-9 .&'-]{2,40}?)(?=\\s+on\\s|\\.\\s|\\.$|\\s+ref|\\s+via\\s|\\s+from\\s|$)",
     )
 
     fun forBank(bank: Bank): BankParser = when (bank) {
@@ -110,15 +114,19 @@ internal object GenericParser : BankParser {
         Bank.DBS -> DbsParser
         Bank.SBI -> SbiParser
         Bank.AXIS -> AxisParser
-        Bank.OTHER -> GenericParser
+        // Identified by sender only; their phrasing is covered by the generic patterns.
+        Bank.PNB, Bank.BOB, Bank.CANARA, Bank.UNION, Bank.IDFC, Bank.INDUSIND, Bank.YES, Bank.AU, Bank.FEDERAL,
+        Bank.OTHER,
+        -> GenericParser
     }
 }
 
-private val notAMerchant = Regex("(?i)\\b(a/?c|acct|account|card|bank|your|you|ur|self|customer|mobile|number)\\b")
+// "block" and "sms": "Fwd this SMS to 9264092640 to block UPI" is fraud-reporting boilerplate, not a payee.
+private val notAMerchant = Regex("(?i)\\b(a/?c|acct|account|card|bank|your|you|ur|self|customer|mobile|number|block|sms)\\b")
 
 /** Runs bank patterns, then generic ones, keeping the first plausible merchant. */
 internal fun extractMerchant(bank: Bank, body: String): String? {
-    val parsers = listOf(GenericParser.forBank(bank)).let { if (bank == Bank.OTHER) it else it + GenericParser }
+    val parsers = listOf(GenericParser.forBank(bank)).let { if (it.single() === GenericParser) it else it + GenericParser }
     for (p in parsers) {
         for (re in p.merchantPatterns) {
             val raw = re.find(body)?.groupValues?.get(1)?.trim() ?: continue

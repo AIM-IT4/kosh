@@ -54,7 +54,7 @@ internal object BillParser {
             minimumDue = min,
             dueDateEpochDay = dueDay,
             statementDateEpochDay = stDay,
-            fingerprint = Fingerprint.bill(bank, last4, total, dueDay, stDay),
+            fingerprint = Fingerprint.bill(bank, body, last4, total, dueDay, stDay),
         )
     }
 }

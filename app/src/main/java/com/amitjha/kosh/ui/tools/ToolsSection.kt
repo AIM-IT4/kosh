@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.tools
 
+import com.amitjha.kosh.ui.common.NO_FILE_PICKER
+import com.amitjha.kosh.ui.common.launchOrFalse
 import android.Manifest
 import android.app.TimePickerDialog
 import android.content.pm.PackageManager
@@ -195,7 +197,11 @@ fun ToolsSection(onMessage: (String) -> Unit) {
                 val name = Exporters.fileName(format, from ?: LocalDate.of(2000, 1, 1), to).let {
                     if (range == ExportRange.ALL) "kosh-all-${LocalDate.now()}.${format.extension}" else it
                 }
-                if (format.mimeType == "text/csv") createCsv.launch(name) else createText.launch(name)
+                val opened = if (format.mimeType == "text/csv") createCsv.launchOrFalse(name) else createText.launchOrFalse(name)
+                if (!opened) {
+                    pendingExport = null
+                    onMessage(NO_FILE_PICKER)
+                }
             },
         )
     }
