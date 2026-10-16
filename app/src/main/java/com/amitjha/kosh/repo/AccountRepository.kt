@@ -129,9 +129,9 @@ class AccountRepository(private val db: KoshDatabase) {
     }
 
     /**
-     * "This is my <account>": moves the pending account's transactions and bills into [targetId], copies the
-     * card/account digits when the target has none, keeps the newer SMS balance report, and deletes the pending
-     * account.
+     * "This is my <account>": moves the pending account's transactions and bills into [targetId], remembers the
+     * pending account's digits on the target (so later messages with them go straight there), keeps the newer SMS
+     * balance report, and deletes the pending account.
      */
     suspend fun mergePending(pendingId: Long, targetId: Long) {
         if (pendingId == targetId) return
@@ -142,14 +142,15 @@ class AccountRepository(private val db: KoshDatabase) {
             txns.moveToAccount(pendingId, targetId)
             db.bills().moveAccount(pendingId, targetId)
             val newerReport = pending.reportedAt != null && pending.reportedAt > (target.reportedAt ?: Long.MIN_VALUE)
-            dao.update(
-                target.copy(
-                    last4 = target.last4 ?: pending.last4,
-                    reportedBalance = if (newerReport) pending.reportedBalance else target.reportedBalance,
-                    reportedAt = if (newerReport) pending.reportedAt else target.reportedAt,
-                    creditLimit = target.creditLimit ?: pending.creditLimit,
-                ),
+            var merged = target.copy(
+                last4 = target.last4 ?: pending.last4,
+                reportedBalance = if (newerReport) pending.reportedBalance else target.reportedBalance,
+                reportedAt = if (newerReport) pending.reportedAt else target.reportedAt,
+                creditLimit = target.creditLimit ?: pending.creditLimit,
             )
+            // Later messages with the pending account's digits (a debit card, another mask) go straight to the target.
+            pending.allDigits.forEach { merged = merged.plusOtherDigits(it) }
+            dao.update(merged)
             dao.delete(pending)
         }
     }

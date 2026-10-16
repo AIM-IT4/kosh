@@ -40,7 +40,21 @@ data class AccountEntity(
     /** How often the bank credits savings interest: QUARTERLY (default) or MONTHLY. */
     @androidx.room.ColumnInfo(defaultValue = "QUARTERLY")
     val interestCreditFrequency: String = "QUARTERLY",
-)
+    /**
+     * Other digits the bank's messages use for this account, comma-separated: a debit card's last four, or the
+     * digits of an account found in SMS that the user merged into this one.
+     */
+    val otherDigits: String? = null,
+) {
+    private val otherDigitList: List<String> get() = otherDigits.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    /** [last4] and [otherDigits]. */
+    val allDigits: List<String> get() = listOfNotNull(last4) + otherDigitList
+
+    /** This account remembering [digits] as another of its numbers (unchanged if it already knows them). */
+    fun plusOtherDigits(digits: String): AccountEntity =
+        if (digits.isBlank() || digits in allDigits) this else copy(otherDigits = (otherDigitList + digits).joinToString(","))
+}
 
 @Entity(tableName = "categories", indices = [Index(value = ["key"], unique = true)])
 data class CategoryEntity(

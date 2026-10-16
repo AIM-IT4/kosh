@@ -54,6 +54,12 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Spends the live SMS receiver missed in the background show up as soon as the app is opened.
+        (application as KoshApp).catchUpSms()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

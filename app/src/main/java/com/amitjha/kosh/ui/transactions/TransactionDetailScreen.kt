@@ -59,6 +59,7 @@ import com.amitjha.kosh.ui.common.color
 import com.amitjha.kosh.ui.common.koshViewModel
 import com.amitjha.kosh.ui.common.label
 import com.amitjha.kosh.ui.nav.Routes
+import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -152,6 +153,12 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
                 })
                 Divider()
                 DetailRow(if (t.toAccountId != null) "From" else "Account", item.account?.label() ?: "—")
+                item.account?.let { acc ->
+                    Divider()
+                    DetailRow("Balance", balanceEffectLabel(com.amitjha.kosh.domain.Balances.effectOf(t, acc)), onClick = {
+                        nav.navigate(Routes.account(acc.id)) { launchSingleTop = true }
+                    })
+                }
                 item.toAccount?.let {
                     Divider()
                     DetailRow("To", it.label())
@@ -180,6 +187,11 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
                     Divider()
                     DetailRow("Moved to my own account?", "Mark as transfer", onClick = { selfTransfer = true }, accent = true)
                 }
+            }
+            item.account?.let { acc ->
+                BalanceEffectNote(com.amitjha.kosh.domain.Balances.effectOf(t, acc), acc.name, onConfirm = vm::markReviewed, onSortOut = {
+                    nav.navigate(Routes.PENDING_ACCOUNTS) { launchSingleTop = true }
+                }, onSetBalance = { nav.navigate(Routes.account(acc.id)) { launchSingleTop = true } })
             }
             if (t.type != com.amitjha.kosh.model.TxnType.TRANSFER) {
                 com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.TXN, t.id)
@@ -248,6 +260,54 @@ fun DetailRow(label: String, value: String, onClick: (() -> Unit)? = null, accen
             color = if (accent) MaterialTheme.colorScheme.primary else valueColor,
             modifier = Modifier.weight(0.6f),
         )
+    }
+}
+
+/** Short answer to "did this change my balance?" for the details card. */
+internal fun balanceEffectLabel(effect: com.amitjha.kosh.domain.BalanceEffect): String = when (effect) {
+    com.amitjha.kosh.domain.BalanceEffect.Moves -> "Updated"
+    com.amitjha.kosh.domain.BalanceEffect.HeldForReview -> "Not yet: held for review"
+    com.amitjha.kosh.domain.BalanceEffect.PendingAccount -> "Not yet: account not confirmed"
+    is com.amitjha.kosh.domain.BalanceEffect.InReportedBalance -> "In the balance your bank reported"
+    is com.amitjha.kosh.domain.BalanceEffect.BeforeEnteredBalance -> "Before the balance you set"
+}
+
+/** Explains why a transaction didn't change its account's balance, with the fix. Nothing when it did. */
+@Composable
+private fun BalanceEffectNote(
+    effect: com.amitjha.kosh.domain.BalanceEffect,
+    accountName: String,
+    onConfirm: () -> Unit,
+    onSortOut: () -> Unit,
+    onSetBalance: () -> Unit,
+) {
+    val (title, body, action) = when (effect) {
+        com.amitjha.kosh.domain.BalanceEffect.HeldForReview -> Triple(
+            "Held for review",
+            "The amount looked unusual for this account, so it isn't in your balance or spending yet.",
+            "Amount is right" to onConfirm,
+        )
+        com.amitjha.kosh.domain.BalanceEffect.PendingAccount -> Triple(
+            "Recorded in an account found in SMS",
+            "Kosh filed this under “$accountName”, which isn't confirmed yet, so no balance you see has changed. " +
+                "If it's one of your accounts (a debit card's number, for example), merge it: this and later messages " +
+                "with these digits will then update that account.",
+            "Sort it out" to onSortOut,
+        )
+        is com.amitjha.kosh.domain.BalanceEffect.BeforeEnteredBalance -> Triple(
+            "Before the balance you set",
+            "This is dated before you set the $accountName balance on ${Fmt.date(Time.toDate(effect.at))}, " +
+                "${Fmt.time(effect.at)}, so Kosh counts it as already included. If the balance looks off, set it again " +
+                "from your bank app.",
+            "Set balance" to onSetBalance,
+        )
+        else -> return
+    }
+    KoshCard(color = KoshTheme.colors.warning.copy(alpha = 0.12f)) {
+        Text(title, fontWeight = FontWeight.SemiBold)
+        Text(body, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = action.second) { Text(action.first) }
     }
 }
 

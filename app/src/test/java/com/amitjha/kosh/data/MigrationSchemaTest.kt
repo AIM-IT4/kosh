@@ -138,4 +138,19 @@ class MigrationSchemaTest {
         assertEquals(expected.map(::norm).toSet(), sql.map(::norm).toSet())
         assertEquals(expected.size, sql.size)
     }
+
+    @Test
+    fun version8AddsOnlyTheOtherDigitsColumnToAccounts() {
+        assertEquals(tables(schema(7)), tables(schema(8)))
+        val v7 = columns(schema(7), "accounts")
+        val v8 = columns(schema(8), "accounts")
+        assertEquals(setOf("otherDigits"), v8.keys - v7.keys)
+        val col = v8.getValue("otherDigits")
+        assertEquals("TEXT", col.getString("affinity"))
+        assertTrue(!col.getBoolean("notNull"))
+        tables(schema(7)).filter { it != "accounts" }.forEach { table ->
+            assertEquals(table, columns(schema(7), table).keys, columns(schema(8), table).keys)
+        }
+    }
 }
+

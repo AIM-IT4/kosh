@@ -1,0 +1,4 @@
+- Balances update after every spend: Kosh now catches up on bank SMS each time you open it, for phones that stop messages reaching apps in the background
+- Debit card spends go to your bank account instead of a new "found in SMS" account, and accounts you merge remember their other card numbers
+- 3-digit and 4-digit masks of the same number (XX123, XX0123) now match one account
+- Each transaction shows whether it changed the balance, and how to fix it when it didn't
