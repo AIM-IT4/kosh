@@ -68,8 +68,15 @@ then turn scanning back on.
   - **NPS:** valued from live NAVs.
   - **Net worth:** tracked over time.
 - **Savings interest:** estimated daily on each account's closing balance, using each bank's verified rate, with tiered slabs (e.g. DBS).
+- **Recurring & subscriptions:** repeating payments found in your spending (subscriptions, EMIs, UPI AutoPay / NACH mandates), what's due in the next 30 days, price-change alerts, and scheduled entries (rent, SIPs) that add themselves on their dates.
+- **Loans & EMIs:** amortisation schedule, what's still owed (counted in net worth), and a prepayment calculator (fewer EMIs or a lower EMI). Home-loan interest and principal flow into the tax view under 24(b) and 80C.
+- **Tags, splits and IOUs:** tag transactions (`#goa-trip`), split one payment across categories, and track money lent to or borrowed from people.
+- **Receipts and warranties:** attach a bill photo or PDF to a transaction, encrypted on the phone, with a reminder before a warranty ends.
+- **Reports:** monthly and yearly PDF reports, a year-in-review, and a calendar of daily spending and upcoming payments.
+- **Bank statement import:** CSV statements from net banking (HDFC, ICICI, SBI, Axis, Kotak and others), skipping rows already imported from SMS.
 - **Planning:**
-  - Monthly budgets that follow your salary cycle, with a pace projection.
+  - **Safe to spend:** what you can spend each day until payday, after card bills and repeating payments due before it.
+  - Monthly budgets that follow your salary cycle, with a pace projection, optional rollover of unspent money, and an envelope (zero-based) mode.
   - Goals with the monthly saving they need, an optional loan at purchase (EMI and total interest), and a **success probability** from a Monte Carlo simulation ("82% chance by Mar 2029"), with the saving needed for 80% confidence.
 - **India tax view:** old vs new regime comparison with the current slabs. Deductions are filled from your data where possible: 80C, 80CCD(1B) NPS, 80D, 80TTA savings interest, HRA and FD interest.
 - **Export:** CSV (opens in Excel), Beancount and Ledger, so your data is never locked in.
@@ -83,6 +90,8 @@ then turn scanning back on.
   - **Decoy PIN:** opens an empty profile, never your real data.
   - **Local-only data:** it stays on the device and is excluded from Google's cloud backup.
   - **Encrypted backups:** AES-256-GCM with a password-derived key (PBKDF2, 600k iterations).
+  - **Automatic backups:** daily or weekly encrypted backups to a folder you pick (a cloud-synced folder keeps a copy off the phone), keeping the newest few.
+- **Languages:** English and Hindi (हिन्दी).
 
 ## Architecture
 

@@ -1,0 +1,8 @@
+- Recurring & subscriptions: upcoming payments, UPI AutoPay mandates, price-change alerts, scheduled entries
+- Loans & EMIs with prepayment calculator; home loan feeds 24(b)/80C
+- Safe-to-spend until payday, budget rollover, envelope mode
+- Tags, split transactions, lent & borrowed
+- Receipts and warranty reminders (encrypted)
+- Automatic backups to a folder you choose
+- Bank statement CSV import, PDF reports, year in review, calendar
+- Hindi option, more banks and merchants

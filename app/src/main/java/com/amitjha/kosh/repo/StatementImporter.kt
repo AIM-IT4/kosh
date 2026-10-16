@@ -77,19 +77,21 @@ class StatementImporter(private val db: KoshDatabase) {
         fun fingerprint(accountId: Long, row: StatementCsv.Row): String =
             "csv:$accountId:${row.date}:${row.type.name}:${row.amount}:${row.description.trim().lowercase().hashCode()}"
 
+        private fun word(vararg w: String) = Regex(w.joinToString("|") { "\\b$it\\b" })
+        private val CHANNELS = listOf(
+            word("UPI") to TxnChannel.UPI,
+            word("NEFT") to TxnChannel.NEFT,
+            word("IMPS") to TxnChannel.IMPS,
+            word("RTGS") to TxnChannel.RTGS,
+            word("ATM", "NWD", "CASH WDL", "ATW") to TxnChannel.ATM,
+            word("ACH", "NACH", "ECS", "SI", "MANDATE", "AUTOPAY") to TxnChannel.AUTO_DEBIT,
+            word("POS", "CARD", "ECOM") to TxnChannel.CARD,
+            word("CHQ", "CHEQUE", "CLG") to TxnChannel.CHEQUE,
+        )
+
         fun channelOf(description: String): TxnChannel {
-            val d = description.uppercase()
-            return when {
-                "UPI" in d -> TxnChannel.UPI
-                "NEFT" in d -> TxnChannel.NEFT
-                "IMPS" in d -> TxnChannel.IMPS
-                "RTGS" in d -> TxnChannel.RTGS
-                "ATM" in d || "CASH WDL" in d || "NWD" in d -> TxnChannel.ATM
-                "ACH" in d || "NACH" in d || "ECS" in d || "SI " in d || "MANDATE" in d -> TxnChannel.AUTO_DEBIT
-                "POS" in d || "CARD" in d -> TxnChannel.CARD
-                "CHQ" in d || "CHEQUE" in d || "CLG" in d -> TxnChannel.CHEQUE
-                else -> TxnChannel.OTHER
-            }
+            val d = description.uppercase().replace('/', ' ').replace('-', ' ')
+            return CHANNELS.firstOrNull { it.first.containsMatchIn(d) }?.second ?: TxnChannel.OTHER
         }
     }
 }
