@@ -41,6 +41,8 @@ the main F-Droid repository. F-Droid builds the app from source and signs it wit
   ```
 
   Builds with JDK 17 and 21 produce the same APK. Native libraries are never stripped (`keepDebugSymbols`), so
-  the NDK on the build machine doesn't matter.
+  the NDK on the build machine doesn't matter. Release builds skip the Gradle build cache (`--no-build-cache`):
+  a cached Kotlin compile can differ from a clean one (Compose stability markers), and F-Droid always builds
+  clean.
 - **Anti-features:** none expected. The standard edition fetches public NPS prices from npsnav.in; the offline
   edition never uses the network.

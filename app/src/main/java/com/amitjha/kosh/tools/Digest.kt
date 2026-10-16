@@ -112,6 +112,8 @@ class DigestWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
     private suspend fun post(prefs: ToolsPrefs) {
         val c = (applicationContext as KoshApp).container
         if (!c.notifications.canNotify()) return
+        // Count today's spends even when the live SMS receiver missed them in the background.
+        com.amitjha.kosh.sms.SmsCatchUp.run(c, alert = true)
         val settings = c.settings.current()
         val today = Time.today()
         val period = Period.containing(today, settings.monthStartDay)

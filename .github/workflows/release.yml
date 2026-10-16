@@ -58,7 +58,9 @@ jobs:
           KOSH_STORE_PASSWORD: ${{ secrets.KOSH_STORE_PASSWORD }}
           KOSH_KEY_PASSWORD: ${{ secrets.KOSH_KEY_PASSWORD }}
         run: |
-          ./gradlew :app:assembleStandardRelease :app:assembleOfflineRelease --console=plain \
+          # No build cache: a cached compile can differ from a clean one, and F-Droid rebuilds from scratch and
+          # only publishes the release APK when its own build is identical.
+          ./gradlew :app:assembleStandardRelease :app:assembleOfflineRelease --console=plain --no-build-cache \
             -PKOSH_STORE_PASSWORD="$KOSH_STORE_PASSWORD" -PKOSH_KEY_PASSWORD="$KOSH_KEY_PASSWORD"
       - name: Check signatures and that the offline edition has no INTERNET permission
         if: env.SKIP != '1'

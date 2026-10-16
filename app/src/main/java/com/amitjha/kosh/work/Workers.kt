@@ -145,8 +145,18 @@ class BillReminderWorker(appContext: Context, params: WorkerParameters) : Corout
     }
 }
 
+/** Hourly: imports bank SMS the live receiver missed, with the usual "spent at" alerts. */
+class SmsCatchUpWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val c = (applicationContext as KoshApp).container
+        com.amitjha.kosh.sms.SmsCatchUp.run(c, alert = true)
+        return Result.success()
+    }
+}
+
 object WorkScheduler {
     private const val DAILY = "kosh-daily-refresh"
+    private const val SMS_CATCH_UP = "kosh-sms-catch-up"
     private const val BILLS = "kosh-bill-reminders"
     private const val SYNC_NOW = "kosh-sync-now"
 
@@ -158,6 +168,11 @@ object WorkScheduler {
             PeriodicWorkRequestBuilder<DailyRefreshWorker>(Duration.ofHours(12))
                 .setInitialDelay(Duration.ofMinutes(15))
                 .build(),
+        )
+        wm.enqueueUniquePeriodicWork(
+            SMS_CATCH_UP,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<SmsCatchUpWorker>(Duration.ofHours(1)).build(),
         )
         wm.enqueueUniquePeriodicWork(
             BILLS,

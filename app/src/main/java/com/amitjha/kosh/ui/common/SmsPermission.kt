@@ -53,7 +53,8 @@ fun rememberSmsPermissionRequest(onGranted: () -> Unit): () -> Unit {
         )
     }
     return {
-        if (context.hasSmsPermission()) grantedCallback()
+        // Reading the inbox needs READ_SMS; the live receiver also needs RECEIVE_SMS, so ask for both.
+        if (context.hasSmsPermission() && com.amitjha.kosh.sms.SmsCatchUp.canReceive(context)) grantedCallback()
         else permissions.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
     }
 }

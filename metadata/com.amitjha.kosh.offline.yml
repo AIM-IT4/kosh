@@ -1,5 +1,5 @@
 Categories:
-  - Money
+  - Finance Manager
 License: GPL-3.0-or-later
 AuthorName: Amit Kumar Jha
 WebSite: https://kosh.runs-on.dev
@@ -16,7 +16,7 @@ Binaries: https://github.com/AIM-IT4/kosh/releases/download/v%v/Kosh-offline.apk
 Builds:
   - versionName: 2.1.6
     versionCode: 19
-    commit: v2.1.6
+    commit: 725647effa2f02e65f61a49bb06e84dc9ec8294f
     subdir: app
     gradle:
       - offline
