@@ -52,12 +52,20 @@ jobs:
           ./gradlew :app:assembleStandardRelease :app:assembleOfflineRelease --console=plain \
             -PKOSH_STORE_PASSWORD="$KOSH_STORE_PASSWORD" -PKOSH_KEY_PASSWORD="$KOSH_KEY_PASSWORD"
       - name: Check signatures and that the offline edition has no INTERNET permission
+        env:
+          # The key installed copies of Kosh are signed with; an APK signed with anything else can't update them.
+          EXPECTED_SIGNER: 02283b8d09a5a1912906e9b5d3abed25ed4445de005f57a79cea0443f0317934
         run: |
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           cp app/build/outputs/apk/standard/release/app-standard-release.apk Kosh.apk
           cp app/build/outputs/apk/offline/release/app-offline-release.apk Kosh-offline.apk
-          "$BUILD_TOOLS/apksigner" verify --print-certs Kosh.apk
-          "$BUILD_TOOLS/apksigner" verify --print-certs Kosh-offline.apk
+          for apk in Kosh.apk Kosh-offline.apk; do
+            signer=$("$BUILD_TOOLS/apksigner" verify --print-certs "$apk" | grep -m1 "SHA-256 digest" | awk '{print $NF}')
+            if [ "$signer" != "$EXPECTED_SIGNER" ]; then
+              echo "$apk is signed with $signer, not the Kosh release key. Check the KOSH_* secrets."; exit 1
+            fi
+          done
+          sha256sum Kosh.apk Kosh-offline.apk > SHA256SUMS
           if "$BUILD_TOOLS/aapt2" dump permissions Kosh-offline.apk | grep -q "android.permission.INTERNET"; then
             echo "Offline edition must not request INTERNET"; exit 1
           fi
@@ -68,12 +76,16 @@ jobs:
           {
             echo "Kosh $VERSION"
             cat "fastlane/metadata/android/en-US/changelogs/$VERSION_CODE.txt" 2>/dev/null
-            echo "Tip: make a backup (More > Backup) before updating."
+            echo
+            echo "Signed with the Kosh release key: installs over earlier versions and keeps your data."
+            echo "Kosh.apk is the standard edition; Kosh-offline.apk has no internet permission. Checksums: SHA256SUMS."
           } > notes.txt
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" Kosh.apk Kosh-offline.apk --clobber
+            # Replaces any files published earlier under this tag and makes it the latest full release.
+            gh release upload "$TAG" Kosh.apk Kosh-offline.apk SHA256SUMS --clobber
+            gh release edit "$TAG" --title "Kosh $VERSION" --notes-file notes.txt --prerelease=false --latest
           else
-            gh release create "$TAG" Kosh.apk Kosh-offline.apk --target "$GITHUB_SHA" --title "Kosh $VERSION" --notes-file notes.txt
+            gh release create "$TAG" Kosh.apk Kosh-offline.apk SHA256SUMS --target "$GITHUB_SHA" --title "Kosh $VERSION" --notes-file notes.txt
           fi
       - name: Remove the keystore
         if: always()
