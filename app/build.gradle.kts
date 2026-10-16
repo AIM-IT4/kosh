@@ -14,8 +14,8 @@ android {
         applicationId = "com.amitjha.kosh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
-        versionName = "2.1.5"
+        versionCode = 19
+        versionName = "2.1.6"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -42,7 +42,6 @@ android {
         create("offline") {
             dimension = "edition"
             applicationId = "com.amitjha.kosh.offline"
-            versionNameSuffix = "-offline"
             buildConfigField("boolean", "NETWORK_ENABLED", "false")
         }
     }
@@ -52,8 +51,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the Kosh key when it is present locally; CI and F-Droid build without it (F-Droid
-            // signs with its own key).
+            // Signed with the Kosh key when it is present locally. F-Droid builds without it and, because the build
+            // is reproducible, publishes the APK from the GitHub release with its Kosh signature.
             if (rootProject.file("keystore/kosh-release.jks").exists()) signingConfig = signingConfigs.getByName("release")
         }
         // Debug builds use the standard debug key, so a debuggable APK can never install over the real app.
@@ -68,7 +67,12 @@ android {
         compose = true
         buildConfig = true
     }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Native libraries are packaged exactly as the libraries ship them. Stripping depends on which NDK the build
+        // machine has, which would make F-Droid's rebuild differ from the release APK (reproducible builds).
+        jniLibs.keepDebugSymbols += "**/*.so"
+    }
 }
 
 ksp {

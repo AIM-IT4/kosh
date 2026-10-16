@@ -1,9 +1,8 @@
-# Draft recipe for the offline edition (no INTERNET permission). Copy to metadata/com.amitjha.kosh.offline.yml in fdroiddata.
 Categories:
   - Money
 License: GPL-3.0-or-later
 AuthorName: Amit Kumar Jha
-AuthorEmail: jha.8@alumni.iitj.ac.in
+WebSite: https://kosh.runs-on.dev
 SourceCode: https://github.com/AIM-IT4/kosh
 IssueTracker: https://github.com/AIM-IT4/kosh/issues
 Changelog: https://github.com/AIM-IT4/kosh/releases
@@ -12,18 +11,19 @@ AutoName: Kosh Offline
 
 RepoType: git
 Repo: https://github.com/AIM-IT4/kosh.git
+Binaries: https://github.com/AIM-IT4/kosh/releases/download/v%v/Kosh-offline.apk
 
 Builds:
-  # First release that contains the standard/offline flavours. Update to the tag you release.
-  - versionName: 2.1.5
-    versionCode: 18
-    commit: v2.1.5
+  - versionName: 2.1.6
+    versionCode: 19
+    commit: v2.1.6
     subdir: app
     gradle:
       - offline
-    # Paparazzi is a test-only plugin; tests are not run during the F-Droid build.
+
+AllowedAPKSigningKeys: 02283b8d09a5a1912906e9b5d3abed25ed4445de005f57a79cea0443f0317934
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 2.1.5
-CurrentVersionCode: 18
+CurrentVersion: 2.1.6
+CurrentVersionCode: 19
