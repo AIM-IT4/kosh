@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -124,6 +126,8 @@ data class HomeState(
     val uncategorised: Int = 0,
     /** What can be spent each day until payday, once bills and repeating payments are set aside. */
     val safeToSpend: com.amitjha.kosh.repo.SafeToSpend.Result? = null,
+    /** What the salary-plan sheet starts from. */
+    val salaryPlan: SalaryPlanInfo = SalaryPlanInfo(),
 ) {
     val isEmpty: Boolean get() = !loading && accounts.isEmpty() && recent.isEmpty()
 }
@@ -175,12 +179,18 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         combine(c.accounts.observeAccounts(), c.bills.observeUnpaid()) { a, b -> a to b },
         c.settings.settings,
         summary,
-        c.budgets.observeStatuses(),
+        combine(c.budgets.observeStatuses(), c.featurePrefs.settings) { b, f -> b to f },
         c.recurring.observeRules(),
-    ) { (accounts, bills), s, sum, budgets, _ -> SafeInputs(accounts, bills, s.monthStartDay, sum, budgets) }
+    ) { (accounts, bills), s, sum, (budgets, f), _ -> SafeInputs(accounts, bills, s.monthStartDay, sum, budgets, f.salary, f.savingsTarget) }
         .mapLatest { inp ->
             runCatching {
                 val today = Time.today()
+                val salaryThisPeriod = inp.summary.incomeByCategory.firstOrNull { it.categoryKey == com.amitjha.kosh.repo.SafeToSpend.SALARY_CATEGORY }?.total ?: 0L
+                val latestSalary = c.db.transactions().since(Time.startOfDay(today.minusDays(45)))
+                    .filter { it.type == TxnType.INCOME && it.categoryKey == com.amitjha.kosh.repo.SafeToSpend.SALARY_CATEGORY && com.amitjha.kosh.domain.SmsMapping.countsInStats(it) }
+                    .maxByOrNull { it.timestamp }?.amount
+                val detected = salaryThisPeriod.takeIf { it > 0 } ?: latestSalary
+                val salary = com.amitjha.kosh.repo.SafeToSpend.salaryFor(inp.salary, salaryThisPeriod, latestSalary)
                 // Usual monthly spending: the average of the last three budget months that had any.
                 val spends = mutableListOf<Long>()
                 var p = Period.containing(today, inp.payDay)
@@ -189,8 +199,11 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
                     c.transactions.summary(p).expense.takeIf { it > 0 }?.let(spends::add)
                 }
                 val usual = spends.takeIf { it.isNotEmpty() }?.let { it.sum() / it.size }
-                com.amitjha.kosh.repo.SafeToSpend.compute(inp.accounts, inp.bills, inp.payDay, c.recurring, inp.budgets, inp.summary, usual, today)
-            }.getOrNull()
+                val result = com.amitjha.kosh.repo.SafeToSpend.compute(
+                    inp.accounts, inp.bills, inp.payDay, c.recurring, inp.budgets, inp.summary, usual, salary, inp.savingsTarget, today,
+                )
+                result to SalaryPlanInfo(inp.salary, detected, inp.savingsTarget, inp.payDay)
+            }.getOrNull() ?: (null to SalaryPlanInfo(inp.salary, null, inp.savingsTarget, inp.payDay))
         }
         .flowOn(Dispatchers.Default)
 
@@ -200,11 +213,19 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         val payDay: Int,
         val summary: MonthSummary,
         val budgets: List<com.amitjha.kosh.repo.BudgetStatus>,
+        val salary: Long?,
+        val savingsTarget: Long?,
     )
+
+    fun saveSalaryPlan(salary: Long?, savingsTarget: Long?, payDay: Int) = viewModelScope.launch {
+        c.featurePrefs.setSalaryPlan(salary, savingsTarget)
+        c.settings.setMonthStartDay(payDay)
+    }
 
     val state: StateFlow<HomeState> = combine(money, lists, charts, uncategorised, safeToSpend) { (nw, trend, s), l, ch, other, safe ->
         HomeState(
-            safeToSpend = safe,
+            safeToSpend = safe.first,
+            salaryPlan = safe.second,
             pendingAccounts = nw.pending.size,
             uncategorised = other,
             charts = ch,
@@ -243,6 +264,16 @@ fun HomeScreen(nav: NavController) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
     var loadingDemo by remember { mutableStateOf(false) }
+    var planSheet by remember { mutableStateOf(false) }
+    if (planSheet) {
+        SalaryPlanSheet(
+            info = state.salaryPlan,
+            onDismiss = { planSheet = false },
+            onSave = { salary, save, day -> vm.saveSalaryPlan(salary, save, day); planSheet = false },
+            onClear = { vm.saveSalaryPlan(null, null, state.salaryPlan.payDay); planSheet = false },
+            onUpcoming = { planSheet = false; nav.navigate(Routes.RECURRING) },
+        )
+    }
     HomeContent(
         state = state,
         hidden = hidden,
@@ -264,7 +295,7 @@ fun HomeScreen(nav: NavController) {
         onNetWorth = { nav.navigate(Routes.NET_WORTH) },
         onPendingAccounts = { nav.navigate(Routes.PENDING_ACCOUNTS) },
         onUncategorised = { nav.navigate(Routes.UNCATEGORISED) },
-        onSafeToSpend = { nav.navigate(Routes.RECURRING) },
+        onSafeToSpend = { planSheet = true },
         householdCard = if (com.amitjha.kosh.ui.household.householdAvailable) {
             { m -> com.amitjha.kosh.ui.household.HouseholdHomeCard(m) { nav.navigate(Routes.HOUSEHOLD) } }
         } else {
@@ -739,52 +770,139 @@ fun TxnRow(t: TransactionItem, hidden: Boolean, modifier: Modifier = Modifier, o
     )
 }
 
+/** Inputs of the salary-plan sheet: what the user entered and what Kosh detected. */
+data class SalaryPlanInfo(
+    val salaryEntered: Long? = null,
+    val salaryDetected: Long? = null,
+    val savingsTarget: Long? = null,
+    val payDay: Int = 1,
+)
+
 @Composable
 private fun SafeToSpendCard(safe: com.amitjha.kosh.repo.SafeToSpend.Result, hidden: Boolean, onClick: () -> Unit) {
     val over = safe.available < 0
+    val money = { p: Long -> if (hidden) "₹ ••••" else com.amitjha.kosh.model.Money.format(p, showPaise = false) }
     KoshCard(onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
-                Text(tr("Safe to spend"), style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
-                Row(verticalAlignment = Alignment.Bottom) {
-                    AmountText(
-                        safe.perDay,
-                        style = AmountStyles.large,
-                        hidden = hidden,
-                        color = if (over) KoshTheme.colors.alert else androidx.compose.ui.graphics.Color.Unspecified,
-                    )
-                    Text(" a day", style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
+                Text(tr(if (over) "Over plan" else "Left to spend"), style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
+                AmountText(
+                    if (over) -safe.available else safe.available,
+                    style = AmountStyles.large,
+                    hidden = hidden,
+                    color = if (over) KoshTheme.colors.alert else androidx.compose.ui.graphics.Color.Unspecified,
+                )
+                if (!over) {
+                    Text("≈ ${money(safe.perDay)} a day", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text("until ${Fmt.date(safe.payday)}", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                Text("until payday", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                Text(Fmt.date(safe.payday), style = MaterialTheme.typography.bodyMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 Text(if (safe.days == 1) "1 day" else "${safe.days} days", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
             }
         }
-        Spacer(Modifier.height(8.dp))
-        val money = { p: Long -> if (hidden) "₹ ••••" else com.amitjha.kosh.model.Money.format(p, showPaise = false) }
-        val base = when (safe.basis) {
+        Spacer(Modifier.height(10.dp))
+        val start = when (safe.basis) {
+            com.amitjha.kosh.repo.SafeToSpend.Basis.SALARY -> "${money(safe.plan)} salary − ${money(safe.savings)} to save"
             com.amitjha.kosh.repo.SafeToSpend.Basis.BUDGET -> "${money(safe.plan)} budget"
             com.amitjha.kosh.repo.SafeToSpend.Basis.INCOME -> "${money(safe.plan)} income this month"
             com.amitjha.kosh.repo.SafeToSpend.Basis.USUAL -> "Your usual ${money(safe.plan)} a month"
         }
         val due = if (safe.upcoming > 0) " − ${money(safe.upcoming)} due before payday" else ""
         Text(
-            when {
-                over && safe.cashLimited -> "Card bills and payments due before payday are ${money(-safe.available)} more than your bank balance."
-                over -> "$base − ${money(safe.spent)} spent$due: ${money(-safe.available)} over already."
-                safe.cashLimited -> "Limited by your bank balance after card bills and payments due before payday."
-                else -> "$base − ${money(safe.spent)} spent$due"
-            },
+            "$start − ${money(safe.spent)} spent since payday$due",
             style = MaterialTheme.typography.bodySmall,
-            color = if (over) KoshTheme.colors.alert else KoshTheme.colors.subtleText,
+            color = KoshTheme.colors.subtleText,
         )
-        if (safe.basis != com.amitjha.kosh.repo.SafeToSpend.Basis.BUDGET) {
+        if (safe.cashLimited) {
             Text(
-                "Set an overall budget in Plan to base this on your own limit.",
+                "Capped by your bank balance after card bills.",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (over) KoshTheme.colors.alert else KoshTheme.colors.subtleText,
+            )
+        }
+        if (safe.basis != com.amitjha.kosh.repo.SafeToSpend.Basis.SALARY) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Set your salary and savings target →",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = KoshTheme.colors.accent,
+            )
+        }
+    }
+}
+
+/** Salary, pay day and monthly savings target behind "Left to spend". */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun SalaryPlanSheet(
+    info: SalaryPlanInfo,
+    onDismiss: () -> Unit,
+    onSave: (salary: Long?, savingsTarget: Long, payDay: Int) -> Unit,
+    onClear: () -> Unit,
+    onUpcoming: () -> Unit,
+) {
+    var salary by remember { mutableStateOf(info.salaryEntered ?: info.salaryDetected) }
+    var save by remember { mutableStateOf(info.savingsTarget) }
+    var payDay by remember { mutableStateOf(info.payDay) }
+    val money = { p: Long -> com.amitjha.kosh.model.Money.format(p, showPaise = false) }
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.padding(horizontal = 20.dp).navigationBarsPadding().verticalScroll(androidx.compose.foundation.rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(tr("Your monthly plan"), style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            Text(
+                "Kosh takes what you want to save off your salary first, then shows what's left to spend until your next payday.",
                 style = MaterialTheme.typography.bodySmall,
                 color = KoshTheme.colors.subtleText,
             )
+            com.amitjha.kosh.ui.common.AmountField("Take-home salary", salary, { salary = it }, allowZero = false)
+            info.salaryDetected?.let {
+                Text("Kosh saw ${money(it)} credited as salary.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+            }
+            com.amitjha.kosh.ui.common.ChoiceField("Salary arrives on", (1..28).toList(), payDay, { "Day $it of the month" }, { payDay = it })
+            com.amitjha.kosh.ui.common.AmountField("Save each month", save, { save = it })
+            val base = salary
+            if (base != null && base > 0) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(10, 20, 30, 40).forEach { pct ->
+                        val amount = base * pct / 100 / 100 * 100 // whole rupees
+                        androidx.compose.material3.FilterChip(
+                            selected = save == amount,
+                            onClick = { save = amount },
+                            label = { Text("$pct%") },
+                        )
+                    }
+                }
+                val s2 = save
+                if (s2 != null) {
+                    Text(
+                        if (s2 > base) "That's more than your salary."
+                        else "That leaves ${money(base - s2)} a month for spending, bills and EMIs.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (s2 > base) KoshTheme.colors.alert else KoshTheme.colors.subtleText,
+                    )
+                }
+            }
+            com.amitjha.kosh.designsystem.components.PrimaryButton(
+                "Save plan",
+                enabled = (salary ?: 0) > 0 && save != null && (save ?: 0) <= (salary ?: 0),
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    // A salary equal to what Kosh detected is left automatic, so a raise is picked up by itself.
+                    val entered = salary?.takeIf { it != info.salaryDetected }
+                    onSave(entered, save ?: 0, payDay)
+                },
+            )
+            Row {
+                androidx.compose.material3.TextButton(onClick = onUpcoming) { Text("See payments due") }
+                Spacer(Modifier.weight(1f))
+                if (info.savingsTarget != null) androidx.compose.material3.TextButton(onClick = onClear) { Text("Clear plan", color = KoshTheme.colors.alert) }
+            }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
