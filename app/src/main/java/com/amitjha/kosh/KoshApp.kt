@@ -27,32 +27,22 @@ class KoshApp : Application() {
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(container.db) }
             runCatching { container.settings.clearLegacyGmail() }
         }
+        // No SMS catch-up here: this also runs when an SMS wakes the app, and a silent catch-up could import that
+        // message before the receiver, which would then skip its alert. Opening the app catches up (MainActivity).
         WorkScheduler.schedule(this)
-        catchUpSms()
         com.amitjha.kosh.tools.WidgetUpdater.start(this)
         appScope.launch { runCatching { com.amitjha.kosh.tools.DigestSchedule.sync(this@KoshApp) } }
     }
 
     private val lastCatchUp = java.util.concurrent.atomic.AtomicLong(0)
 
-    /**
-     * Imports bank messages the live receiver missed. Many phones (battery savers, "autostart" settings) stop
-     * background SMS delivery to apps, so Kosh also catches up whenever it is opened, at most once a minute.
-     * Fingerprints keep messages the receiver already imported from being added twice.
-     */
+    /** Catches up on bank SMS the live receiver missed (see [com.amitjha.kosh.sms.SmsCatchUp]), at most once a minute. */
     fun catchUpSms() {
         val now = System.currentTimeMillis()
         val last = lastCatchUp.get()
         if (now - last < CATCH_UP_EVERY_MILLIS || !lastCatchUp.compareAndSet(last, now)) return
-        appScope.launch {
-            runCatching {
-                val s = container.settings.current()
-                // Before the first scan (onboarding), leave the long first import to the user.
-                if (s.smsAutoImport && s.smsLastScanMillis > 0 && container.smsImporter.hasPermission()) {
-                    container.smsImporter.importInbox()
-                }
-            }
-        }
+        // The user is opening the app, so no "spent at" alerts: the new transactions are on screen.
+        appScope.launch { com.amitjha.kosh.sms.SmsCatchUp.run(container, alert = false) }
     }
 
     private companion object {

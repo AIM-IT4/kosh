@@ -56,6 +56,13 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // With READ_SMS already allowed, Android grants RECEIVE_SMS (same group) without a dialog, which turns on
+        // the live receiver for installs that only ever had inbox access.
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED && !com.amitjha.kosh.sms.SmsCatchUp.canReceive(this)
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECEIVE_SMS), 7_301)
+        }
         // Spends the live SMS receiver missed in the background show up as soon as the app is opened.
         (application as KoshApp).catchUpSms()
     }

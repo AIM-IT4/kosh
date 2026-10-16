@@ -5,8 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import com.amitjha.kosh.KoshApp
-import com.amitjha.kosh.model.Money
-import com.amitjha.kosh.model.TxnType
 import kotlinx.coroutines.launch
 
 /** Imports bank SMS the moment they arrive and posts a "tap to review" notification. */
@@ -37,19 +35,7 @@ class SmsReceiver : BroadcastReceiver() {
                 val settings = container.settings.current()
                 if (!settings.smsAutoImport) return@launch
                 val result = container.smsImporter.importMessages(messages)
-                if (settings.notifyTransactions) {
-                    for (txn in result.insertedTransactions) {
-                        val verb = if (txn.type == TxnType.INCOME) "received" else "spent"
-                        // Privacy mode keeps both the amount and the merchant off the notification shade.
-                        val text = if (settings.hideAmounts) {
-                            "New transaction $verb"
-                        } else {
-                            val where = txn.merchant?.let { if (txn.type == TxnType.INCOME) " from $it" else " at $it" } ?: ""
-                            "${Money.format(txn.amount)} $verb$where"
-                        }
-                        container.notifications.transaction(txn.id, text, "Tap to review and categorise")
-                    }
-                }
+                SmsCatchUp.postAlerts(container, settings, result.insertedTransactions)
             } catch (e: Exception) {
                 // A failed live import is retried by the next inbox scan; never take the app down for it.
             } finally {

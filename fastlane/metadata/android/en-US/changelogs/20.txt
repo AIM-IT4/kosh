@@ -1,0 +1,3 @@
+- The daily digest checks your inbox before adding up the day, so it counts spends even when Android held back bank SMS from Kosh in the background
+- Kosh also catches up on bank SMS every hour in the background, with the usual "spent at" alerts
+- Live SMS import switches itself on for installs that only had inbox access
