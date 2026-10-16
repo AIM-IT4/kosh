@@ -8,6 +8,7 @@ import com.amitjha.kosh.model.Bank
 import com.amitjha.kosh.model.Paise
 import com.amitjha.kosh.model.TxnSource
 import com.amitjha.kosh.model.TxnType
+import com.amitjha.kosh.sms.BANKS_FORMERLY_OTHER
 import com.amitjha.kosh.sms.ParsedCardBill
 import com.amitjha.kosh.sms.ParsedTransaction
 
@@ -21,8 +22,20 @@ object SmsMapping {
      * Finds the account a message belongs to: same bank and kind (card vs account), and the same last 4 digits
      * when both are known. If the message has no digits and the user has exactly one such account, use it;
      * with several, reuse the account already created for digitless messages so only one is ever made.
+     * A bank in [BANKS_FORMERLY_OTHER] with no account of its own falls back to an "Other" account with the
+     * same digits, which is where its messages went before Kosh recognised the bank.
      */
     fun matchAccount(accounts: List<AccountEntity>, bank: Bank, last4: String?, isCard: Boolean): AccountEntity? {
+        matchSameBank(accounts, bank, last4, isCard)?.let { return it }
+        // Banks Kosh used to file under "Other": keep using the Other account that already has these digits,
+        // so an existing user's history and balance don't split into a second account.
+        if (last4 == null || bank !in BANKS_FORMERLY_OTHER) return null
+        val type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK
+        val other = accounts.filter { it.bank == Bank.OTHER.name && it.type == type && it.last4 == last4 }
+        return other.firstOrNull { !it.archived } ?: other.firstOrNull()
+    }
+
+    private fun matchSameBank(accounts: List<AccountEntity>, bank: Bank, last4: String?, isCard: Boolean): AccountEntity? {
         val type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK
         val sameKind = accounts.filter { it.bank == bank.name && it.type == type }
         val candidates = sameKind.filter { !it.archived }

@@ -9,19 +9,25 @@ object MerchantNormalizer {
         "zomato" to "Zomato",
         "blinkit|grofers" to "Blinkit",
         "amazon ?prime|primevideo|prime video" to "Amazon Prime",
+        // sub-brands in other categories than their parent (groceries, subscriptions)
+        "amazon ?fresh" to "Amazon Fresh",
+        "amazon ?music" to "Amazon Music",
         "amazon|amzn" to "Amazon",
+        "flipkart ?minutes" to "Flipkart Minutes",
         "flipkart|fkrt" to "Flipkart",
         "myntra" to "Myntra",
         "nykaa" to "Nykaa",
         "ajio" to "Ajio",
         "meesho" to "Meesho",
-        "uber" to "Uber",
+        // not inside a word ("Neuberg Diagnostics")
+        "\\buber" to "Uber",
         "olacabs|ola ?cabs|\\bola\\b|ani ?technologies" to "Ola",
         "rapido" to "Rapido",
         "bigbasket|bbnow|innovative retail" to "BigBasket",
         "zepto|kiranakart" to "Zepto",
         "dmart|avenue supermarts" to "DMart",
-        "jiomart" to "JioMart",
+        "jio ?mart" to "JioMart",
+        "jio ?saavn" to "JioSaavn",
         "netflix" to "Netflix",
         "spotify" to "Spotify",
         "hotstar|jiocinema|jio ?hotstar" to "JioHotstar",
@@ -66,7 +72,8 @@ object MerchantNormalizer {
     private val prefixes = Regex(
         "(?i)^(vpa|upi|pos|nach[- ]?dr|nach|ach d|ach|ecs|bil|imps|neft|rtgs|p2m|p2a|mmt|ref|info|ind\\*|payu\\*|razp\\*|rzp\\*)[\\s:/\\-*]+",
     )
-    private val legal = Regex("(?i)\\b(pvt|private|ltd|limited|llp|inc|corp|corporation|co|india|ind)\\b\\.?")
+    // "India" is kept when it is part of the name: "Times of India", "Bank of India".
+    private val legal = Regex("(?i)\\b(pvt|private|ltd|limited|llp|inc|corp|corporation|co)\\b\\.?|(?<!\\bof )\\b(india|ind)\\b\\.?")
     private val idToken = Regex("(?i)\\b(?=[a-z0-9]*\\d)[a-z0-9]{6,}\\b")
 
     fun normalize(raw: String): String {

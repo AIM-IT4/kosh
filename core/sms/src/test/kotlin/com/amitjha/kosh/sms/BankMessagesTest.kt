@@ -487,8 +487,9 @@ class OtherBanksTest {
 
     @Test
     fun genericBankFallback() {
+        // RBL Bank isn't modelled individually (Yes Bank, used here before, now is: see MoreBanksTest).
         val t = txn(
-            "AD-YESBNK",
+            "AD-RBLBNK",
             "Rs.2,500.00 debited from your A/c XX9876 on 05-01-2025 for UPI txn to cred.club@axisbank. Avl Bal Rs.12,000.00",
         )
         assertEquals(Bank.OTHER, t.bank)

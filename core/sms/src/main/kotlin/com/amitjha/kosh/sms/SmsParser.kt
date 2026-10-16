@@ -89,12 +89,15 @@ object SmsParser {
             !Regex("\\ba/?c\\b|\\bacct\\b|\\baccount\\b").containsMatchIn(lower) &&
             Regex("\\bspent\\b|\\bused\\b").containsMatchIn(lower)
 
-    /** EXPENSE or INCOME, decided by whichever verb appears first ("debited ...; Zomato credited" is a debit). */
+    /**
+     * EXPENSE or INCOME, decided by whichever verb appears first ("debited ...; Zomato credited" is a debit).
+     * Without either, an executed AutoPay / mandate / standing instruction ("SI executed: INR 5,000 ...") is a debit.
+     */
     private fun transactionType(lower: String): TxnType? {
         val d = debitWords.find(lower)?.range?.first
         val c = creditWords.find(lower)?.range?.first
         return when {
-            d == null && c == null -> null
+            d == null && c == null -> if (Filters.isExecutedAutoDebit(lower)) TxnType.EXPENSE else null
             c == null -> TxnType.EXPENSE
             d == null -> TxnType.INCOME
             d < c -> TxnType.EXPENSE
@@ -146,18 +149,20 @@ object SmsParser {
 
 internal object Fingerprint {
     fun transaction(bank: Bank, last4: String?, amount: Paise, type: TxnType, ref: String?, msg: SmsMessage): String {
+        val b = BankDetector.fingerprintBank(bank, msg.body.replace(Regex("\\s+"), " "))
         val key = if (ref != null) {
-            "T|$bank|${last4.orEmpty()}|$amount|$type|$ref"
+            "T|$b|${last4.orEmpty()}|$amount|$type|$ref"
         } else {
             val minute = msg.timestampMillis / 60_000
             val normalized = msg.body.lowercase().replace(Regex("\\s+"), " ").trim()
-            "T|$bank|${last4.orEmpty()}|$amount|$type|$minute|${normalized.hashCode()}"
+            "T|$b|${last4.orEmpty()}|$amount|$type|$minute|${normalized.hashCode()}"
         }
         return sha(key)
     }
 
-    fun bill(bank: Bank, last4: String?, total: Paise, due: Long?, statement: Long?): String =
-        sha("B|$bank|${last4.orEmpty()}|$total|${due ?: statement ?: 0}")
+    /** [body] is the (whitespace-normalised) message, used only to keep fingerprints of [BANKS_FORMERLY_OTHER] stable. */
+    fun bill(bank: Bank, body: String, last4: String?, total: Paise, due: Long?, statement: Long?): String =
+        sha("B|${BankDetector.fingerprintBank(bank, body)}|${last4.orEmpty()}|$total|${due ?: statement ?: 0}")
 
     private fun sha(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).take(12).joinToString("") { "%02x".format(it) }

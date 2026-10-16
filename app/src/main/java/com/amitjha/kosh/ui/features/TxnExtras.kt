@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.features
 
+import com.amitjha.kosh.ui.common.NO_FILE_PICKER
+import com.amitjha.kosh.ui.common.launchOrFalse
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -250,7 +252,7 @@ private fun ReceiptsCard(t: TransactionEntity) {
     KoshCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionHeader("Receipts & warranty", Modifier.weight(1f))
-            TextButton(onClick = { pick.launch(arrayOf("image/*", "application/pdf")) }) { Text("Add") }
+            TextButton(onClick = { if (!pick.launchOrFalse(arrayOf("image/*", "application/pdf"))) error = NO_FILE_PICKER }) { Text("Add") }
         }
         if (files.isEmpty()) {
             Text("Keep the bill or warranty card with the payment. Files are encrypted and stay on this phone.",
@@ -272,7 +274,8 @@ private fun ReceiptsCard(t: TransactionEntity) {
                 if (a.mimeType != AttachmentStore.PDF) TextButton(onClick = { viewing = a }) { Text("View") }
                 TextButton(onClick = {
                     saving = a
-                    if (a.mimeType == AttachmentStore.PDF) savePdf.launch("receipt.pdf") else savePhoto.launch("receipt.jpg")
+                    val ok = if (a.mimeType == AttachmentStore.PDF) savePdf.launchOrFalse("receipt.pdf") else savePhoto.launchOrFalse("receipt.jpg")
+                    if (!ok) { saving = null; error = NO_FILE_PICKER }
                 }) { Text("Save") }
                 IconButton(onClick = { scope.launch { c.attachments.delete(a) } }) { Icon(Icons.Outlined.Delete, "Delete") }
             }

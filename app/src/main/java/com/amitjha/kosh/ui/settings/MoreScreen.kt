@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.settings
 
+import com.amitjha.kosh.ui.common.NO_FILE_PICKER
+import com.amitjha.kosh.ui.common.launchOrFalse
 import com.amitjha.kosh.designsystem.components.tr
 import com.amitjha.kosh.designsystem.theme.KoshText
 import android.Manifest
@@ -317,11 +319,11 @@ fun MoreScreen(nav: NavController) {
             item(key = "data") {
                 Section("Your data") {
                     ActionRow("Back up", "Encrypted file protected by a password", Icons.Outlined.Backup, enabled = busy == null) {
-                        createBackup.launch("kosh-backup-${LocalDate.now()}.kosh")
+                        if (!createBackup.launchOrFalse("kosh-backup-${LocalDate.now()}.kosh")) show(NO_FILE_PICKER)
                     }
                     ActionRow("Automatic backups", "Daily or weekly, to a folder you choose", Icons.Outlined.Sync) { nav.navigate(Routes.AUTO_BACKUP) }
                     ActionRow("Restore from backup", "Replaces everything on this phone", Icons.Outlined.Restore, enabled = busy == null) {
-                        openBackup.launch(arrayOf("*/*"))
+                        if (!openBackup.launchOrFalse(arrayOf("*/*"))) show(NO_FILE_PICKER)
                     }
                     ActionRow("Import bank statement", "CSV from net banking, for history SMS missed", Icons.Outlined.Inbox) {
                         nav.navigate(Routes.STATEMENT_IMPORT)

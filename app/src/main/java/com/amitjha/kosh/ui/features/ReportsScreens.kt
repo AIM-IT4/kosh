@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.features
 
+import com.amitjha.kosh.ui.common.NO_FILE_PICKER
+import com.amitjha.kosh.ui.common.launchOrFalse
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -112,7 +114,10 @@ fun ReportsScreen(nav: NavController) {
             busy = false
             r.onSuccess {
                 pending = it
-                save.launch(name)
+                if (!save.launchOrFalse(name)) {
+                    pending = null
+                    snackbar.showSnackbar(NO_FILE_PICKER)
+                }
             }.onFailure { snackbar.showSnackbar("Couldn't build the report: ${it.message}") }
         }
     }

@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.features
 
+import com.amitjha.kosh.ui.common.NO_FILE_PICKER
+import com.amitjha.kosh.ui.common.launchOrFalse
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -106,7 +108,7 @@ fun AutoBackupScreen(nav: NavController) {
                         "Backup folder",
                         a.folderUri?.let { folderName(it) } ?: "Not chosen",
                         Icons.Outlined.Folder,
-                    ) { pickFolder.launch(null) }
+                    ) { if (!pickFolder.launchOrFalse(null)) scope.launch { snackbar.showSnackbar(NO_FILE_PICKER) } }
                     ActionRow(
                         "Backup password",
                         if (hasPassword) "Set · kept encrypted on this phone" else "Not set",
@@ -264,7 +266,8 @@ fun StatementImportScreen(nav: NavController) {
             }
             item {
                 PrimaryButton(fileName ?: "Choose CSV file", icon = Icons.Outlined.UploadFile, modifier = Modifier.fillMaxWidth(), onClick = {
-                    pick.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/csv", "application/vnd.ms-excel", "*/*"))
+                    val types = arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/csv", "application/vnd.ms-excel", "*/*")
+                    if (!pick.launchOrFalse(types)) scope.launch { snackbar.showSnackbar(NO_FILE_PICKER) }
                 })
             }
             val p = preview

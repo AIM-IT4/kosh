@@ -33,9 +33,13 @@ Kosh categorises imported transactions using an open, community-maintained datas
 ## Contributing a merchant
 
 1. Find the right category's rule and add the brand to `brands`. Keep patterns specific; a too-broad pattern
-   (like `"pay"`) will mis-categorise many payments.
+   (like `"pay"`) will mis-categorise many payments. Brands are also matched against the whole SMS, so avoid
+   words that appear in bank names or alert boilerplate (`"pnb"`, `"federal"`, `"block"`), and common first
+   names or surnames.
 2. If a brand name contains another brand (`"amazon prime"` vs `"amazon"`), make sure the more specific one
-   is in a rule that comes first.
+   is in a rule that comes first. Merchant names are normalised before matching (`AMAZON FRESH` would become
+   `Amazon`), so a sub-brand in a different category also needs an entry in `MerchantNormalizer.kt`, as
+   `Amazon Fresh` has.
 3. Run `./gradlew :core:sms:test`. `MerchantDatasetTest` checks valid categories, compiling patterns and no
    duplicate brands; `CategoryCorpusTest` checks 100 real-world style examples still land correctly.
 

@@ -8,7 +8,7 @@ import com.amitjha.kosh.model.TxnType
  *
  * Order of evidence, strongest first:
  * 1. channel / message hints that decide on their own (ATM → cash, card bill payments → transfer);
- * 2. a dictionary of 300+ Indian merchants, matched on the merchant name;
+ * 2. a dictionary of 1,000+ Indian merchant patterns (kosh/merchants.json), matched on the merchant name;
  * 3. generic business words in the merchant name ("Sharma Medical Stores" → health);
  * 4. the same merchant dictionary and a few strong phrases in the message body;
  * 5. person-to-person heuristics (UPI to a person, IMPS/NEFT to a name) → people;
@@ -55,7 +55,7 @@ object CategoryGuesser {
             "investment",
             "\\bsip\\b|mutual ?fund|zerodha|groww|nextbillion|upstox|rksv|kuvera|coin ?by|indmoney|et ?money|smallcase|paytm ?money" +
                 "|angel ?(one|broking)|5 ?paisa|icici ?direct|icici ?securities|hdfc ?securities|kotak ?securities|motilal|sharekhan" +
-                "|dhan\\b|fyers|\\bnps\\b|nps ?trust|\\bppf\\b|bse ?ltd|bse ?star|nse ?clearing|nsccl|iccl|indian ?clearing|\\bcams\\b" +
+                "|\\bdhan\\b|fyers|\\bnps\\b|nps ?trust|\\bppf\\b|bse ?ltd|bse ?star|nse ?clearing|nsccl|iccl|indian ?clearing|\\bcams\\b" +
                 "|kfin|karvy|mf ?utilit|sgb\\b|gold ?bond|digital ?gold|safegold|augmont|jar ?app|wint ?wealth|grip ?invest|golden ?pi",
             "securities|broking|capital ?markets|wealth",
         ),

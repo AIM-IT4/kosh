@@ -45,6 +45,10 @@ val Bank.color: Color get() = Color(brandColor)
 fun BankBadge(bank: Bank, modifier: Modifier = Modifier, size: Dp = 36.dp) {
     val initials = when (bank) {
         Bank.OTHER -> "₹"
+        // long names whose first two letters would read as "ID", "IN", "UN"
+        Bank.IDFC -> "IDFC"
+        Bank.INDUSIND -> "IIB"
+        Bank.UNION -> "UBI"
         else -> bank.shortName.take(if (bank.shortName.length <= 4) bank.shortName.length else 2).uppercase()
     }
     Box(

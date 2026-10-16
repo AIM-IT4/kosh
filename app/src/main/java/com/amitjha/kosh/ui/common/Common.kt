@@ -129,3 +129,16 @@ fun Long.toRupeeInput(): String {
     val p = this % 100
     return if (p == 0L) r.toString() else "$r.${p.toString().padStart(2, '0')}"
 }
+
+/** Shown when the phone has no app for Android's file picker (usually a disabled "Files" system app). */
+const val NO_FILE_PICKER =
+    "This phone's file picker is turned off. Turn on the \"Files\" app in Settings → Apps (show system apps), then try again."
+
+/** Launches a system screen such as the file picker; returns false instead of crashing when no app can open it. */
+fun <I> androidx.activity.result.ActivityResultLauncher<I>.launchOrFalse(input: I): Boolean =
+    try {
+        launch(input)
+        true
+    } catch (_: android.content.ActivityNotFoundException) {
+        false
+    }

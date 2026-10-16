@@ -61,6 +61,24 @@ class SmsMappingTest {
     }
 
     @Test
+    fun bankFormerlyFiledUnderOtherKeepsUsingTheOtherAccountWithItsDigits() {
+        // Before Yes Bank was recognised its messages created "Other" accounts; the user may have renamed one.
+        val other = AccountEntity(id = 4, name = "Yes Savings", type = AccountType.BANK, bank = "OTHER", last4 = "1234")
+        assertSame(other, SmsMapping.matchAccount(listOf(other), Bank.YES, "1234", isCard = false))
+        // Only the same digits and kind, and only for those banks.
+        assertNull(SmsMapping.matchAccount(listOf(other), Bank.YES, "9999", isCard = false))
+        assertNull(SmsMapping.matchAccount(listOf(other), Bank.YES, "1234", isCard = true))
+        assertNull(SmsMapping.matchAccount(listOf(other), Bank.YES, null, isCard = false))
+        assertNull(SmsMapping.matchAccount(listOf(other), Bank.HDFC, "1234", isCard = false))
+        // An account of the bank itself wins, and a live Other account wins over an ignored one.
+        val yes = other.copy(id = 5, bank = "YES")
+        assertSame(yes, SmsMapping.matchAccount(listOf(other, yes), Bank.YES, "1234", isCard = false))
+        val ignored = other.copy(id = 6, archived = true)
+        assertSame(other, SmsMapping.matchAccount(listOf(ignored, other), Bank.YES, "1234", isCard = false))
+        assertSame(ignored, SmsMapping.matchAccount(listOf(ignored), Bank.YES, "1234", isCard = false))
+    }
+
+    @Test
     fun newAccountNaming() {
         val card = SmsMapping.newAccountFor(Bank.KOTAK, "1234", isCard = true, now = 0)
         assertEquals("Kotak Card ••1234", card.name)
