@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.settings
 
+import com.amitjha.kosh.designsystem.components.tr
 import com.amitjha.kosh.designsystem.theme.KoshText
 import android.Manifest
 import android.content.Context
@@ -215,6 +216,13 @@ fun MoreScreen(nav: NavController) {
                         onSelect = { scope.launch { c.settings.setThemeMode(ThemeMode.entries[it]) } },
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
+                    val lang = c.featurePrefs.settings.collectAsState(initial = null).value?.language
+                    SegmentedTabs(
+                        com.amitjha.kosh.ui.common.AppLanguage.entries.map { it.title },
+                        com.amitjha.kosh.ui.common.AppLanguage.entries.indexOf(com.amitjha.kosh.ui.common.AppLanguage.of(lang)),
+                        onSelect = { i -> scope.launch { c.featurePrefs.setLanguage(com.amitjha.kosh.ui.common.AppLanguage.entries[i].code) } },
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                     SwitchRow("Hide amounts", "Show ₹ •••• until you tap the eye", s.hideAmounts, { v -> scope.launch { c.settings.setHideAmounts(v) } },
                         Icons.Outlined.VisibilityOff)
                     val canLock = remember { BiometricGate.isAvailable(context) }
@@ -426,7 +434,7 @@ private const val NEW_BACKUP_MIN_PASSWORD = 8
 @Composable
 fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.padding(top = 24.dp)) {
-        Text(title.uppercase(), style = KoshText.sectionLabel, color = KoshTheme.colors.subtleText)
+        Text(tr(title).uppercase(), style = KoshText.sectionLabel, color = KoshTheme.colors.subtleText)
         Spacer(Modifier.height(8.dp))
         KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) { content() }
     }

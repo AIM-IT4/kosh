@@ -51,6 +51,8 @@ data class FeatureSettings(
     val hiddenRecurring: Set<String> = emptySet(),
     /** Budget id → epoch day of the first period that rolls over (when rollover was turned on). */
     val rolloverSince: Map<Long, Long> = emptyMap(),
+    /** UI language code ("en" or "hi"). */
+    val language: String = "en",
 )
 
 /** The real profile's preferences or, for the decoy profile, its own separate ones. */
@@ -72,6 +74,7 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
         val hiddenRecurring = stringSetPreferencesKey("hidden_recurring")
         val notifiedWarranties = stringSetPreferencesKey("notified_warranties")
         val rolloverSince = stringSetPreferencesKey("rollover_since")
+        val language = stringPreferencesKey("app_language")
     }
 
     val settings: Flow<FeatureSettings> = store.data.catch { emit(emptyPreferences()) }.map { p ->
@@ -91,6 +94,7 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
                 val (id, day) = e.split(':').takeIf { it.size == 2 } ?: return@mapNotNull null
                 (id.toLongOrNull() ?: return@mapNotNull null) to (day.toLongOrNull() ?: return@mapNotNull null)
             }.toMap(),
+            language = p[Keys.language] ?: "en",
         )
     }
 
@@ -114,6 +118,8 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
     }
 
     suspend fun setEnvelopeMode(on: Boolean) = edit { it[Keys.envelope] = on }
+
+    suspend fun setLanguage(code: String) = edit { it[Keys.language] = code }
 
     /** Records (or clears) the first rolling-over period of budget [budgetId]. */
     suspend fun setRolloverSince(budgetId: Long, epochDay: Long?) = edit {

@@ -120,7 +120,7 @@ fun SegmentedTabs(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        label,
+                        tr(label),
                         style = MaterialTheme.typography.labelMedium,
                         color = if (selected) KoshTheme.colors.ink else KoshTheme.colors.subtleText,
                         maxLines = 1,
@@ -225,10 +225,10 @@ fun EmptyState(
             Icon(icon, contentDescription = null, tint = KoshTheme.colors.subtleText, modifier = Modifier.size(26.dp))
         }
         Spacer(Modifier.height(20.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+        Text(tr(title), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
-            message,
+            tr(message),
             style = MaterialTheme.typography.bodyMedium,
             color = KoshTheme.colors.subtleText,
             textAlign = TextAlign.Center,
@@ -306,9 +306,9 @@ fun KoshTopBar(
             Spacer(Modifier.width(12.dp))
         }
         Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(tr(title), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle != null) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText, maxLines = 1)
+                Text(tr(subtitle), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText, maxLines = 1)
             }
         }
         actions()
@@ -333,7 +333,7 @@ fun StatChip(
         modifier = modifier,
     ) {
         Text(
-            label,
+            tr(label),
             style = MaterialTheme.typography.bodySmall,
             color = if (onDark) Color.White.copy(alpha = 0.7f) else KoshTheme.colors.subtleText,
             maxLines = 1,
@@ -370,14 +370,14 @@ fun SectionHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            title.uppercase(),
+            tr(title).uppercase(),
             style = KoshText.sectionLabel,
             color = KoshTheme.colors.subtleText,
             modifier = Modifier.weight(1f),
         )
         if (actionLabel != null && onAction != null) {
             Text(
-                actionLabel,
+                tr(actionLabel),
                 style = MaterialTheme.typography.labelMedium,
                 color = KoshTheme.colors.accent,
                 modifier = Modifier
@@ -416,7 +416,7 @@ fun PrimaryButton(
             Spacer(Modifier.width(8.dp))
         }
         Text(
-            text,
+            tr(text),
             style = MaterialTheme.typography.labelLarge,
             color = if (enabled) KoshTheme.colors.onInk else KoshTheme.colors.tertiaryText,
         )
@@ -450,7 +450,7 @@ fun SecondaryButton(
             Spacer(Modifier.width(8.dp))
         }
         Text(
-            text,
+            tr(text),
             style = MaterialTheme.typography.labelLarge,
             color = if (enabled) KoshTheme.colors.ink else KoshTheme.colors.tertiaryText,
         )

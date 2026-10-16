@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.home
 
+import com.amitjha.kosh.designsystem.components.tr
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material.icons.outlined.AccountBalance
@@ -593,7 +594,7 @@ fun HomeContent(
 @Composable
 private fun MiniFigure(label: String, value: Long, hidden: Boolean) {
     Column {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+        Text(tr(label), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
         AmountText(value, style = AmountStyles.small, compact = true, hidden = hidden, color = KoshTheme.colors.ink)
     }
 }
@@ -724,7 +725,7 @@ private fun SafeToSpendCard(safe: com.amitjha.kosh.finance.BudgetMath.SafeToSpen
     KoshCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Safe to spend", style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
+                Text(tr("Safe to spend"), style = MaterialTheme.typography.bodyMedium, color = KoshTheme.colors.subtleText)
                 Row(verticalAlignment = Alignment.Bottom) {
                     AmountText(
                         safe.perDay,

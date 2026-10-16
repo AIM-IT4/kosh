@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.wealth
 
+import com.amitjha.kosh.designsystem.components.tr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -177,7 +178,7 @@ fun NetWorthBreakdownContent(
 @Composable
 private fun Formula(label: String, value: Paise, hidden: Boolean, sign: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(if (sign.isEmpty()) label else "$sign $label", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(if (sign.isEmpty()) tr(label) else "$sign ${tr(label)}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         AmountText(value, style = AmountStyles.small, hidden = hidden)
     }
 }

@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui
 
+import com.amitjha.kosh.designsystem.components.tr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.WindowInsets
@@ -59,7 +60,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -152,8 +155,12 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
         onDispose {}
     }
 
+    val language by remember(container) {
+        container.featurePrefs.settings.map { com.amitjha.kosh.ui.common.AppLanguage.of(it.language) }
+    }.collectAsState(initial = com.amitjha.kosh.ui.common.AppLanguage.ENGLISH)
     KoshTheme(darkTheme = dark) {
         CompositionLocalProvider(
+            com.amitjha.kosh.designsystem.components.LocalTranslator provides remember(language) { language.translator() },
             LocalContainer provides container,
             LocalSettings provides (settings ?: Settings()),
             LocalHideAmounts provides (settings?.hideAmounts ?: false),
@@ -422,7 +429,7 @@ fun KoshBottomBar(current: String?, onSelect: (String) -> Unit) {
                 ) {
                     Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.height(3.dp))
-                    Text(tab.label, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = tint)
+                    Text(tr(tab.label), fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = tint)
                     Spacer(Modifier.height(3.dp))
                     Box(
                         Modifier

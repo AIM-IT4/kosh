@@ -99,7 +99,7 @@ fun DebtsScreen(nav: NavController) {
             if (list.isEmpty()) {
                 item { EmptyState("Nothing owed", "Keep track of money you lend to friends or borrow from family, and record repayments as they come.") }
             }
-            if (open.isNotEmpty()) item { SectionHeader("Open") }
+            if (open.isNotEmpty()) item { SectionHeader("Still open") }
             items(open, key = { it.id }) { d -> DebtCard(d, hidden, today, onClick = { editing = d }, onRepay = { repaying = d }) }
             val closed = list.filter { it.closed }
             if (closed.isNotEmpty()) item { SectionHeader("Settled") }
