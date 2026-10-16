@@ -15,6 +15,17 @@ and anyone can read the code to check that your SMS and finances never leave the
 Kosh (Sanskrit: *treasury*) tracks income, expenses, credit cards, bills and investments. It reads bank
 SMS automatically, and turns your data into insights, all on the phone.
 
+## Download
+
+**[Download Kosh for Android](https://github.com/AIM-IT4/kosh-site/releases/latest/download/Kosh.apk)**:
+the standard edition, Android 8.0+.
+[Kosh-offline.apk](https://github.com/AIM-IT4/kosh-site/releases/latest/download/Kosh-offline.apk) has no
+internet permission at all. Website: [aim-it4.github.io/kosh-site](https://aim-it4.github.io/kosh-site/).
+
+Kosh isn't on the Play Store, so Android may ask you to allow the install. If Play Protect blocks it
+(it flags every app that reads SMS), pause scanning in **Play Store → Play Protect → ⚙**, install,
+then turn scanning back on.
+
 <p align="center"><img src="docs/screenshots/hero.png" alt="Kosh app screens" width="100%"></p>
 
 ## Screens
@@ -56,12 +67,20 @@ SMS automatically, and turns your data into insights, all on the phone.
   - **EPF:** monthly contributions plus EPFO-style interest.
   - **NPS:** valued from live NAVs.
   - **Net worth:** tracked over time.
-- **Planning:** monthly budgets with pace projection, and goals with the monthly saving they need.
+- **Savings interest:** estimated daily on each account's closing balance, using each bank's verified rate, with tiered slabs (e.g. DBS).
+- **Planning:**
+  - Monthly budgets that follow your salary cycle, with a pace projection.
+  - Goals with the monthly saving they need, an optional loan at purchase (EMI and total interest), and a **success probability** from a Monte Carlo simulation ("82% chance by Mar 2029"), with the saving needed for 80% confidence.
+- **India tax view:** old vs new regime comparison with the current slabs. Deductions are filled from your data where possible: 80C, 80CCD(1B) NPS, 80D, 80TTA savings interest, HRA and FD interest.
+- **Export:** CSV (opens in Excel), Beancount and Ledger, so your data is never locked in.
+- **Everyday tools:** home-screen widgets (this month, quick add), a quick-add tile in Quick Settings, and an optional daily digest notification.
+- **Household sync (beta):** pair two phones with a QR code and share household transactions, budgets and goals over the same Wi-Fi, end-to-end encrypted, with no cloud. See [docs/SYNC_PROTOCOL.md](docs/SYNC_PROTOCOL.md).
 - **Insights:** 17 offline rules, including budget pace, spending spikes, savings rate, subscriptions, card utilisation, emergency-fund cover, FD maturity and unusual spends.
 - **Privacy and security:**
   - **Encrypted database:** SQLCipher (AES-256), with the key kept in the Android Keystore.
   - **Offline edition:** a build with no INTERNET permission at all, so Android itself guarantees nothing can be sent.
   - **Biometric lock, privacy mode and screenshot blocking.**
+  - **Decoy PIN:** opens an empty profile, never your real data.
   - **Local-only data:** it stays on the device and is excluded from Google's cloud backup.
   - **Encrypted backups:** AES-256-GCM with a password-derived key (PBKDF2, 600k iterations).
 
