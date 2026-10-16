@@ -2,25 +2,34 @@
 
 <p><b>Automatic tracking</b></p>
 <ul>
-<li>Imports transactions from bank SMS (ICICI, HDFC, Kotak and DBS in detail, plus a generic parser for other banks), as they arrive and from your inbox history.</li>
-<li>Smart categories from an open dataset of Indian merchants; it learns from every correction.</li>
-<li>Transfers between your own accounts are recognised and never counted as spending.</li>
+<li>Imports transactions from bank SMS as they arrive and from your inbox history: SBI, HDFC, ICICI, Axis, Kotak, PNB, Bank of Baroda, Canara, Union, IDFC FIRST, IndusInd, Yes, AU, Federal and DBS, plus a generic parser for other banks.</li>
+<li>Smart categories from an open dataset of over 1,000 Indian merchants; it learns from every correction.</li>
+<li>Transfers between your own accounts are recognised and never counted as spending. Income means what you earn; refunds and cashback come off spending.</li>
 <li>Credit cards: outstanding, utilisation and statement bills from SMS, with due-date reminders.</li>
+<li>Import bank statements (CSV), split transactions, tags, receipts and warranties.</li>
 </ul>
 
-<p><b>Wealth and planning</b></p>
+<p><b>Planning</b></p>
 <ul>
-<li>FD, EPF and NPS values update automatically; savings interest is estimated daily at your bank's rate.</li>
+<li>Left to spend until payday: your salary minus your savings target, what you've spent and what's still due.</li>
+<li>Budgets with rollover and an envelope mode, and goals that show the monthly saving needed.</li>
+<li>Subscriptions, EMIs and UPI AutoPay in one place, with reminders; loans with their schedule and tax benefit.</li>
+<li>Money lent and borrowed, and an income tax estimate under both regimes.</li>
+</ul>
+
+<p><b>Wealth and reports</b></p>
+<ul>
+<li>FD, EPF and NPS values update automatically; savings interest is estimated at your bank's rate.</li>
 <li>A transparent net worth: every number shows where it came from.</li>
-<li>Budgets that warn before you overshoot, and goals that show the monthly saving needed, with an optional loan.</li>
-<li>Insights with numbers: monthly score, spending pace, subscriptions, card utilisation, month-end forecast.</li>
+<li>PDF reports for any month or year, a year in review and a spending calendar.</li>
 </ul>
 
 <p><b>Privacy and security</b></p>
 <ul>
 <li>Everything stays on your phone. The database is encrypted with SQLCipher, its key held in the Android Keystore.</li>
-<li>The offline edition has no internet permission at all.</li>
-<li>App lock with fingerprint or face, privacy mode, screenshot blocking and encrypted backups.</li>
+<li>The offline edition has no internet permission at all. The standard edition only goes online to fetch public NPS prices.</li>
+<li>App lock with fingerprint or face, privacy mode, screenshot blocking, and encrypted backups that can run automatically.</li>
+<li>English and Hindi.</li>
 </ul>
 
 <p>Kosh is free software under the GPL-3.0-or-later.</p>
