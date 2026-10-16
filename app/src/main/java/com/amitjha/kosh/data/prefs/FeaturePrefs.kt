@@ -53,6 +53,10 @@ data class FeatureSettings(
     val rolloverSince: Map<Long, Long> = emptyMap(),
     /** UI language code ("en" or "hi"). */
     val language: String = "en",
+    /** Monthly take-home salary the user entered; null means use the salary credits Kosh sees. */
+    val salary: Long? = null,
+    /** What the user wants to save out of each month's salary; null until they set it. */
+    val savingsTarget: Long? = null,
 )
 
 /** The real profile's preferences or, for the decoy profile, its own separate ones. */
@@ -75,6 +79,8 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
         val notifiedWarranties = stringSetPreferencesKey("notified_warranties")
         val rolloverSince = stringSetPreferencesKey("rollover_since")
         val language = stringPreferencesKey("app_language")
+        val salary = longPreferencesKey("plan_salary")
+        val savingsTarget = longPreferencesKey("plan_savings_target")
     }
 
     val settings: Flow<FeatureSettings> = store.data.catch { emit(emptyPreferences()) }.map { p ->
@@ -95,6 +101,8 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
                 (id.toLongOrNull() ?: return@mapNotNull null) to (day.toLongOrNull() ?: return@mapNotNull null)
             }.toMap(),
             language = p[Keys.language] ?: "en",
+            salary = p[Keys.salary],
+            savingsTarget = p[Keys.savingsTarget],
         )
     }
 
@@ -120,6 +128,12 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
     suspend fun setEnvelopeMode(on: Boolean) = edit { it[Keys.envelope] = on }
 
     suspend fun setLanguage(code: String) = edit { it[Keys.language] = code }
+
+    /** Salary plan for "left to spend": null clears a value. */
+    suspend fun setSalaryPlan(salary: Long?, savingsTarget: Long?) = edit {
+        if (salary != null && salary > 0) it[Keys.salary] = salary else it.remove(Keys.salary)
+        if (savingsTarget != null && savingsTarget >= 0) it[Keys.savingsTarget] = savingsTarget else it.remove(Keys.savingsTarget)
+    }
 
     /** Records (or clears) the first rolling-over period of budget [budgetId]. */
     suspend fun setRolloverSince(budgetId: Long, epochDay: Long?) = edit {

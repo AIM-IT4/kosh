@@ -65,4 +65,30 @@ class SafeToSpendTest {
         assertEquals(rupees(-5_000), r.available)
         assertEquals(0L, r.perDay)
     }
+
+    @Test
+    fun salaryMinusSavingsTargetIsWhatIsLeftToSpendUntilPayday() {
+        // ₹1,00,000 salary, save ₹20,000; ₹30,000 spent since payday, ₹2,000 still due before the next one.
+        val r = SafeToSpend.plan(
+            today, payDay, liquid = rupees(400_000), cardDues = 0,
+            upcoming = listOf(BudgetMath.Due(today.plusDays(2), rupees(2_000), "SIP")),
+            overallBudget = rupees(90_000), incomeThisPeriod = rupees(100_000), usualMonthlySpend = null,
+            spentThisPeriod = rupees(30_000), salary = rupees(100_000), savingsTarget = rupees(20_000),
+        )!!
+        assertEquals(SafeToSpend.Basis.SALARY, r.basis)
+        assertEquals(rupees(20_000), r.savings)
+        assertEquals(rupees(48_000), r.available)
+        assertEquals(rupees(4_800), r.perDay)
+    }
+
+    @Test
+    fun theSalaryPlanNeedsATargetAndPrefersWhatTheUserEntered() {
+        // No savings target yet: the budget is used.
+        val noTarget = SafeToSpend.plan(today, payDay, rupees(400_000), 0, emptyList(), rupees(50_000), 0, null, 0, salary = rupees(100_000))!!
+        assertEquals(SafeToSpend.Basis.BUDGET, noTarget.basis)
+        assertEquals(rupees(120_000), SafeToSpend.salaryFor(rupees(120_000), rupees(100_000), rupees(95_000)))
+        assertEquals(rupees(100_000), SafeToSpend.salaryFor(null, rupees(100_000), rupees(95_000)))
+        assertEquals(rupees(95_000), SafeToSpend.salaryFor(null, 0, rupees(95_000)))
+        assertNull(SafeToSpend.salaryFor(null, 0, null))
+    }
 }
