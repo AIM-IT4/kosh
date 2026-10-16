@@ -233,16 +233,19 @@ private fun ReceiptsCard(t: TransactionEntity) {
     var error by remember { mutableStateOf<String?>(null) }
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) picked = uri }
-    val saveCopy = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+    val onSaved: (Uri?) -> Unit = { uri ->
         val a = saving
         saving = null
-        if (uri == null || a == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(c.attachments.bytes(a)) } }
-            }.onFailure { error = "Couldn't save it: ${it.message}" }
+        if (uri != null && a != null) {
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(c.attachments.bytes(a)) } }
+                }.onFailure { error = "Couldn't save it: ${it.message}" }
+            }
         }
     }
+    val savePhoto = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(AttachmentStore.JPEG), onSaved)
+    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(AttachmentStore.PDF), onSaved)
 
     KoshCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -267,7 +270,10 @@ private fun ReceiptsCard(t: TransactionEntity) {
                     )
                 }
                 if (a.mimeType != AttachmentStore.PDF) TextButton(onClick = { viewing = a }) { Text("View") }
-                TextButton(onClick = { saving = a; saveCopy.launch(if (a.mimeType == AttachmentStore.PDF) "receipt.pdf" else "receipt.jpg") }) { Text("Save") }
+                TextButton(onClick = {
+                    saving = a
+                    if (a.mimeType == AttachmentStore.PDF) savePdf.launch("receipt.pdf") else savePhoto.launch("receipt.jpg")
+                }) { Text("Save") }
                 IconButton(onClick = { scope.launch { c.attachments.delete(a) } }) { Icon(Icons.Outlined.Delete, "Delete") }
             }
         }
