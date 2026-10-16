@@ -50,6 +50,7 @@ object Hindi {
         "Mark paid" to "भुगतान हुआ",
         "Mark as transfer" to "ट्रांसफ़र मानें",
         "Save PDF" to "PDF सेव करें",
+        "Preparing…" to "तैयार हो रहा है…",
         "Save budget" to "बजट सेव करें",
         "Save expense" to "खर्च सेव करें",
         "Sync now" to "अभी सिंक करें",

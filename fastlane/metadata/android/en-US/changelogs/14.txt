@@ -1,0 +1,2 @@
+- Fixed: Back up, Restore, Export, PDF reports, receipts and the backup folder picker closed the app on some phones
+- Save PDF shows progress while the report is prepared

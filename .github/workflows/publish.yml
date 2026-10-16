@@ -1,0 +1,44 @@
+name: Publish release files
+
+# Turns APKs that were built and signed elsewhere (the build box) into a GitHub release. The APKs come from a
+# branch with no history (default: release-files) holding Kosh.apk, Kosh-offline.apk, SHA256SUMS and NOTES.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v2.1.0"
+        required: true
+      files_branch:
+        description: "Branch holding the APKs"
+        default: release-files
+      prerelease:
+        description: "Mark as a pre-release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.files_branch }}
+      - name: Check the files
+        run: sha256sum -c SHA256SUMS
+      - name: Create the release, or replace its files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          FILES="Kosh.apk Kosh-offline.apk SHA256SUMS"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --notes-file NOTES.md --prerelease="$PRERELEASE" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" $FILES --repo "$GITHUB_REPOSITORY" --target main \
+              --title "Kosh ${TAG#v}" --notes-file NOTES.md --prerelease="$PRERELEASE"
+          fi
