@@ -154,15 +154,13 @@ class SmsImporter(
             var result = ImportResult(scanned = messages.size)
             val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
             for (msg in messages.sortedBy { it.timestampMillis }) {
-                if (!isFinancialMessage(msg.sender, msg.body)) continue
-                result = result.copy(financial = result.financial + 1)
                 // One message that can't be stored must not hold up the ones after it (or the scan cursor).
                 result += try {
-                    importOne(msg, rules)
+                    if (isFinancialMessage(msg.sender, msg.body)) importOne(msg, rules).copy(financial = 1) else ImportResult()
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: Exception) {
-                    ImportResult(failed = 1, failures = listOf("${e.javaClass.simpleName} · ${ImportResult.mask(msg.sender, msg.body)}"))
+                } catch (e: Throwable) {
+                    ImportResult(financial = 1, failed = 1, failures = listOf("${e.javaClass.simpleName} · ${ImportResult.mask(msg.sender, msg.body)}"))
                 }
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
