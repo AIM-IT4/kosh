@@ -102,10 +102,12 @@ object TransferPairing {
      * True when a bank debit message describes moving money to the user's own account: "self", "own account",
      * or "to a/c ..1234" where 1234 is another of the user's accounts.
      */
+    private val ownTarget =
+        Regex("(?i)(?:to|trf to|transfer(?:red)? to|credited to)\\s+(?:your\\s+)?(?:a/?c|acct|account|card)\\s*(?:no\\.?\\s*)?[x*.\\s]*(\\d{4})\\b")
+
     fun looksLikeSelfTransfer(body: String, ownLast4s: Set<String>, thisLast4: String?): Boolean {
         if (selfWords.containsMatchIn(body)) return true
-        val targets = Regex("(?i)(?:to|trf to|transfer(?:red)? to|credited to)\\s+(?:your\\s+)?(?:a/?c|acct|account|card)\\s*(?:no\\.?\\s*)?[x*.\\s]*(\\d{4})\\b")
-            .findAll(body).map { it.groupValues[1] }
+        val targets = ownTarget.findAll(body).map { it.groupValues[1] }
         return targets.any { it in ownLast4s && it != thisLast4 }
     }
 }

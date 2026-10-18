@@ -218,6 +218,13 @@ interface TransactionDao {
     )
     fun observeCountOnIgnored(from: Long): Flow<Int>
 
+    /** How many imported expenses between [from] and [to] are still in "other" (the Home banner). */
+    @Query(
+        """SELECT COUNT(*) FROM transactions WHERE type = 'EXPENSE' AND categoryKey = 'other' AND source != 'MANUAL'
+           AND timestamp BETWEEN :from AND :to""",
+    )
+    fun observeUncategorisedCount(from: Long, to: Long): Flow<Int>
+
     /** Imported expenses still in "other", for the fix-uncategorised screen. */
     @Query("SELECT * FROM transactions WHERE type = 'EXPENSE' AND categoryKey = 'other' ORDER BY timestamp DESC")
     fun observeUncategorised(): Flow<List<TransactionEntity>>

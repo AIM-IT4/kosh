@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -47,7 +48,7 @@ fun FanChart(
     hidden: Boolean = false,
 ) {
     if (bands.size < 2) return
-    val progress = rememberEntrance(bands, 900)
+    val progress by rememberEntrance(900)
     val accent = KoshTheme.colors.accent
     val ink = KoshTheme.colors.ink
     val subtle = KoshTheme.colors.subtleText

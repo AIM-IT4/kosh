@@ -93,6 +93,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -103,6 +104,7 @@ import com.amitjha.kosh.designsystem.components.LineAreaChart
 import com.amitjha.kosh.designsystem.components.SegmentedTabs
 import com.amitjha.kosh.designsystem.components.SpendHeatmap
 import com.amitjha.kosh.designsystem.components.SpendPaceChart
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.amitjha.kosh.ui.nav.navigateToTab
@@ -137,9 +139,11 @@ data class HomeState(
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
-    private val period = c.settings.settings.map { Period.containing(Time.today(), it.payCycle) }
+    private val period = c.settings.settings.map { Period.containing(Time.today(), it.payCycle) }.distinctUntilChanged()
 
+    // Shared: the money card and "left to spend" both use it, and it shouldn't be computed twice per change.
     private val summary = period.flatMapLatest { c.transactions.observeSummary(it) }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     private val money = combine(
         c.netWorth.observeNetWorth(),
@@ -173,12 +177,12 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         }
         .flowOn(Dispatchers.Default)
 
-    private val uncategorised = combine(period, c.db.transactions().observeUncategorised()) { p, rows ->
-        rows.count { it.source != com.amitjha.kosh.model.TxnSource.MANUAL && Time.toDate(it.timestamp) in p }
-    }
+    private val uncategorised = period.flatMapLatest { p -> c.db.transactions().observeUncategorisedCount(p.startMillis, p.endMillis) }
 
     private val ignoredSms = c.settings.settings
-        .map { maxOf(System.currentTimeMillis() - IGNORED_NOTICE_DAYS * 86_400_000L, it.ignoredNoticeAt) }
+        // Whole days, so the query isn't restarted on every settings change.
+        .map { maxOf(Time.startOfDay(Time.today().minusDays(IGNORED_NOTICE_DAYS)), it.ignoredNoticeAt) }
+        .distinctUntilChanged()
         .flatMapLatest { from -> c.db.transactions().observeCountOnIgnored(from) }
 
     private val counts = combine(uncategorised, ignoredSms) { other, ignored -> other to ignored }
@@ -253,7 +257,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             recent = l.recent,
             accounts = l.accounts,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
     fun toggleHidden(current: Boolean) = viewModelScope.launch { c.settings.setHideAmounts(!current) }
 

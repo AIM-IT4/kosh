@@ -1,5 +1,8 @@
 package com.amitjha.kosh.repo
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.room.withTransaction
 import com.amitjha.kosh.data.AccountEntity
 import com.amitjha.kosh.data.CategoryEntity
 import com.amitjha.kosh.data.KoshDatabase
@@ -163,28 +166,31 @@ class TransactionRepository(private val db: KoshDatabase) {
      * Changes a transaction's category. With [applyToSimilar], every imported transaction from the same
      * merchant is recategorised and future imports follow the new rule.
      */
-    suspend fun recategorise(txnId: Long, categoryKey: String, applyToSimilar: Boolean) {
-        val txn = dao.byId(txnId) ?: return
-        dao.update(
-            txn.copy(
-                categoryKey = categoryKey,
-                reviewed = true,
-                excludeFromStats = SmsMapping.excludeAfterRecategorise(txn, categoryKey),
-            ),
-        )
-        val merchant = txn.merchant
-        if (applyToSimilar && merchant != null) {
-            db.merchantRules().upsert(MerchantRuleEntity(merchant = merchant, categoryKey = categoryKey))
-            // Same type only (an Amazon refund keeps its income category) and never paired transfer legs.
-            dao.recategoriseMerchant(merchant, categoryKey, txn.type.name)
-            // Also catch the same merchant spelled differently ("SWIGGY", "Swiggy Ltd").
-            val key = SmsMapping.merchantKey(merchant)
-            if (key.isNotEmpty()) {
-                dao.all().filter {
-                    it.source != com.amitjha.kosh.model.TxnSource.MANUAL && it.id != txnId && it.type == txn.type &&
-                        it.categoryKey != categoryKey && it.categoryKey != SmsMapping.TRANSFER_CATEGORY &&
-                        it.merchant?.let(SmsMapping::merchantKey) == key
-                }.forEach { dao.update(it.copy(categoryKey = categoryKey, excludeFromStats = SmsMapping.excludeAfterRecategorise(it, categoryKey))) }
+    suspend fun recategorise(txnId: Long, categoryKey: String, applyToSimilar: Boolean) = withContext(Dispatchers.Default) {
+        val txn = dao.byId(txnId) ?: return@withContext
+        // One transaction: screens recompute once, and matching every row's merchant stays off the main thread.
+        db.withTransaction {
+            dao.update(
+                txn.copy(
+                    categoryKey = categoryKey,
+                    reviewed = true,
+                    excludeFromStats = SmsMapping.excludeAfterRecategorise(txn, categoryKey),
+                ),
+            )
+            val merchant = txn.merchant
+            if (applyToSimilar && merchant != null) {
+                db.merchantRules().upsert(MerchantRuleEntity(merchant = merchant, categoryKey = categoryKey))
+                // Same type only (an Amazon refund keeps its income category) and never paired transfer legs.
+                dao.recategoriseMerchant(merchant, categoryKey, txn.type.name)
+                // Also catch the same merchant spelled differently ("SWIGGY", "Swiggy Ltd").
+                val key = SmsMapping.merchantKey(merchant)
+                if (key.isNotEmpty()) {
+                    dao.all().filter {
+                        it.source != com.amitjha.kosh.model.TxnSource.MANUAL && it.id != txnId && it.type == txn.type &&
+                            it.categoryKey != categoryKey && it.categoryKey != SmsMapping.TRANSFER_CATEGORY &&
+                            it.merchant?.let(SmsMapping::merchantKey) == key
+                    }.forEach { dao.update(it.copy(categoryKey = categoryKey, excludeFromStats = SmsMapping.excludeAfterRecategorise(it, categoryKey))) }
+                }
             }
         }
     }

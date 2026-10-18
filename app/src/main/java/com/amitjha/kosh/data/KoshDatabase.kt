@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LoanEntity::class,
         AttachmentEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class KoshDatabase : RoomDatabase() {
@@ -149,7 +149,17 @@ abstract class KoshDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+        /** v9 only adds indexes, so balances and SMS imports stop scanning every transaction. */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_toAccountId` ON `transactions` (`toAccountId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_referenceNo` ON `transactions` (`referenceNo`)")
+            }
+        }
+
+        val ALL_MIGRATIONS = arrayOf(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+        )
 
         /**
          * Opens the database encrypted with SQLCipher (key in the Android Keystore). An existing plaintext

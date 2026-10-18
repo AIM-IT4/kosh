@@ -152,5 +152,27 @@ class MigrationSchemaTest {
             assertEquals(table, columns(schema(7), table).keys, columns(schema(8), table).keys)
         }
     }
-}
 
+    private fun indexSql(db: JSONObject, table: String): Set<String> {
+        val entities = db.getJSONArray("entities")
+        val e = (0 until entities.length()).map { entities.getJSONObject(it) }.first { it.getString("tableName") == table }
+        val indices = e.optJSONArray("indices") ?: return emptySet()
+        return (0 until indices.length()).map { indices.getJSONObject(it).getString("createSql").replace("\${TABLE_NAME}", table) }.toSet()
+    }
+
+    @Test
+    fun version9AddsOnlyTheTwoTransactionIndexes() {
+        assertEquals(tables(schema(8)), tables(schema(9)))
+        tables(schema(8)).forEach { table ->
+            assertEquals(table, columns(schema(8), table).keys, columns(schema(9), table).keys)
+            if (table != "transactions") assertEquals(table, indexSql(schema(8), table), indexSql(schema(9), table))
+        }
+        assertEquals(
+            setOf(
+                "CREATE INDEX IF NOT EXISTS `index_transactions_toAccountId` ON `transactions` (`toAccountId`)",
+                "CREATE INDEX IF NOT EXISTS `index_transactions_referenceNo` ON `transactions` (`referenceNo`)",
+            ),
+            indexSql(schema(9), "transactions") - indexSql(schema(8), "transactions"),
+        )
+    }
+}

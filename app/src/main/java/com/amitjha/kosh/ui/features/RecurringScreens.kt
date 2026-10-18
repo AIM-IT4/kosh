@@ -87,9 +87,10 @@ fun RecurringScreen(nav: NavController) {
     val hidden = LocalHideAmounts.current
     val scope = rememberCoroutineScope()
     val today = Time.today()
-    val detected by c.recurring.observeDetected().collectAsState(initial = null)
-    val rules by c.recurring.observeRules().collectAsState(initial = emptyList())
-    val features by c.featurePrefs.settings.collectAsState(initial = null)
+    // Remembered so recompositions don't restart detection over 400 days of transactions.
+    val detected by remember { c.recurring.observeDetected() }.collectAsState(initial = null)
+    val rules by remember { c.recurring.observeRules() }.collectAsState(initial = emptyList())
+    val features by remember { c.featurePrefs.settings }.collectAsState(initial = null)
     var upcoming by remember { mutableStateOf<List<BudgetMath.Due>>(emptyList()) }
     var showHidden by remember { mutableStateOf(false) }
     LaunchedEffect(detected, rules) {
@@ -264,8 +265,9 @@ fun RecurringEditScreen(nav: NavController, id: Long?, fromSeries: String?) {
     val c = LocalContainer.current
     val scope = rememberCoroutineScope()
     val today = Time.today()
-    val accounts by c.accounts.observeAccounts().collectAsState(initial = emptyList())
-    val categories by c.categories.observeAll().collectAsState(initial = emptyList())
+    // Remembered: this screen recomposes on every keystroke, and a new flow would re-query each time.
+    val accounts by remember { c.accounts.observeAccounts() }.collectAsState(initial = emptyList())
+    val categories by remember { c.categories.observeAll() }.collectAsState(initial = emptyList())
     var loaded by remember { mutableStateOf(id == null && fromSeries == null) }
     var existing by remember { mutableStateOf<RecurringRuleEntity?>(null) }
     var name by remember { mutableStateOf("") }

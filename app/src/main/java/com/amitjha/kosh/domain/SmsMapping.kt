@@ -91,7 +91,12 @@ object SmsMapping {
     fun debitCardAccount(accounts: List<AccountEntity>, bank: Bank): AccountEntity? =
         accounts.filter { it.bank == bank.name && it.type == AccountType.BANK && !it.archived && !it.autoCreated }.singleOrNull()
 
-    fun isDebitCardMessage(body: String): Boolean = Regex("(?i)debit ?card").containsMatchIn(body)
+    fun isDebitCardMessage(body: String): Boolean = debitCard.containsMatchIn(body)
+
+    // Compiled once: these run for every SMS and, through ruleFor, for every rule of every transaction.
+    private val debitCard = Regex("(?i)debit ?card")
+    private val keyPrefix = Regex("^(upi|vpa|pos)[ :/-]+")
+    private val nonKey = Regex("[^a-z0-9]")
 
     fun newAccountFor(bank: Bank, last4: String?, isCard: Boolean, now: Long): AccountEntity {
         val suffix = last4?.let { " ••$it" } ?: ""
@@ -111,7 +116,7 @@ object SmsMapping {
 
     /** Lower-case letters and digits only, so "Swiggy Ltd", "SWIGGY" and "swiggy" share one rule. */
     fun merchantKey(merchant: String): String =
-        merchant.lowercase().replace(Regex("^(upi|vpa|pos)[ :/-]+"), "").replace(Regex("[^a-z0-9]"), "")
+        merchant.lowercase().replace(keyPrefix, "").replace(nonKey, "")
 
     /**
      * The user's learned category for [merchant]: an exact rule, then a rule for the same merchant spelled

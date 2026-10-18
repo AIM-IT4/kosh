@@ -78,9 +78,11 @@ fun isLikelyFinancialSender(sender: String): Boolean {
     if (core.isEmpty() || core.all { it.isDigit() || it == '+' }) return false
     if (core in BANK_HEADERS || core in OTHER_FINANCIAL_HEADERS) return true
     if (bankFromSenderName(sender) != null) return true
-    return Regex("BNK|BANK|BK$|CARD|CRD").containsMatchIn(core) &&
-        !Regex("OFFER|PROMO|SALE|LOAN").containsMatchIn(core)
+    return bankishHeader.containsMatchIn(core) && !promoHeader.containsMatchIn(core)
 }
+
+private val bankishHeader = Regex("BNK|BANK|BK$|CARD|CRD")
+private val promoHeader = Regex("OFFER|PROMO|SALE|LOAN")
 
 private val amountPattern = Regex("(?i)(?:rs[.:]?|inr|₹)\\s*[0-9][0-9,]*(?:\\.\\d{1,2})?")
 private val txnVerbs = Regex(

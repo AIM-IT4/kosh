@@ -11,9 +11,11 @@ object Money {
     fun fromRupees(rupees: Double): Paise =
         BigDecimal.valueOf(rupees).movePointRight(2).setScale(0, RoundingMode.HALF_UP).toLong()
 
+    private val currency = Regex("(?i)(rs\\.?|inr|₹)")
+
     /** Parses amounts as they appear in Indian bank messages: "1,23,456.70", "Rs.500", "INR 2,000". */
     fun parse(text: String): Paise? {
-        val cleaned = text.replace(Regex("(?i)(rs\\.?|inr|₹)"), "").replace(",", "").trim()
+        val cleaned = text.replace(currency, "").replace(",", "").trim()
         val value = cleaned.toBigDecimalOrNull() ?: return null
         return value.movePointRight(2).setScale(0, RoundingMode.HALF_UP).toLong()
     }
