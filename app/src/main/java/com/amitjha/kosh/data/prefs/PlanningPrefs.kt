@@ -66,10 +66,13 @@ class PlanningPrefs(private val context: Context) {
         }.getOrDefault(emptyMap())
     }
 
+    /** Read and written in one edit, so two quick changes can't overwrite each other. */
     suspend fun setGoalInflation(goalId: Long, pct: Double) {
-        val current = goalInflation.first().toMutableMap()
-        if (pct <= 0.0) current.remove(goalId) else current[goalId] = pct
         context.planningStore.edit { p ->
+            val current = p[Keys.goalInflation]?.let { json ->
+                runCatching { JSONObject(json).let { o -> o.keys().asSequence().associate { it.toLong() to o.getDouble(it) } } }.getOrNull()
+            }.orEmpty().toMutableMap()
+            if (pct <= 0.0) current.remove(goalId) else current[goalId] = pct
             p[Keys.goalInflation] = JSONObject().apply { current.forEach { (k, v) -> put(k.toString(), v) } }.toString()
         }
     }

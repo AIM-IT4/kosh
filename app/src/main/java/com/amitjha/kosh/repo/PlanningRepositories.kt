@@ -12,8 +12,6 @@ import com.amitjha.kosh.domain.SmsMapping
 import com.amitjha.kosh.finance.BudgetProjection
 import com.amitjha.kosh.finance.Budgets
 import com.amitjha.kosh.finance.GoalPlan
-import com.amitjha.kosh.finance.Goals
-import com.amitjha.kosh.finance.planGoal
 import com.amitjha.kosh.model.Paise
 import com.amitjha.kosh.model.TxnType
 import com.amitjha.kosh.util.Period
@@ -21,7 +19,11 @@ import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -199,19 +201,91 @@ class BudgetRepository(
     }
 }
 
-data class GoalStatus(val goal: GoalEntity, val plan: GoalPlan) {
+data class GoalStatus(
+    val goal: GoalEntity,
+    val plan: GoalPlan,
+    /** How the goal stands against the usual monthly surplus; the insights use the same judgement. */
+    val standing: com.amitjha.kosh.finance.GoalStanding = com.amitjha.kosh.finance.GoalStanding.UNKNOWN,
+    /** Surplus left for this goal after earlier ones, a month; null without history. */
+    val capacity: Paise? = null,
+    val inflationPct: Double = 0.0,
+) {
     val deadline: LocalDate get() = LocalDate.ofEpochDay(goal.deadline)
+
+    /** Green on the Goals screen: reached, on track, or not yet judged. */
+    val looksOnTrack: Boolean
+        get() = standing == com.amitjha.kosh.finance.GoalStanding.REACHED || standing == com.amitjha.kosh.finance.GoalStanding.ON_TRACK ||
+            standing == com.amitjha.kosh.finance.GoalStanding.UNKNOWN
     val hasLoan: Boolean get() = goal.loanAmount > 0
     /** Monthly EMI of the purchase loan, or 0 without one. */
     val loanEmi: Long get() = com.amitjha.kosh.domain.GoalLoan.emi(goal.loanAmount, goal.loanRatePct, goal.loanTenureMonths)
 }
 
-class GoalRepository(private val db: KoshDatabase) {
+/** A goal as the shared goal maths sees it. */
+fun GoalEntity.toInput(inflationPct: Double = 0.0) = com.amitjha.kosh.finance.GoalInput(
+    name = name,
+    target = target,
+    saved = saved,
+    deadline = LocalDate.ofEpochDay(deadline),
+    expectedReturnPct = expectedReturnPct,
+    loanAmount = loanAmount,
+    loanRatePct = loanRatePct,
+    loanTenureMonths = loanTenureMonths,
+    createdAt = Time.toDate(createdAt),
+    id = id,
+    inflationPct = inflationPct,
+)
 
-    fun observeStatuses(): Flow<List<GoalStatus>> = combine(db.goals().observeAll(), db.transactions().observeChanges()) { goals, _ ->
-        val today = Time.today()
-        goals.map { g -> GoalStatus(g, Goals.planGoal(g.target, g.saved, LocalDate.ofEpochDay(g.deadline), today, g.expectedReturnPct, g.loanAmount)) }
-    }
+/**
+ * The usual monthly surplus goals can draw on, by the insights' rule: over the last [GOAL_SURPLUS_PERIODS] complete
+ * pay periods with data, earned income less spending, with money put into investments counted as saved.
+ */
+internal fun goalSurplus(txns: List<com.amitjha.kosh.data.TransactionEntity>, periods: List<Period>): Paise? {
+    val counted = txns.filter(SmsMapping::countsInStats)
+    val months = periods.map { p ->
+        val inP = counted.filter { it.timestamp in p.startMillis..p.endMillis }
+        val income = inP.filter(MoneyIn::isEarned).sumOf { it.amount }
+        val expenses = inP.filter { it.type == com.amitjha.kosh.model.TxnType.EXPENSE }
+        val spent = expenses.sumOf { it.amount }
+        val invested = expenses.filter { it.categoryKey in com.amitjha.kosh.finance.InsightEngine.SAVED_CATEGORIES }.sumOf { it.amount }
+        Triple(income, spent, invested)
+    }.filter { (income, spent, _) -> income != 0L || spent != 0L }
+    if (months.isEmpty()) return null
+    return months.sumOf { (income, spent, invested) -> income - (spent - invested) } / months.size
+}
+
+const val GOAL_SURPLUS_PERIODS = com.amitjha.kosh.finance.InsightEngine.GOAL_SURPLUS_MONTHS
+
+class GoalRepository(
+    private val db: KoshDatabase,
+    private val settings: SettingsStore,
+    private val prefs: com.amitjha.kosh.data.prefs.PlanningPrefs,
+) {
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeStatuses(): Flow<List<GoalStatus>> = combine(
+        db.goals().observeAll(),
+        prefs.goalInflation,
+        settings.settings.map { it.payCycle }.distinctUntilChanged(),
+        db.transactions().observeChanges(),
+    ) { goals, inflation, cycle, _ -> Triple(goals, inflation, cycle) }
+        .mapLatest { (goals, inflation, cycle) ->
+            val today = Time.today()
+            val current = Period.containing(today, cycle)
+            val periods = generateSequence(current.previous()) { it.previous() }.take(GOAL_SURPLUS_PERIODS).toList()
+            val txns = com.amitjha.kosh.domain.Splits.expand(
+                db.transactions().between(periods.last().startMillis, current.startMillis - 1),
+                com.amitjha.kosh.domain.Splits.byTransaction(db.splits().all()),
+            )
+            val surplus = goalSurplus(txns, periods)
+            val assessed = com.amitjha.kosh.finance.GoalTracker.assess(goals.map { it.toInput(inflation[it.id] ?: 0.0) }, surplus, today)
+                .associate { (g, a) -> g.id to a }
+            goals.map { g ->
+                val a = assessed.getValue(g.id)
+                GoalStatus(g, a.plan, a.standing, a.capacity, inflation[g.id] ?: 0.0)
+            }
+        }
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
 
     suspend fun upsert(goal: GoalEntity): Long = db.goals().upsert(goal)
 

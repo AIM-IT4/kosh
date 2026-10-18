@@ -44,17 +44,18 @@ import kotlin.math.roundToInt
 
 private val monthYear = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)
 
-/** "82% chance by Mar 2029" chip; expands to the fan chart and the saving needed for 80% confidence. */
+/**
+ * "₹X/month to be 80% sure by Mar 2029" chip; expands to the fan chart. Saving exactly the plan's amount makes it in a
+ * little under half the simulated markets (the plan assumes an average one), so the chip leads with the saving that
+ * makes it 4 times in 5 rather than a chance that is always about 50%.
+ */
 @Composable
 fun GoalOutlookSection(o: GoalOutlook, deadline: LocalDate, hidden: Boolean, onInflation: (Double) -> Unit) {
     var expanded by rememberSaveable(o.goalId) { mutableStateOf(false) }
     val r = o.result
     val pct = (r.probability * 100).roundToInt()
-    val color = when {
-        pct >= 80 -> KoshTheme.colors.good
-        pct >= 50 -> KoshTheme.colors.warning
-        else -> KoshTheme.colors.alert
-    }
+    val confidence = (GoalSimulation.CONFIDENCE * 100).roundToInt()
+    val color = KoshTheme.colors.accent
     fun money(p: Long) = if (hidden) "₹ ••••" else Money.format(p, showPaise = false)
     Column(
         Modifier
@@ -67,7 +68,7 @@ fun GoalOutlookSection(o: GoalOutlook, deadline: LocalDate, hidden: Boolean, onI
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "$pct% chance",
+                "$confidence% sure",
                 color = color,
                 fontWeight = FontWeight.SemiBold,
                 style = MaterialTheme.typography.labelLarge,
@@ -75,7 +76,7 @@ fun GoalOutlookSection(o: GoalOutlook, deadline: LocalDate, hidden: Boolean, onI
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "by ${monthYear.format(deadline)} at ${money(o.monthlySaving)}/month",
+                "at ${money(r.monthlyForConfidence)}/month by ${monthYear.format(deadline)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = KoshTheme.colors.subtleText,
                 modifier = Modifier.weight(1f),
@@ -84,7 +85,7 @@ fun GoalOutlookSection(o: GoalOutlook, deadline: LocalDate, hidden: Boolean, onI
         }
         AnimatedVisibility(expanded) {
             Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                val today = LocalDate.now()
+                val today = com.amitjha.kosh.util.Time.today()
                 FanChart(
                     bands = r.fan.map {
                         FanBand(monthYear.format(today.plusMonths(it.month.toLong())), it.p10, it.p50, it.p90, it.target)
@@ -92,13 +93,14 @@ fun GoalOutlookSection(o: GoalOutlook, deadline: LocalDate, hidden: Boolean, onI
                     hidden = hidden,
                 )
                 Text(
-                    "Save ${money(r.monthlyForConfidence)}/month for ${(GoalSimulation.CONFIDENCE * 100).roundToInt()}% confidence.",
+                    "Save ${money(r.monthlyForConfidence)}/month to be $confidence% sure.",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "Simulated ${GoalSimulation.DEFAULT_PATHS} market paths at ${Fmt.pct(o.result.volatilityPct, 1)} yearly volatility " +
-                        "for this return. Half end above ${money(r.median)}; 1 in 10 below ${money(r.p10)}.",
+                    "The plan's ${money(o.monthlySaving)}/month gets there in an average market, but returns vary: across " +
+                        "${GoalSimulation.DEFAULT_PATHS} simulated markets at ${Fmt.pct(o.result.volatilityPct, 1)} yearly volatility, " +
+                        "$pct% reach ${money(r.targetAtDeadline)} at that pace, and 1 in 10 end below ${money(r.p10)}.",
                     style = MaterialTheme.typography.bodySmall,
                     color = KoshTheme.colors.subtleText,
                 )
