@@ -14,6 +14,9 @@ data class CategoryTotal(val categoryKey: String, val total: Paise, val count: I
 data class DayTotal(val day: Long, val income: Paise, val expense: Paise)
 data class MerchantTotal(val merchant: String, val total: Paise, val count: Int)
 
+/** A salary credit's time and amount, for learning the day salary arrives. */
+data class SalaryCredit(val timestamp: Long, val amount: Paise)
+
 /** How much history an ignored account holds: [count] transactions, the newest at [latest]. */
 data class AccountActivity(val accountId: Long, val count: Int, val latest: Long?)
 
@@ -200,6 +203,13 @@ interface TransactionDao {
            WHERE accountId IN (SELECT id FROM accounts WHERE archived = 1) GROUP BY accountId""",
     )
     fun observeIgnoredActivity(): Flow<List<AccountActivity>>
+
+    /** Counted salary credits from [from] on. */
+    @Query(
+        """SELECT timestamp, amount FROM transactions WHERE type = 'INCOME' AND categoryKey = 'salary'
+           AND excludeFromStats = 0 AND suspicious = 0 AND timestamp >= :from""",
+    )
+    fun observeSalaryCredits(from: Long): Flow<List<SalaryCredit>>
 
     /** Bank SMS imported since [from] onto accounts the user ignored, which totals leave out. */
     @Query(

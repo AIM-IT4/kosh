@@ -1,6 +1,7 @@
 package com.amitjha.kosh.repo
 
 import com.amitjha.kosh.finance.BudgetMath
+import com.amitjha.kosh.finance.PayCycle
 import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.Paise
 import java.time.LocalDate
@@ -40,7 +41,7 @@ object SafeToSpend {
     /** Pure calculation; see the object comment. Returns null when there is no plan to work from. */
     fun plan(
         today: LocalDate,
-        payDay: Int,
+        cycle: PayCycle,
         liquid: Paise,
         cardDues: Paise,
         upcoming: List<BudgetMath.Due>,
@@ -51,7 +52,7 @@ object SafeToSpend {
         salary: Paise? = null,
         savingsTarget: Paise? = null,
     ): Result? {
-        val payday = BudgetMath.nextPayday(today, payDay)
+        val payday = cycle.nextPayday(today)
         val due = upcoming.filter { !it.date.isBefore(today) && it.date.isBefore(payday) }
         val upcomingTotal = due.sumOf { it.amount }
         val salaryPlan = salary != null && salary > 0 && savingsTarget != null
@@ -94,7 +95,7 @@ object SafeToSpend {
     suspend fun compute(
         accounts: List<AccountWithBalance>,
         bills: List<BillItem>,
-        payDay: Int,
+        cycle: PayCycle,
         recurring: RecurringRepository,
         budgets: List<BudgetStatus>,
         summary: MonthSummary?,
@@ -105,12 +106,12 @@ object SafeToSpend {
     ): Result? {
         val cashAccounts = accounts.filter { !it.isPending && it.account.type != AccountType.CREDIT_CARD }
         if (cashAccounts.isEmpty() || summary == null) return null
-        val payday = BudgetMath.nextPayday(today, payDay)
+        val payday = cycle.nextPayday(today)
         val cardDues = bills.filter { !it.bill.paid && it.bill.totalDue > 0 && it.dueDate?.isBefore(payday) == true }.sumOf { it.bill.totalDue }
         val repeats = runCatching { recurring.upcoming(today, payday) }.getOrDefault(emptyList())
         return plan(
             today = today,
-            payDay = payDay,
+            cycle = cycle,
             liquid = cashAccounts.sumOf { it.balance },
             cardDues = cardDues,
             upcoming = repeats,

@@ -83,8 +83,8 @@ fun HouseholdScreen(nav: NavHostController) {
     val code by sync.pairingCode.collectAsState()
     val data by c.household.observeData().collectAsState(initial = HouseholdData(emptyList(), emptyList(), emptyList()))
     val hidden = com.amitjha.kosh.ui.common.LocalHideAmounts.current
-    val monthStartDay = LocalSettings.current.monthStartDay
-    val period = remember(monthStartDay) { Period.containing(Time.today(), monthStartDay) }
+    val cycle = LocalSettings.current.payCycle
+    val period = remember(cycle) { Period.containing(Time.today(), cycle) }
     val scope = rememberCoroutineScope()
     var confirmUnpair by remember { mutableStateOf(false) }
 
@@ -289,7 +289,7 @@ fun HouseholdHomeCard(modifier: Modifier = Modifier, onOpen: () -> Unit) {
     val flow = remember { c.household.observeData() }
     val data by flow.collectAsState(initial = HouseholdData(emptyList(), emptyList(), emptyList()))
     val settings = LocalSettings.current
-    val period = remember(settings.monthStartDay) { Period.containing(Time.today(), settings.monthStartDay) }
+    val period = remember(settings.payCycle) { Period.containing(Time.today(), settings.payCycle) }
     Column(modifier) {
         SectionHeader("Household", actionLabel = "Open", onAction = onOpen)
         SummaryCard(data, com.amitjha.kosh.ui.common.LocalHideAmounts.current, period, onOpen)

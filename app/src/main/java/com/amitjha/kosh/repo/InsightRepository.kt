@@ -75,7 +75,8 @@ class InsightRepository(
     /** Builds the engine input from the last ~4 months of data. */
     suspend fun buildInput(today: LocalDate = Time.today()): InsightInput {
         val since = Time.startOfDay(today.withDayOfMonth(1).minusMonths(5))
-        val monthStartDay = settings.settings.first().monthStartDay
+        val s = settings.settings.first()
+        val monthStartDay = s.monthStartDay
         val accountList = accounts.accounts()
         val cardIds = accountList.filter { it.isCard }.map { it.id }.toSet()
         // Split transactions count as their parts, as on the Home and Budgets screens.
@@ -140,6 +141,7 @@ class InsightRepository(
             },
             categoryNames = db.categories().all().associate { it.key to it.name },
             monthStartDay = monthStartDay,
+            payCycle = s.payCycle,
         )
     }
 }

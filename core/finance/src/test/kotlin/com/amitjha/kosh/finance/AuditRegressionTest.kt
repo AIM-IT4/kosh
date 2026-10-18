@@ -93,14 +93,15 @@ class AuditRegressionTest {
         assertTrue(insights.none { it.id.startsWith("spike_food") })
     }
 
-    // 10. The engine names every period exactly like the app's Period.label: the month of its 15th day.
+    // 10. The engine names every period exactly like the app's Period.label: its start month for a start day of
+    // 1–15, the next month for 16–28. (The month of its 15th day skipped February for a start day of 16.)
     @Test
     fun periodLabelMatchesAppRuleForEveryStartDay() {
         for (startDay in 1..28) {
             var d = LocalDate.of(2025, 1, 1)
             while (d.isBefore(LocalDate.of(2027, 1, 1))) {
                 val realStart = if (d.dayOfMonth >= startDay) d.withDayOfMonth(startDay) else d.minusMonths(1).withDayOfMonth(startDay)
-                val expected = YearMonth.from(realStart.plusDays(14))
+                val expected = YearMonth.from(realStart).let { if (startDay > 15) it.plusMonths(1) else it }
                 val engineMonth = YearMonth.from(d.minusDays(startDay - 1L))
                 assertEquals("start $startDay, date $d", expected, InsightEngine.periodLabel(engineMonth, startDay))
                 d = d.plusDays(1)

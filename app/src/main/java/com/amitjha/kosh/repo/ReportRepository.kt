@@ -57,7 +57,7 @@ class ReportRepository(
 
     /** The budgeting month [month] (starting on the salary day when one is set). */
     suspend fun monthly(month: YearMonth): Report {
-        val p = Period.of(month, settings.current().monthStartDay)
+        val p = Period.labelled(month, settings.current().payCycle)
         return build("Monthly report", p.start, p.endExclusive, listOf(p))
     }
 
