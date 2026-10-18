@@ -94,13 +94,16 @@ class GoalInsightsTest {
 
     @Test
     fun earlierGoalsGetFirstCallOnTheSurplus() {
-        // Surplus ₹40,000. The earlier goal needs ₹30,000, leaving ₹10,000 for the later one, which needs ₹20,000.
+        // Surplus ₹40,000. The earlier goal needs ₹30,000 for 6 months, leaving ₹10,000 now for the later one, which
+        // needs ₹20,000 for 24 months. It fits overall (₹9.6L free against ₹1.8L + ₹4.8L) but not at a flat ₹20,000
+        // while the first runs: tight, saving ₹10,000 now and more later. (It used to count the first goal's ₹30,000
+        // against all 24 months and call it off track.)
         val first = goal("First", 180_000.0, 0.0, 6)
         val second = goal("Second", 480_000.0, 0.0, 24)
         val out = run(listOf(second, first))
         assertEquals(Severity.GOOD, out.goal("First").severity) // ₹30K of ₹40K
-        assertEquals(Severity.WARNING, out.goal("Second").severity)
-        assertTrue(out.goal("Second").message.contains("₹10,000"))
+        assertEquals(Severity.TIP, out.goal("Second").severity)
+        assertTrue(out.goal("Second").message, out.goal("Second").message.contains("₹10,000"))
     }
 
     @Test

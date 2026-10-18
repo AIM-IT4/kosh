@@ -166,8 +166,13 @@ enum class GoalStanding {
 data class GoalAssessment(
     val plan: GoalPlan,
     val standing: GoalStanding,
-    /** The usual monthly surplus left for this goal after earlier ones; null without history. */
+    /**
+     * The usual monthly surplus left for this goal over its whole run, after earlier goals take theirs while they
+     * last; null without history.
+     */
     val capacity: Paise?,
+    /** What's free for it right now, while every earlier goal is still being saved for; null without history. */
+    val freeNow: Paise? = capacity,
 )
 
 /** One judgement of every goal, used by the Goals screen and the insights alike. */
@@ -178,7 +183,9 @@ object GoalTracker {
     /**
      * Shares the usual monthly [surplus] between [goals], earliest deadline first. An earlier goal holds back its
      * monthly saving only for the months it overlaps a later one, so a short goal doesn't starve a long goal for
-     * years after it's done. Results are in deadline order. [deadlineOf] lets the insights pass shifted dates.
+     * years after it's done. A goal is on track when its monthly saving fits comfortably in what is free right now,
+     * tight when it fits only just, or only once earlier goals finish, and off track when it doesn't fit even then.
+     * Results are in deadline order. [deadlineOf] lets the insights pass shifted dates.
      */
     fun assess(
         goals: List<GoalInput>,
@@ -196,18 +203,19 @@ object GoalTracker {
                 if (months <= 0) e.requiredMonthly else (e.requiredMonthly.toDouble() * minOf(e.monthsLeft, months) / months).roundToLong()
             }
             val capacity = surplus?.let { it - held }
+            val freeNow = surplus?.let { it - earlier.sumOf { e -> e.requiredMonthly } }
             val standing = when {
                 plan.reached -> GoalStanding.REACHED
                 plan.overdue -> GoalStanding.OVERDUE
                 plan.dueNow -> GoalStanding.DUE_NOW
                 plan.requiredMonthly <= 0 -> GoalStanding.ON_TRACK
-                capacity == null -> GoalStanding.UNKNOWN
-                capacity > 0 && plan.requiredMonthly <= capacity * COMFORT_SHARE -> GoalStanding.ON_TRACK
+                capacity == null || freeNow == null -> GoalStanding.UNKNOWN
+                freeNow > 0 && plan.requiredMonthly <= freeNow * COMFORT_SHARE -> GoalStanding.ON_TRACK
                 capacity > 0 && plan.requiredMonthly <= capacity -> GoalStanding.TIGHT
                 else -> GoalStanding.OFF_TRACK
             }
             if (!plan.reached && !plan.overdue && months > 0 && plan.requiredMonthly > 0) earlier += plan
-            g to GoalAssessment(plan, standing, capacity)
+            g to GoalAssessment(plan, standing, capacity, freeNow)
         }
     }
 }

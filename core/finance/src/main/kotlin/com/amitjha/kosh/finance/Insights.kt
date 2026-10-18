@@ -409,7 +409,7 @@ object InsightEngine {
         val today = real(c.today)
         val surplus = recentSurplus(c)
         return GoalTracker.assess(c.input.goals, surplus, today, deadlineOf = { real(it.deadline) })
-            .map { (g, a) -> goalInsight(c, g, a.plan, surplus, a.capacity, today, a.standing) }
+            .map { (g, a) -> goalInsight(c, g, a.plan, surplus, a.capacity, today, a.standing, a.freeNow) }
     }
 
     private fun goalInsight(
@@ -420,6 +420,7 @@ object InsightEngine {
         capacity: Paise?,
         today: LocalDate,
         standing: GoalStanding,
+        freeNow: Paise?,
     ): Insight {
         // Unique per goal (names can repeat, and non-Latin names have no slug) and per standing, so dismissing
         // "on track" doesn't also hide a later "off track".
@@ -488,13 +489,21 @@ object InsightEngine {
                 "Saving ${fmt(plan.requiredMonthly)} a month gets you ${fmt(toSave)} by $dateText$loanNote.",
                 "$basics Kosh needs a full month of income and spending to judge whether this fits your budget.", 25,
             )
-            capacity != null && capacity > 0 && plan.requiredMonthly <= capacity * GOAL_COMFORT_SHARE -> insight(
+            // The tracker's verdict, shared with the Goals screen.
+            standing == GoalStanding.ON_TRACK && freeNow != null && freeNow > 0 -> insight(
                 Severity.GOOD, "${g.name} is on track",
                 "At ${fmt(plan.requiredMonthly)} a month you'll reach ${fmt(toSave)} by $dateText$loanNote.",
-                "$basics That's ${pct(plan.requiredMonthly.toDouble() / capacity)} of what's left of your usual monthly surplus of " +
+                "$basics That's ${pct(plan.requiredMonthly.toDouble() / freeNow)} of what's left of your usual monthly surplus of " +
                     "${fmt(surplus)} after earlier goals.", 15,
             )
-            capacity != null && capacity > 0 && plan.requiredMonthly <= capacity -> insight(
+            standing == GoalStanding.TIGHT && capacity != null && freeNow != null && plan.requiredMonthly > freeNow -> insight(
+                Severity.TIP, "${g.name} is tight",
+                "Needs ${fmt(plan.requiredMonthly)} a month to save ${fmt(toSave)} by $dateText$loanNote. While earlier goals " +
+                    "are being saved for you have about ${fmt(freeNow.coerceAtLeast(0))} a month free for it, so save that now and more " +
+                    "once they're done.",
+                "$basics Over the whole time it fits your usual surplus (about ${fmt(capacity)} a month left for it on average).", 40,
+            )
+            standing == GoalStanding.TIGHT && capacity != null -> insight(
                 Severity.TIP, "${g.name} is tight",
                 "Needs ${fmt(plan.requiredMonthly)} a month to save ${fmt(toSave)} by $dateText$loanNote — about " +
                     "${pct(plan.requiredMonthly.toDouble() / capacity)} of your usual surplus of ${fmt(capacity)}.",

@@ -212,6 +212,8 @@ data class GoalStatus(
     /** Surplus left for this goal after earlier ones, a month; null without history. */
     val capacity: Paise? = null,
     val inflationPct: Double = 0.0,
+    /** Free for it right now, while earlier goals are still being saved for. */
+    val freeNow: Paise? = capacity,
 ) {
     val deadline: LocalDate get() = LocalDate.ofEpochDay(goal.deadline)
 
@@ -285,7 +287,7 @@ class GoalRepository(
                 .associate { (g, a) -> g.id to a }
             goals.map { g ->
                 val a = assessed.getValue(g.id)
-                GoalStatus(g, a.plan, a.standing, a.capacity, inflation[g.id] ?: 0.0)
+                GoalStatus(g, a.plan, a.standing, a.capacity, inflation[g.id] ?: 0.0, a.freeNow)
             }
         }
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
