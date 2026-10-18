@@ -365,6 +365,9 @@ fun MoreScreen(nav: NavController) {
                     ActionRow("Erase all data", "Deletes accounts, transactions and investments", Icons.Outlined.DeleteForever) { confirmErase = true }
                 }
             }
+            if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) {
+                item(key = "updates") { UpdatesSection(onMessage = { show(it) }) }
+            }
             item(key = "about") {
                 Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Kosh ${context.versionName()}", style = MaterialTheme.typography.labelLarge, color = KoshTheme.colors.subtleText)
@@ -559,3 +562,49 @@ private fun ScanDetails(r: ImportResult) {
     }
 }
 
+/** New versions: the daily check's switch and a manual "Check now". Only in the edition with internet access. */
+@Composable
+private fun UpdatesSection(onMessage: (String) -> Unit) {
+    val context = LocalContext.current
+    val updates = remember { com.amitjha.kosh.update.Updates(context) }
+    val scope = rememberCoroutineScope()
+    var enabled by remember { mutableStateOf(updates.enabled) }
+    var checking by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf<com.amitjha.kosh.update.Release?>(null) }
+    Section("Updates") {
+        SwitchRow(
+            "Tell me about new versions",
+            if (updates.fromStore) "Your app store updates Kosh; turn on to hear from GitHub too"
+            else "Once a day Kosh asks GitHub for the latest version number. Nothing about you is sent.",
+            enabled,
+            { v ->
+                updates.enabled = v
+                enabled = v
+            },
+            Icons.Outlined.Sync,
+        )
+        ActionRow("Check for updates", if (checking) "Checking…" else "You have ${com.amitjha.kosh.BuildConfig.VERSION_NAME}", Icons.Outlined.Sync, enabled = !checking) {
+            checking = true
+            scope.launch {
+                val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { updates.check(force = true) }
+                checking = false
+                when {
+                    r == null -> onMessage("Couldn't reach GitHub. Check your connection and try again.")
+                    updates.isNewer(r) -> found = r
+                    else -> onMessage("You have the latest version (${com.amitjha.kosh.BuildConfig.VERSION_NAME})")
+                }
+            }
+        }
+    }
+    found?.let { r ->
+        com.amitjha.kosh.update.UpdateDialog(
+            r,
+            onUpdate = {
+                com.amitjha.kosh.update.openDownload(context, r)
+                found = null
+            },
+            onLater = { found = null },
+            onSkip = null,
+        )
+    }
+}

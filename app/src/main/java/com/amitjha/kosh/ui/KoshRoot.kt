@@ -223,6 +223,8 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
                     }
                 }
                 if (locked) LockScreen(onUnlocked = { AppLock.markUnlocked() })
+                // A dialog is its own window, so it would show over the lock screen: only offer updates when unlocked.
+                if (stage == Stage.Main && !locked) com.amitjha.kosh.update.UpdatePrompt()
             }
         }
     }
