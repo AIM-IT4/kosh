@@ -1,0 +1,1 @@
+- When a new version is out, Kosh shows what's new and offers the download (it installs over this one and keeps your data). Once a day it asks GitHub for the latest version number; nothing about you is sent. Turn it off, or check now, in More › Updates. Installs from F-Droid or another store leave updates to that store
