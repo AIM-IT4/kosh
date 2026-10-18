@@ -49,13 +49,16 @@ class GoalAccuracyTest {
     @Test
     fun aShortGoalHoldsBackItsSavingOnlyWhileItRuns() {
         // ₹40K free a month. A needs ₹30K/month for 2 months; B ₹15K/month for 24 months. B used to get ₹10K for all
-        // 24 months and show off track; A only overlaps 2 of them.
+        // 24 months and show off track; A only overlaps 2 of them, so it fits overall: tight (₹10K free now).
         val a = GoalInput("Phone", rupees(60_000), 0, today.plusMonths(2), id = 1)
         val b = GoalInput("Trip", rupees(360_000), 0, today.plusMonths(24), id = 2)
         val result = GoalTracker.assess(listOf(b, a), rupees(40_000), today).associate { (g, r) -> g.id to r }
         assertEquals(GoalStanding.ON_TRACK, result.getValue(1).standing)
         assertEquals(rupees(37_500), result.getValue(2).capacity)
-        assertEquals(GoalStanding.ON_TRACK, result.getValue(2).standing)
+        assertEquals(rupees(10_000), result.getValue(2).freeNow)
+        assertEquals(GoalStanding.TIGHT, result.getValue(2).standing)
+        // Alone, it's comfortably on track.
+        assertEquals(GoalStanding.ON_TRACK, GoalTracker.assess(listOf(b), rupees(40_000), today).single().second.standing)
         assertEquals(GoalStanding.UNKNOWN, GoalTracker.assess(listOf(b), null, today).single().second.standing)
     }
 

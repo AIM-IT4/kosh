@@ -444,9 +444,12 @@ private fun GoalsTab(
                     if (g.hasLoan) append(" + loan ${money(g.goal.loanAmount)} (EMI ${money(g.loanEmi)} for ${g.goal.loanTenureMonths} months)")
                     else append(" at ${Fmt.pct(g.goal.expectedReturnPct, 0)} a year")
                     append(" · ${plan.monthsLeft} month${if (plan.monthsLeft == 1) "" else "s"} left")
-                    val free = (g.capacity ?: 0).coerceAtLeast(0)
-                    if (g.standing == GoalStanding.TIGHT) append(" · tight: you usually have ${money(free)} free a month")
-                    if (g.standing == GoalStanding.OFF_TRACK) append(" · more than the ${money(free)} you usually have free")
+                    val now = (g.freeNow ?: 0).coerceAtLeast(0)
+                    val overall = (g.capacity ?: 0).coerceAtLeast(0)
+                    if (g.standing == GoalStanding.TIGHT) {
+                        append(if (plan.requiredMonthly > now) " · tight: ${money(now)} free now, more once earlier goals finish" else " · tight: ${money(overall)} free a month")
+                    }
+                    if (g.standing == GoalStanding.OFF_TRACK) append(" · more than the ${money(overall)} you usually have free")
                 }
             }
             Column {

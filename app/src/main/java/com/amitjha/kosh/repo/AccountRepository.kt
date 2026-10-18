@@ -66,7 +66,8 @@ class AccountRepository(
         combine(dao.observeActive(), txns.observeChanges()) { accounts, _ -> accounts }
             .mapLatest { accounts -> accounts.map { withBalance(it) } }
             .flowOn(Dispatchers.Default)
-            .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+            // The last value is dropped once nothing observes it, so a screen opened later never sees stale balances.
+            .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0), replay = 1)
 
     /** Active accounts with balances (pending ones included, flagged), recomputed on any change. */
     fun observeAccounts(): Flow<List<AccountWithBalance>> = shared
