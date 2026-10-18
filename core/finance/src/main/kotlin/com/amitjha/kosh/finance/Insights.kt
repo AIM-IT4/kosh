@@ -21,6 +21,11 @@ data class InsightTxn(
     val merchant: String?,
     val accountId: Long,
     val isCreditCard: Boolean = false,
+    /**
+     * For income: whether it is earned (salary, interest, business, rent). Refunds, cashback and money received from
+     * others come in too but aren't income, so savings figures and goals leave them out.
+     */
+    val earned: Boolean = true,
 )
 
 data class BudgetInput(val category: String?, val monthlyLimit: Paise)
@@ -40,6 +45,8 @@ data class GoalInput(
     val createdAt: LocalDate? = null,
     /** Database id, used to open the goal from the insight. */
     val id: Long? = null,
+    /** How fast the price rises, % a year (0 = fixed in today's rupees). */
+    val inflationPct: Double = 0.0,
 )
 data class AccountInput(val id: Long, val name: String, val type: AccountType, val balance: Paise, val creditLimit: Paise? = null)
 data class BillInput(
@@ -138,7 +145,10 @@ object InsightEngine {
     val SPIKE_MIN_BASE: Paise = Money.fromRupees(1_000.0)
     const val SAVINGS_GUIDELINE = 0.20
     /** A goal is comfortably on track when it needs at most this share of the available surplus. */
-    const val GOAL_COMFORT_SHARE = 0.8
+    const val GOAL_COMFORT_SHARE = GoalTracker.COMFORT_SHARE
+
+    /** Expense categories that are money put aside rather than spent. */
+    val SAVED_CATEGORIES = setOf("investment")
     /** Complete budgeting months averaged to estimate the monthly surplus available for goals. */
     const val GOAL_SURPLUS_MONTHS = 3
     const val SAVINGS_GREAT = 0.30
@@ -215,7 +225,12 @@ object InsightEngine {
             expenses.filter { YearMonth.from(it.date) == m && (category == null || it.category == category) }
 
         fun spent(m: YearMonth, category: String? = null): Paise = expensesIn(m, category).sumOf { it.amount }
-        fun income(m: YearMonth): Paise = incomes.filter { YearMonth.from(it.date) == m }.sumOf { it.amount }
+
+        /** Earned income only: refunds, cashback and money from others aren't income. */
+        fun income(m: YearMonth): Paise = incomes.filter { it.earned && YearMonth.from(it.date) == m }.sumOf { it.amount }
+
+        /** Money moved into investments (SIPs and the like) in [m]: saved, not spent. */
+        fun invested(m: YearMonth): Paise = expensesIn(m).filter { it.category in SAVED_CATEGORIES }.sumOf { it.amount }
 
         /** Average monthly expense over the three full months before this one (only months with data). */
         val avgMonthlyExpense: Paise by lazy {
@@ -379,32 +394,37 @@ object InsightEngine {
         )
     }
 
-    /** Monthly surplus (income − spending) averaged over the last complete budgeting months that have data. */
+    /**
+     * Monthly surplus averaged over the last complete budgeting months that have data: earned income less spending,
+     * where money put into investments counts as saved, not spent. The Goals screen uses the same rule.
+     */
     private fun recentSurplus(c: Context): Paise? {
         val months = (1..GOAL_SURPLUS_MONTHS).map { c.month.minusMonths(it.toLong()) }
             .filter { c.income(it) != 0L || c.spent(it) != 0L }
         if (months.isEmpty()) return null
-        return months.sumOf { c.income(it) - c.spent(it) } / months.size
+        return months.sumOf { c.income(it) - (c.spent(it) - c.invested(it)) } / months.size
     }
 
     private fun goalRules(c: Context): List<Insight> {
         val today = real(c.today)
         val surplus = recentSurplus(c)
-        // Earlier deadlines get first call on the surplus.
-        val plans = c.input.goals.map { g ->
-            g to Goals.planGoal(g.target, g.saved, real(g.deadline), today, g.expectedReturnPct, g.loanAmount)
-        }.sortedBy { it.first.deadline }
-        var committedEarlier = 0L
-        return plans.map { (g, plan) ->
-            val capacity = surplus?.let { it - committedEarlier }
-            val insight = goalInsight(c, g, plan, surplus, capacity, today)
-            if (!plan.reached && !plan.overdue) committedEarlier += plan.requiredMonthly
-            insight
-        }
+        return GoalTracker.assess(c.input.goals, surplus, today, deadlineOf = { real(it.deadline) })
+            .map { (g, a) -> goalInsight(c, g, a.plan, surplus, a.capacity, today, a.standing) }
     }
 
-    private fun goalInsight(c: Context, g: GoalInput, plan: GoalPlan, surplus: Paise?, capacity: Paise?, today: LocalDate): Insight {
-        val id = "goal_${slug(g.name)}"
+    private fun goalInsight(
+        c: Context,
+        g: GoalInput,
+        plan: GoalPlan,
+        surplus: Paise?,
+        capacity: Paise?,
+        today: LocalDate,
+        standing: GoalStanding,
+    ): Insight {
+        // Unique per goal (names can repeat, and non-Latin names have no slug) and per standing, so dismissing
+        // "on track" doesn't also hide a later "off track".
+        val key = g.id?.toString() ?: slug(g.name).ifEmpty { Integer.toHexString(g.name.hashCode()) }
+        val id = "goal_${key}_${standing.name.lowercase()}"
         val toSave = plan.target
         val deadline = real(g.deadline)
         val loanNote = if (g.loanAmount > 0) {
@@ -420,13 +440,10 @@ object InsightEngine {
             add(m("Needed/month", compact(plan.requiredMonthly)))
             add(m("Your surplus/month", surplus?.let { compact(it) } ?: "-"))
             add(m("Expected return", "${"%.1f".format(g.expectedReturnPct)}%"))
+            if (g.inflationPct > 0) add(m("Price rise", "${"%.1f".format(g.inflationPct)}%/yr"))
             if (!plan.reached && !plan.overdue && plan.monthsLeft > 0) {
-                // Uncertain returns: chance of making it at the planned saving, and the saving for 80% confidence.
-                val sim = GoalSimulation.simulate(
-                    GoalSimulation.Input(toSave, g.saved, plan.monthsLeft, plan.requiredMonthly, g.expectedReturnPct),
-                    paths = 2000, seed = GoalSimulation.seedFor(g.id, g.name),
-                )
-                add(m("Chance at plan", "${(sim.probability * 100).roundToInt()}%"))
+                // Returns vary: the plan's amount makes it about half the time, so show what makes it 4 times in 5.
+                val sim = GoalSimulation.forGoal(g.copy(deadline = real(g.deadline)), plan)
                 add(m("For 80% confidence", compact(sim.monthlyForConfidence) + "/mo"))
             }
         }
@@ -443,6 +460,12 @@ object InsightEngine {
                 Severity.GOOD, if (g.loanAmount > 0) "${g.name}: savings target reached" else "Goal reached: ${g.name}",
                 "You've saved ${fmt(g.saved)}, enough for the ${fmt(toSave)} you planned to save.",
                 basics, 30,
+            )
+            plan.dueNow -> insight(
+                Severity.WARNING, "${g.name}: ${fmt(plan.gap)} still needed",
+                "The date is ${dateText} and no month-end saving is left before it, so the rest is needed in one go. " +
+                    "Add what you've saved, or move the date.",
+                basics, 70,
             )
             plan.overdue -> {
                 val remaining = toSave - g.saved
@@ -533,7 +556,9 @@ object InsightEngine {
     private fun idleCash(c: Context): List<Insight> {
         val avg = c.avgMonthlyExpense
         if (avg <= 0) return emptyList()
-        val excess = c.liquid - (avg * EMERGENCY_TARGET_MONTHS).roundToLong()
+        // Money already put aside for goals isn't idle, even while it sits in the bank.
+        val forGoals = c.input.goals.sumOf { it.saved.coerceAtLeast(0) }
+        val excess = c.liquid - forGoals - (avg * EMERGENCY_TARGET_MONTHS).roundToLong()
         if (excess < IDLE_CASH_MIN_EXCESS) return emptyList()
         return listOf(
             Insight(

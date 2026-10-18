@@ -35,6 +35,7 @@ class InsightRepository(
     private val accounts: AccountRepository,
     private val settings: SettingsStore,
     private val budgetRepo: BudgetRepository,
+    private val planningPrefs: com.amitjha.kosh.data.prefs.PlanningPrefs,
 ) {
 
     /** Insights the user has not dismissed, most important first. */
@@ -50,6 +51,7 @@ class InsightRepository(
             db.bills().observeUnpaid(),
             db.investments().observeActive(),
             settings.settings,
+            planningPrefs.goalInflation,
             ),
         ) { values -> values.size }
             .debounce(300)
@@ -59,7 +61,8 @@ class InsightRepository(
     suspend fun generate(includeDismissed: Boolean = false, today: LocalDate = Time.today()): List<Insight> {
         val input = buildInput(today)
         val dismissed = if (includeDismissed) emptySet() else settings.current().dismissedInsightIds
-        return InsightEngine.generate(input).filterNot { it.id in dismissed }
+        // Ids are unique by construction; distinctBy keeps a list keyed by id from ever crashing on a repeat.
+        return InsightEngine.generate(input).filterNot { it.id in dismissed }.distinctBy { it.id }
     }
 
     suspend fun dismiss(id: String) = settings.dismissInsight(id)
@@ -93,6 +96,7 @@ class InsightRepository(
                     merchant = t.merchant,
                     accountId = t.accountId,
                     isCreditCard = t.accountId in cardIds,
+                    earned = t.type != com.amitjha.kosh.model.TxnType.INCOME || com.amitjha.kosh.domain.MoneyIn.isEarned(t),
                 )
             }
         val byId = accountList.associateBy { it.id }
@@ -101,20 +105,7 @@ class InsightRepository(
             transactions = txns,
             // Limits include what rolled over, matching the Budgets screen.
             budgets = budgetRepo.observeStatuses().first().map { BudgetInput(it.budget.categoryKey, it.limit) },
-            goals = db.goals().all().map {
-                GoalInput(
-                    name = it.name,
-                    target = it.target,
-                    saved = it.saved,
-                    deadline = LocalDate.ofEpochDay(it.deadline),
-                    expectedReturnPct = it.expectedReturnPct,
-                    loanAmount = it.loanAmount,
-                    loanRatePct = it.loanRatePct,
-                    loanTenureMonths = it.loanTenureMonths,
-                    createdAt = Time.toDate(it.createdAt),
-                    id = it.id,
-                )
-            },
+            goals = planningPrefs.goalInflation.first().let { inflation -> db.goals().all().map { it.toInput(inflation[it.id] ?: 0.0) } },
             // Accounts the user hasn't confirmed have no trustworthy balance, so balance rules ignore them.
             accounts = accountList.filter { it.counted }.map { a ->
                 AccountInput(

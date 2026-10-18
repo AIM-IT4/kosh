@@ -125,7 +125,7 @@ class ScreensScreenshotTest {
     @Test
     fun home_left_to_spend() = paparazzi.snapshot {
         val safe = com.amitjha.kosh.repo.SafeToSpend.plan(
-            today = java.time.LocalDate.of(2026, 10, 15), payDay = 25, liquid = 40_000_000L, cardDues = 0,
+            today = java.time.LocalDate.of(2026, 10, 15), cycle = com.amitjha.kosh.finance.PayCycle(25), liquid = 40_000_000L, cardDues = 0,
             upcoming = listOf(com.amitjha.kosh.finance.BudgetMath.Due(java.time.LocalDate.of(2026, 10, 18), 200_000L, "SIP")),
             overallBudget = null, incomeThisPeriod = 10_000_000L, usualMonthlySpend = null, spentThisPeriod = 3_000_000L,
             salary = 10_000_000L, savingsTarget = 2_000_000L,

@@ -63,6 +63,7 @@ import com.amitjha.kosh.model.Money
 import com.amitjha.kosh.model.TxnType
 import com.amitjha.kosh.repo.BudgetStatus
 import com.amitjha.kosh.repo.GoalStatus
+import com.amitjha.kosh.finance.GoalStanding
 import com.amitjha.kosh.ui.common.AmountField
 import com.amitjha.kosh.ui.common.AmountSheet
 import com.amitjha.kosh.ui.common.ChoiceField
@@ -168,6 +169,7 @@ fun PlanningScreen(@Suppress("UNUSED_PARAMETER") nav: NavController) {
     if (newGoal || editGoal != null) {
         GoalSheet(
             goal = editGoal,
+            inflationPct = editGoal?.let { g -> state.goals.firstOrNull { it.goal.id == g.id }?.inflationPct } ?: 0.0,
             onDismiss = {
                 newGoal = false
                 editGoal = null
@@ -431,22 +433,29 @@ private fun GoalsTab(
     LazyColumn(contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(state.goals, key = { it.goal.id }) { g ->
             val plan = g.plan
-            val hint = when {
-                plan.reached -> "Goal reached 🎉"
-                plan.overdue -> "Deadline passed · ${Fmt.date(g.deadline)}"
-                g.hasLoan -> "Save ${if (hidden) "₹ ••••" else Money.format(plan.requiredMonthly, showPaise = false)}/month + loan " +
-                    "${if (hidden) "₹ ••••" else Money.format(g.goal.loanAmount, showPaise = false)} (EMI " +
-                    "${if (hidden) "₹ ••••" else Money.format(g.loanEmi, showPaise = false)} for ${g.goal.loanTenureMonths} months)"
-                else -> "Save ${if (hidden) "₹ ••••" else Money.format(plan.requiredMonthly, showPaise = false)}/month at " +
-                    "${Fmt.pct(g.goal.expectedReturnPct, 0)} a year · ${plan.monthsLeft} months left"
+            val money = { p: Long -> if (hidden) "₹ ••••" else Money.format(p, showPaise = false) }
+            val hint = when (g.standing) {
+                GoalStanding.REACHED -> "Goal reached 🎉"
+                GoalStanding.OVERDUE -> "Deadline passed · ${Fmt.date(g.deadline)} · ${money(plan.gap)} to go"
+                GoalStanding.DUE_NOW -> "${money(plan.gap)} needed by ${Fmt.date(g.deadline)}"
+                else -> buildString {
+                    append("Save ${money(plan.requiredMonthly)}/month")
+                    if (g.hasLoan) append(" + loan ${money(g.goal.loanAmount)} (EMI ${money(g.loanEmi)} for ${g.goal.loanTenureMonths} months)")
+                    else append(" at ${Fmt.pct(g.goal.expectedReturnPct, 0)} a year")
+                    append(" · ${plan.monthsLeft} month${if (plan.monthsLeft == 1) "" else "s"} left")
+                    val free = (g.capacity ?: 0).coerceAtLeast(0)
+                    if (g.standing == GoalStanding.TIGHT) append(" · tight: you usually have ${money(free)} free a month")
+                    if (g.standing == GoalStanding.OFF_TRACK) append(" · more than the ${money(free)} you usually have free")
+                }
             }
             Column {
                 GoalCard(
                     name = g.goal.name,
                     saved = g.goal.saved,
-                    target = g.goal.target,
+                    // What has to be saved: the price at the date (with any rise) less the loan, so the ring and "reached" agree.
+                    target = plan.target.takeIf { it > 0 } ?: g.goal.target,
                     hint = hint,
-                    onTrack = !plan.overdue,
+                    onTrack = g.looksOnTrack,
                     hidden = hidden,
                     onClick = { onOpen(g.goal) },
                 )
@@ -473,7 +482,13 @@ private fun GoalsTab(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEntity) -> Unit, onDelete: (() -> Unit)?) {
+private fun GoalSheet(
+    goal: GoalEntity?,
+    onDismiss: () -> Unit,
+    onSave: (GoalEntity) -> Unit,
+    onDelete: (() -> Unit)?,
+    inflationPct: Double = 0.0,
+) {
     val haptic = rememberHaptic()
     var name by remember { mutableStateOf(goal?.name ?: "") }
     var target by remember { mutableStateOf(goal?.target) }
@@ -507,14 +522,13 @@ private fun GoalSheet(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (GoalEnt
                     onMonths = { loanMonths = it },
                 )
                 val loanForPlan = if (loanOn) (loanAmount ?: 0) else 0
-                RequiredSaving(
-                    target?.let { com.amitjha.kosh.domain.GoalLoan.savingsTarget(it, loanForPlan) },
-                    saved, deadline, ret.toDoubleOrNull()?.coerceIn(0.0, 30.0) ?: 7.0,
-                )
+                RequiredSaving(target, saved, deadline, ret.toDoubleOrNull()?.coerceIn(0.0, 30.0) ?: 7.0, loanForPlan, inflationPct)
+                // A past date gives no plan; an existing goal can still be saved with its date unchanged.
+                val dateOk = deadline.isAfter(Time.today()) || (goal != null && deadline.toEpochDay() == goal.deadline)
                 if (goal != null) com.amitjha.kosh.ui.household.HouseholdSwitch(com.amitjha.kosh.sync.HouseholdKind.GOAL, goal.id, card = false)
                 PrimaryButton(
                     if (goal == null) "Create goal" else "Save",
-                    enabled = name.isNotBlank() && (target ?: 0) > 0,
+                    enabled = name.isNotBlank() && (target ?: 0) > 0 && dateOk,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         haptic()
@@ -645,27 +659,30 @@ private fun LoanSection(
     }
 }
 
-/** Live "Required monthly saving" for the goal as the inputs change. */
+/** Live "Required monthly saving" for the goal as the inputs change, by the same plan the Goals screen shows. */
 @Composable
-private fun RequiredSaving(target: Long?, saved: Long, deadline: LocalDate, returnPct: Double) {
+private fun RequiredSaving(target: Long?, saved: Long, deadline: LocalDate, returnPct: Double, loan: Long, inflationPct: Double) {
     val t = target ?: return
-    val plan = remember(t, saved, deadline, returnPct) {
-        com.amitjha.kosh.finance.Goals.plan(t, saved, deadline, Time.today(), returnPct)
+    val plan = remember(t, saved, deadline, returnPct, loan, inflationPct) {
+        com.amitjha.kosh.finance.Goals.planGoal(t, saved, deadline, Time.today(), returnPct, loan, inflationPct)
     }
     KoshCard(contentPadding = PaddingValues(14.dp)) {
         Text("Required monthly saving", style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.subtleText)
         Text(
             when {
                 plan.reached -> "Already reached"
-                plan.overdue -> "Pick a date in the future"
-                else -> Money.format(plan.requiredMonthly, showPaise = false) + " a month for ${plan.monthsLeft} months"
+                plan.overdue || !deadline.isAfter(Time.today()) -> "Pick a date in the future"
+                plan.dueNow -> Money.format(plan.gap, showPaise = false) + " needed before the date (no month-end left)"
+                else -> Money.format(plan.requiredMonthly, showPaise = false) + " a month for ${plan.monthsLeft} month" +
+                    if (plan.monthsLeft == 1) "" else "s"
             },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
-        if (!plan.reached && !plan.overdue) {
+        if (!plan.reached && !plan.overdue && !plan.dueNow) {
             Text(
-                "Assuming your savings earn ${Fmt.pct(returnPct, 0)} a year.",
+                "Saved at each month-end, earning ${Fmt.pct(returnPct, 0)} a year" +
+                    (if (inflationPct > 0) ", for a price rising ${Fmt.pct(inflationPct, 0)} a year" else "") + ".",
                 style = MaterialTheme.typography.bodySmall,
                 color = KoshTheme.colors.subtleText,
             )

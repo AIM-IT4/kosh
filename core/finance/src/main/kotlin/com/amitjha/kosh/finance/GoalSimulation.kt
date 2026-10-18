@@ -6,7 +6,6 @@ import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
-import kotlin.math.pow
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
@@ -15,8 +14,10 @@ import kotlin.math.sqrt
  * returns are uncertain.
  *
  * Each month the pot grows by a lognormal factor whose mean equals the deterministic monthly growth
- * `1 + r/12` used by [Goals.requiredMonthlySip], then the monthly saving is added at month end (an ordinary
- * annuity, as in the plan). With zero volatility the simulation therefore reproduces [Goals.plan] exactly.
+ * `1 + i` ([Goals.monthlyRate]) used by [Goals.requiredMonthlySip], then the monthly saving is added at month end (an
+ * ordinary annuity, as in the plan). With zero volatility the simulation therefore reproduces [Goals.plan] exactly.
+ * Saving exactly the plan's amount therefore succeeds in a little under half the paths; the useful figure is the
+ * saving needed for [CONFIDENCE].
  *
  * The pot after month t is linear in the monthly saving m: `A_t + m · B_t`, where A is the current savings
  * grown along the path and B the grown sum of one-rupee instalments. One pass therefore gives the success
@@ -30,6 +31,7 @@ object GoalSimulation {
     private const val FAN_POINTS = 24
 
     data class Input(
+        /** The price of the goal today (before any loan). */
         val target: Paise,
         val saved: Paise,
         val months: Int,
@@ -41,6 +43,8 @@ object GoalSimulation {
         val volatilityPct: Double? = null,
         /** Price inflation of the target, % a year (0 = target fixed in today's rupees). */
         val inflationPct: Double = 0.0,
+        /** A purchase loan covering part of the price; a fixed amount, so it doesn't grow with inflation. */
+        val loanAmount: Paise = 0,
     )
 
     /** One point of the fan chart: month index and the 10th / 50th / 90th percentile of the pot. */
@@ -77,7 +81,7 @@ object GoalSimulation {
     fun simulate(input: Input, paths: Int = DEFAULT_PATHS, seed: Long = seedFor(input)): Result {
         val months = input.months.coerceAtLeast(0)
         val sigma = input.volatilityPct ?: volatilityFor(input.expectedReturnPct)
-        val targetAt = (input.target * (1 + input.inflationPct / 100.0).pow(months / 12.0)).roundToLong()
+        val targetAt = toSave(input, months)
         val m = input.monthlySaving.toDouble()
 
         if (months == 0) {
@@ -88,7 +92,7 @@ object GoalSimulation {
         }
 
         val sM = sigma / 100.0 / sqrt(12.0)
-        val mu = ln(1 + input.expectedReturnPct / 100.0 / 12.0) - 0.5 * sM * sM
+        val mu = ln(1 + Goals.monthlyRate(input.expectedReturnPct)) - 0.5 * sM * sM
         val sampleMonths = sampleMonths(months)
         val aAt = Array(sampleMonths.size) { DoubleArray(paths) }
         val bAt = Array(sampleMonths.size) { DoubleArray(paths) }
@@ -119,7 +123,7 @@ object GoalSimulation {
         finals.sort()
         val fan = sampleMonths.mapIndexed { i, month ->
             val v = DoubleArray(paths) { aAt[i][it] + m * bAt[i][it] }.also { it.sort() }
-            val tgt = (input.target * (1 + input.inflationPct / 100.0).pow(month / 12.0)).roundToLong()
+            val tgt = toSave(input, month)
             FanPoint(month, pct(v, 0.10), pct(v, 0.50), pct(v, 0.90), tgt)
         }
         return Result(
@@ -133,6 +137,20 @@ object GoalSimulation {
             volatilityPct = sigma,
         )
     }
+
+    /** What has to be saved by month [months]: the grown price less the loan. */
+    private fun toSave(input: Input, months: Int): Paise =
+        GoalLoan.savingsTarget(Goals.grown(input.target, input.inflationPct, months), input.loanAmount)
+
+    /**
+     * The outlook for [goal] at its [plan]'s monthly saving, with the same paths and seed wherever it is shown (the
+     * Goals screen and the insights), so both quote the same figures.
+     */
+    fun forGoal(goal: GoalInput, plan: GoalPlan): Result = simulate(
+        Input(goal.target, goal.saved, plan.monthsLeft, plan.requiredMonthly, goal.expectedReturnPct,
+            inflationPct = goal.inflationPct, loanAmount = goal.loanAmount),
+        seed = seedFor(goal.id, goal.target),
+    )
 
     private fun sampleMonths(months: Int): IntArray {
         val n = minOf(FAN_POINTS, months)
