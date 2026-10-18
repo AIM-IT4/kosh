@@ -14,6 +14,7 @@ import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.Bank
 import com.amitjha.kosh.model.TxnSource
 import com.amitjha.kosh.model.TxnType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -38,6 +39,11 @@ data class ImportResult(
     val unparsedSamples: List<String> = emptyList(),
     /** Set when the SMS store could not be read (for example a SecurityException). */
     val readError: String? = null,
+    /** Bank messages that were read but could not be stored, and why (masked). */
+    val failed: Int = 0,
+    val failures: List<String> = emptyList(),
+    /** Earlier imports moved to the right date (their send time was implausible, see [SmsTime]). */
+    val redated: Int = 0,
 ) {
     /** Number of SMS read from the phone. */
     val messagesRead: Int get() = scanned
@@ -45,14 +51,34 @@ data class ImportResult(
     /** Messages that passed the financial gate. */
     val financialCandidates: Int get() = financial
 
+    /** What went wrong, in words for the user; null when everything could be read and stored. */
+    val problem: String?
+        get() = when {
+            permissionMissing -> "SMS access is off"
+            readError != null -> readError
+            failed > 0 -> "$failed bank SMS couldn't be saved"
+            else -> null
+        }
+
     operator fun plus(o: ImportResult) = ImportResult(
-        scanned + o.scanned, financial + o.financial, inserted + o.inserted, duplicates + o.duplicates,
-        bills + o.bills, balancesUpdated + o.balancesUpdated, accountsCreated + o.accountsCreated, ignored + o.ignored,
-        permissionMissing || o.permissionMissing, insertedTransactions + o.insertedTransactions,
-        parsedTransactions + o.parsedTransactions, parsedBills + o.parsedBills,
-        (ignoredByReason.keys + o.ignoredByReason.keys).associateWith { (ignoredByReason[it] ?: 0) + (o.ignoredByReason[it] ?: 0) },
-        (unparsedSamples + o.unparsedSamples).take(MAX_SAMPLES),
-        readError ?: o.readError,
+        scanned = scanned + o.scanned,
+        financial = financial + o.financial,
+        inserted = inserted + o.inserted,
+        duplicates = duplicates + o.duplicates,
+        bills = bills + o.bills,
+        balancesUpdated = balancesUpdated + o.balancesUpdated,
+        accountsCreated = accountsCreated + o.accountsCreated,
+        ignored = ignored + o.ignored,
+        permissionMissing = permissionMissing || o.permissionMissing,
+        insertedTransactions = insertedTransactions + o.insertedTransactions,
+        parsedTransactions = parsedTransactions + o.parsedTransactions,
+        parsedBills = parsedBills + o.parsedBills,
+        ignoredByReason = (ignoredByReason.keys + o.ignoredByReason.keys).associateWith { (ignoredByReason[it] ?: 0) + (o.ignoredByReason[it] ?: 0) },
+        unparsedSamples = (unparsedSamples + o.unparsedSamples).take(MAX_SAMPLES),
+        readError = readError ?: o.readError,
+        failed = failed + o.failed,
+        failures = (failures + o.failures).take(MAX_SAMPLES),
+        redated = redated + o.redated,
     )
 
     companion object {
@@ -111,10 +137,11 @@ class SmsImporter(
         val since = sinceMillis ?: if (lastScan > 0) lastScan - OVERLAP_MILLIS else System.currentTimeMillis() - FIRST_SCAN_DAYS * DAY_MILLIS
         val started = System.currentTimeMillis()
         val read = withContext(Dispatchers.IO) { readAll(since) }
-        val result = importMessages(read.first)
+        val result = importMessages(read.first).copy(scanned = read.first.size, readError = read.second)
         // Only move the scan cursor forward when something could actually be read.
         if (read.second == null && read.first.isNotEmpty()) settings.setSmsLastScan(started)
-        return result.copy(scanned = read.first.size, readError = read.second)
+        settings.setSmsProblem(result.problem, started)
+        return result
     }
 
     /** "Scan inbox now": always re-reads the last [FIRST_SCAN_DAYS] days; fingerprints prevent duplicates. */
@@ -129,22 +156,13 @@ class SmsImporter(
             for (msg in messages.sortedBy { it.timestampMillis }) {
                 if (!isFinancialMessage(msg.sender, msg.body)) continue
                 result = result.copy(financial = result.financial + 1)
-                result = when (val parsed = runCatching { SmsParser.parse(msg) }.getOrNull()) {
-                    is SmsParseResult.Transaction ->
-                        result + importTransaction(parsed.txn, rules, msg).copy(parsedTransactions = 1)
-                    is SmsParseResult.CardBill -> result + importBill(parsed.bill).copy(parsedBills = 1)
-                    is SmsParseResult.BalanceUpdate -> result + importBalance(parsed.update)
-                    is SmsParseResult.Ignored, null -> {
-                        val reason = (parsed as? SmsParseResult.Ignored)?.reason ?: "parse error"
-                        val sample = if (looksTransactional(msg.body) && result.unparsedSamples.size < ImportResult.MAX_SAMPLES &&
-                            reason in UNPARSED_REASONS
-                        ) {
-                            listOf(ImportResult.mask(msg.sender, msg.body))
-                        } else {
-                            emptyList()
-                        }
-                        result + ImportResult(ignored = 1, ignoredByReason = mapOf(reason to 1), unparsedSamples = sample)
-                    }
+                // One message that can't be stored must not hold up the ones after it (or the scan cursor).
+                result += try {
+                    importOne(msg, rules)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ImportResult(failed = 1, failures = listOf("${e.javaClass.simpleName} · ${ImportResult.mask(msg.sender, msg.body)}"))
                 }
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
@@ -158,11 +176,28 @@ class SmsImporter(
         }
     }
 
+    private suspend fun importOne(msg: SmsMessage, rules: Map<String, String>): ImportResult =
+        when (val parsed = runCatching { SmsParser.parse(msg) }.getOrNull()) {
+            is SmsParseResult.Transaction -> importTransaction(parsed.txn, rules, msg).copy(parsedTransactions = 1)
+            is SmsParseResult.CardBill -> importBill(parsed.bill).copy(parsedBills = 1)
+            is SmsParseResult.BalanceUpdate -> importBalance(parsed.update)
+            is SmsParseResult.Ignored, null -> {
+                val reason = (parsed as? SmsParseResult.Ignored)?.reason ?: "parse error"
+                val sample = if (looksTransactional(msg.body) && reason in UNPARSED_REASONS) listOf(ImportResult.mask(msg.sender, msg.body)) else emptyList()
+                ImportResult(ignored = 1, ignoredByReason = mapOf(reason to 1), unparsedSamples = sample)
+            }
+        }
+
     private suspend fun importTransaction(p: ParsedTransaction, rules: Map<String, String>, msg: SmsMessage? = null): ImportResult {
         val body = msg?.body.orEmpty()
         val txnDao = db.transactions()
         // Same SMS imported before 1.8, when inbox scans fingerprinted with the phone's storage time.
         if (msg != null && p.referenceNo == null && isKnownUnderReceivedTime(msg, p)) return ImportResult(duplicates = 1)
+        // Imported before 2.1.8 under a send time the phone got wrong.
+        if (msg != null) redateMisdated(msg, p)?.let { moved -> return ImportResult(duplicates = 1, redated = if (moved) 1 else 0) }
+        // Already imported, or deleted by the user. Stopping here also keeps a re-read message from claiming a
+        // transfer the user recorded by hand after the import: its fingerprint is taken, so storing it would fail.
+        if (txnDao.countFingerprint(p.fingerprint) > 0 || db.tombstones().contains(p.fingerprint)) return ImportResult(duplicates = 1)
 
         var created = 0
         val debitCard = !p.isCreditCard && SmsMapping.isDebitCardMessage(body)
@@ -190,9 +225,6 @@ class SmsImporter(
             // Messages for an account the user ignored are kept but never counted.
             excludeFromStats = base.excludeFromStats || account.archived,
         )
-        // The user deleted this import before; a re-scan must not bring it back.
-        val fp = entity.fingerprint
-        if (fp != null && db.tombstones().contains(fp)) return ImportResult(duplicates = 1, accountsCreated = created)
         val id = txnDao.insertIgnore(entity)
         var balances = 0
         if (id > 0) {
@@ -277,6 +309,24 @@ class SmsImporter(
         return legacy.txn.fingerprint != p.fingerprint && db.transactions().countFingerprint(legacy.txn.fingerprint) > 0
     }
 
+    /**
+     * Finds the row an earlier version imported under the message's implausible send time and moves it to the
+     * corrected time, unless the user has changed its date since. Null when there is no such row; otherwise
+     * whether its date moved.
+     */
+    private suspend fun redateMisdated(msg: SmsMessage, p: ParsedTransaction): Boolean? {
+        val wrong = msg.implausibleSentMillis ?: return null
+        val old = runCatching { SmsParser.parse(msg.copy(timestampMillis = wrong, receivedMillis = null, implausibleSentMillis = null)) }
+            .getOrNull() as? SmsParseResult.Transaction ?: return null
+        val dao = db.transactions()
+        val row = dao.byFingerprint(old.txn.fingerprint) ?: return null
+        if (row.timestamp != old.txn.timestampMillis) return false
+        val fingerprint = if (old.txn.fingerprint == p.fingerprint || dao.countFingerprint(p.fingerprint) == 0) p.fingerprint else row.fingerprint
+        if (row.timestamp == p.timestampMillis && fingerprint == row.fingerprint) return false
+        dao.update(row.copy(timestamp = p.timestampMillis, fingerprint = fingerprint))
+        return row.timestamp != p.timestampMillis
+    }
+
     private suspend fun isNearDuplicate(accountId: Long, p: ParsedTransaction): Boolean {
         val nearby = db.transactions().findAmountNear(
             accountId, p.amount, p.timestampMillis - NEAR_DUPLICATE_MILLIS, p.timestampMillis + NEAR_DUPLICATE_MILLIS,
@@ -335,18 +385,92 @@ class SmsImporter(
         val out = ArrayList<String>()
         for (msg in messages.asReversed()) {
             val r = runCatching { SmsParser.parse(msg) }.getOrNull() as? SmsParseResult.Transaction ?: continue
-            // Rows imported before 1.8 were fingerprinted with the storage time.
-            val legacy = msg.receivedMillis?.takeIf { it != msg.timestampMillis }?.let { at ->
-                (runCatching { SmsParser.parse(msg.copy(timestampMillis = at, receivedMillis = null)) }.getOrNull() as? SmsParseResult.Transaction)
-                    ?.txn?.fingerprint
-            }
-            if (r.txn.fingerprint in fingerprints || (legacy != null && legacy in fingerprints)) {
+            if (r.txn.fingerprint in fingerprints || legacyFingerprints(msg).any { it in fingerprints }) {
                 out += ImportResult.maskForSharing(msg.sender, msg.body)
                 if (out.size >= limit) break
             }
         }
         out
     }
+
+    /**
+     * A read-only look at the last [days] days of bank SMS: which are counted, which are in Kosh but not counted
+     * (and why), which are missing and which were skipped. Nothing is written. Also returns how many SMS were read.
+     */
+    suspend fun checkup(days: Long = CHECKUP_DAYS): Pair<List<CheckupItem>, Int> = withContext(Dispatchers.IO) {
+        if (!hasPermission()) return@withContext emptyList<CheckupItem>() to 0
+        val (messages, _) = readAll(System.currentTimeMillis() - days * DAY_MILLIS)
+        val accounts = db.accounts().all()
+        val items = messages.filter { isFinancialMessage(it.sender, it.body) }
+            .sortedByDescending { it.timestampMillis }
+            .map { msg -> runCatching { checkOne(msg, accounts) }.getOrElse { e ->
+                CheckupItem(msg.timestampMillis, CheckupItem.Verdict.SKIPPED, "Couldn't be checked", e.javaClass.simpleName,
+                    masked = ImportResult.maskForSharing(msg.sender, msg.body))
+            } }
+        items to messages.size
+    }
+
+    private suspend fun checkOne(msg: SmsMessage, accounts: List<AccountEntity>): CheckupItem {
+        val masked = ImportResult.maskForSharing(msg.sender, msg.body)
+        val skipped = CheckupItem(msg.timestampMillis, CheckupItem.Verdict.SKIPPED, "Skipped", masked = masked)
+        val p = when (val parsed = runCatching { SmsParser.parse(msg) }.getOrNull()) {
+            null -> return skipped.copy(reason = "the message couldn't be read")
+            is SmsParseResult.Ignored -> return skipped.copy(reason = parsed.reason)
+            is SmsParseResult.CardBill -> return skipped.copy(
+                verdict = CheckupItem.Verdict.OTHER, title = "Card bill · ${com.amitjha.kosh.model.Money.format(parsed.bill.totalDue)}",
+                reason = "a card bill, not a spend",
+            )
+            is SmsParseResult.BalanceUpdate -> return skipped.copy(
+                verdict = CheckupItem.Verdict.OTHER, title = "Balance update", reason = "used for the account's balance",
+            )
+            is SmsParseResult.Transaction -> parsed.txn
+        }
+        val verb = if (p.type == TxnType.INCOME) "received" else "spent"
+        val title = "${com.amitjha.kosh.model.Money.format(p.amount)} $verb${p.merchant?.let { " · $it" } ?: ""}"
+        val base = CheckupItem(p.timestampMillis, CheckupItem.Verdict.MISSING, title, reason = "not in Kosh yet", masked = masked)
+        val dao = db.transactions()
+        val account = SmsMapping.matchAccount(accounts, p.bank, p.accountLast4, p.isCreditCard)
+            ?: SmsMapping.debitCardAccount(accounts, p.bank).takeIf { !p.isCreditCard && SmsMapping.isDebitCardMessage(msg.body) }
+        val row = (listOf(p.fingerprint) + legacyFingerprints(msg)).firstNotNullOfOrNull { dao.byFingerprint(it) }
+            // The live receiver may have dated a message without a reference a minute apart.
+            ?: account?.let { a ->
+                dao.findAmountNear(a.id, p.amount, p.timestampMillis - NEAR_DUPLICATE_MILLIS, p.timestampMillis + NEAR_DUPLICATE_MILLIS)
+                    .firstOrNull { it.type == p.type && it.source != TxnSource.MANUAL && it.merchant == p.merchant }
+            }
+        if (row == null) {
+            return when {
+                dao.countReference(MANUAL_COVER_PREFIX + p.fingerprint) > 0 ->
+                    base.copy(verdict = CheckupItem.Verdict.NOT_COUNTED, reason = "matched to a transfer you added")
+                db.tombstones().contains(p.fingerprint) -> base.copy(verdict = CheckupItem.Verdict.NOT_COUNTED, reason = "you deleted it")
+                else -> base
+            }
+        }
+        val owner = accounts.firstOrNull { it.id == row.accountId }
+        val reason = when {
+            row.type == TxnType.TRANSFER || row.categoryKey == SmsMapping.TRANSFER_CATEGORY -> "a transfer between your own accounts"
+            owner?.archived == true -> "its account is ignored"
+            row.suspicious -> "held for review: the amount looks unusual"
+            row.excludeFromStats -> "excluded from totals"
+            else -> null
+        }
+        return base.copy(
+            verdict = if (reason == null) CheckupItem.Verdict.COUNTED else CheckupItem.Verdict.NOT_COUNTED,
+            reason = reason,
+            accountName = owner?.name,
+            datedAt = row.timestamp,
+            transactionId = row.id,
+        )
+    }
+
+    /**
+     * Fingerprints earlier versions gave this message: before 1.8 inbox scans used the storage time, before 2.1.8
+     * an implausible send time was used as is.
+     */
+    private fun legacyFingerprints(msg: SmsMessage): List<String> =
+        listOfNotNull(msg.receivedMillis?.takeIf { it != msg.timestampMillis }, msg.implausibleSentMillis).mapNotNull { at ->
+            (runCatching { SmsParser.parse(msg.copy(timestampMillis = at, receivedMillis = null, implausibleSentMillis = null)) }.getOrNull()
+                as? SmsParseResult.Transaction)?.txn?.fingerprint
+        }
 
     /** Marks the card's bills paid when a payment covers them. */
     private suspend fun settleBills(card: AccountEntity, amount: Long, at: Long) {
@@ -399,13 +523,15 @@ class SmsImporter(
                 val stored = c.getLong(iDate)
                 // The send time equals the live receiver's PDU timestamp, so both paths fingerprint alike.
                 val sent = if (iSent >= 0) c.getLong(iSent) else 0L
-                sink(SmsMessage(sender, body, if (sent > 0) sent else stored, receivedMillis = stored))
+                sink(SmsTime.message(sender, body, sent, stored, keepReceived = true))
             }
         }
     }
 
     companion object {
         const val FIRST_SCAN_DAYS = 180L
+        /** Days of messages the SMS check-up looks at. */
+        const val CHECKUP_DAYS = 7L
         private const val DAY_MILLIS = 86_400_000L
         /** Re-read a little before the last scan so messages delivered late are not missed. */
         private const val OVERLAP_MILLIS = 2 * DAY_MILLIS

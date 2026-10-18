@@ -541,6 +541,7 @@ private fun KoshNavHost(nav: NavHostController) {
         }
         composable(Routes.CALENDAR) { com.amitjha.kosh.ui.features.CalendarScreen(nav) }
         composable(Routes.WARRANTIES) { com.amitjha.kosh.ui.features.WarrantiesScreen(nav) }
+        composable(Routes.SMS_CHECKUP) { com.amitjha.kosh.ui.settings.SmsCheckupScreen(nav) }
     }
 }
 

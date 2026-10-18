@@ -32,15 +32,19 @@ import java.util.concurrent.TimeUnit
 data class DigestFigures(val spentToday: Paise, val budgetLeft: Paise?, val toReview: Int)
 
 object DigestText {
-    /** "Today ₹X spent · ₹Y left in budget · N to review", with amounts masked in privacy mode. */
-    fun build(f: DigestFigures, hideAmounts: Boolean): String {
+    /**
+     * "Today ₹X spent · ₹Y left in budget · N to review", with amounts masked in privacy mode. [smsProblem] says why
+     * new bank SMS may be missing, so a ₹0 day that isn't real doesn't pass for one.
+     */
+    fun build(f: DigestFigures, hideAmounts: Boolean, smsProblem: String? = null): String {
         fun money(p: Paise) = if (hideAmounts) "₹ ••••" else Money.format(p, showPaise = false)
         val parts = mutableListOf("Today ${money(f.spentToday)} spent")
         f.budgetLeft?.let { left ->
             parts += if (left >= 0) "${money(left)} left in budget" else "${money(-left)} over budget"
         }
         parts += "${f.toReview} to review"
-        return parts.joinToString(" · ")
+        val text = parts.joinToString(" · ")
+        return if (smsProblem == null) text else "$text\n$smsProblem. Open Kosh › More › SMS check-up."
     }
 
     /**
@@ -113,14 +117,14 @@ class DigestWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         val c = (applicationContext as KoshApp).container
         if (!c.notifications.canNotify()) return
         // Count today's spends even when the live SMS receiver missed them in the background.
-        com.amitjha.kosh.sms.SmsCatchUp.run(c, alert = true)
+        val sms = com.amitjha.kosh.sms.SmsCatchUp.run(c, alert = true)
         val settings = c.settings.current()
         val today = Time.today()
         val period = Period.containing(today, settings.monthStartDay)
         val txns = c.db.transactions().between(period.startMillis, period.endMillis)
         val budget = c.db.budgets().all().firstOrNull { it.categoryKey == null }?.monthlyLimit
         val review = c.db.transactions().observeUnreviewed().first().size
-        val text = DigestText.build(DigestText.figures(today, txns, budget, review), settings.hideAmounts)
+        val text = DigestText.build(DigestText.figures(today, txns, budget, review), settings.hideAmounts, sms?.problem)
         notify(applicationContext, text)
     }
 
@@ -145,7 +149,8 @@ class DigestWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
             val n = NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("Daily digest")
-                .setContentText(text)
+                .setContentText(text.substringBefore('\n'))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .setColor(0xFF4C3BE0.toInt())

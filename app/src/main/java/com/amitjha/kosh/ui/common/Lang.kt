@@ -56,6 +56,7 @@ object Hindi {
         "Sync now" to "अभी सिंक करें",
         "Scan SMS" to "SMS स्कैन करें",
         "Scan inbox now" to "अभी इनबॉक्स स्कैन करें",
+        "SMS check-up" to "SMS जाँच",
         "Back to home" to "होम पर लौटें",
         "Create a budget" to "बजट बनाएँ",
         "Create a goal" to "लक्ष्य बनाएँ",

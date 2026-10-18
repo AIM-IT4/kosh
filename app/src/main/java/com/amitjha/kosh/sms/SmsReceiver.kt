@@ -18,11 +18,13 @@ class SmsReceiver : BroadcastReceiver() {
             .orEmpty()
         if (parts.isEmpty()) return
         // Multi-part messages arrive as several PDUs from the same sender.
+        val now = System.currentTimeMillis()
         val messages = parts.groupBy { it.displayOriginatingAddress ?: it.originatingAddress ?: "" }
             .filterKeys { it.isNotEmpty() }
             .map { (sender, pdus) ->
-                // The PDU timestamp is the send time, the same value inbox scans read from DATE_SENT.
-                SmsMessage(sender, pdus.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }, pdus.first().timestampMillis)
+                // The PDU timestamp is the send time, the same value inbox scans read from DATE_SENT; a wrong
+                // network clock falls back to now, as the inbox falls back to the time it stored the message.
+                SmsTime.message(sender, pdus.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }, pdus.first().timestampMillis, now, keepReceived = false)
             }
             .filter { it.body.isNotBlank() && isFinancialMessage(it.sender, it.body) }
         if (messages.isEmpty()) return

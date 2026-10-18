@@ -188,6 +188,9 @@ interface TransactionDao {
     @Query("SELECT COUNT(*) FROM transactions WHERE fingerprint = :fingerprint")
     suspend fun countFingerprint(fingerprint: String): Int
 
+    @Query("SELECT * FROM transactions WHERE fingerprint = :fingerprint LIMIT 1")
+    suspend fun byFingerprint(fingerprint: String): TransactionEntity?
+
     /** Emits whenever the transactions table changes (Room re-runs the query on invalidation). */
     @Query("SELECT COUNT(*) FROM transactions")
     fun observeChanges(): Flow<Int>

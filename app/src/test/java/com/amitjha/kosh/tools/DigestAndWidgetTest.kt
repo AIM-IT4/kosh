@@ -56,6 +56,11 @@ class DigestAndWidgetTest {
         assertEquals("Today ₹ •••• spent · ₹ •••• left in budget · 3 to review", DigestText.build(f, hideAmounts = true))
         assertEquals("Today ₹0 spent · 0 to review", DigestText.build(DigestFigures(0, null, 0), false))
         assertEquals("Today ₹0 spent · ₹500 over budget · 1 to review", DigestText.build(DigestFigures(0, -500_00, 1), false))
+        // A ₹0 day the phone couldn't check says so.
+        assertEquals(
+            "Today ₹0 spent · 0 to review\nSMS access is off. Open Kosh › More › SMS check-up.",
+            DigestText.build(DigestFigures(0, null, 0), false, smsProblem = "SMS access is off"),
+        )
     }
 
     @Test fun widgetFigures() {

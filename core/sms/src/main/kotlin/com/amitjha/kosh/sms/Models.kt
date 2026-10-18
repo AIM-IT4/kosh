@@ -16,6 +16,11 @@ data class SmsMessage(
      * messages with this time, so the importer also checks it to avoid importing the same SMS twice.
      */
     val receivedMillis: Long? = null,
+    /**
+     * The network's send time when [timestampMillis] doesn't use it because it was implausible (see [SmsTime]).
+     * Versions before 2.1.8 dated and fingerprinted the message with it, so the importer can find and redate those rows.
+     */
+    val implausibleSentMillis: Long? = null,
 )
 
 /** Outcome of parsing one SMS. */

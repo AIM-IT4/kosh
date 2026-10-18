@@ -49,6 +49,7 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Sms
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -107,12 +108,14 @@ fun ImportResult.describe(): String = when {
     permissionMissing -> "SMS permission is needed to scan your inbox"
     readError != null -> readError
     scanned == 0 -> "No SMS could be read from this phone"
+    inserted == 0 && bills == 0 && failed > 0 -> "Scanned $scanned messages · $failed couldn't be saved"
     inserted == 0 && bills == 0 -> "Scanned $scanned messages · nothing new"
     else -> buildString {
         append("Added $inserted transaction${if (inserted == 1) "" else "s"}")
         if (bills > 0) append(", $bills bill${if (bills == 1) "" else "s"}")
         if (accountsCreated > 0) append(", $accountsCreated new account${if (accountsCreated == 1) "" else "s"}")
         append(" from $scanned messages")
+        if (failed > 0) append(" · $failed couldn't be saved")
     }
 }
 
@@ -278,6 +281,11 @@ fun MoreScreen(nav: NavController) {
                         requestSms()
                     }
                     lastScan?.let { ScanDetails(it) }
+                    ActionRow(
+                        "SMS check-up",
+                        s.smsProblem?.let { "$it · see what was missed" } ?: "See which bank SMS from this week were counted",
+                        Icons.Outlined.FactCheck,
+                    ) { nav.navigate(Routes.SMS_CHECKUP) }
                 }
             }
             item(key = "notif") {
@@ -524,6 +532,13 @@ private fun ScanDetails(r: ImportResult) {
         )
         if (open) {
             r.readError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.alert) }
+            if (r.failures.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Couldn't be saved", style = MaterialTheme.typography.labelMedium, color = KoshTheme.colors.alert)
+                r.failures.forEach {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
             if (r.ignoredByReason.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text("Skipped", style = MaterialTheme.typography.labelMedium)
