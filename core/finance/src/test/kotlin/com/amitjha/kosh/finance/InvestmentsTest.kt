@@ -204,8 +204,9 @@ class PortfolioTest {
 class PlanningTest {
     @Test
     fun sipFormula() {
-        // target 10L, saved 1L, 24 months at 12% p.a. -> 32,366.13 (annuity), ceiled to the paisa
-        assertEquals(rs(32_366.13), Goals.requiredMonthlySip(rs(1_000_000.0), rs(100_000.0), 24, 12.0))
+        // target 10L, saved 1L, 24 months at 12% a year (0.9489% a month, which compounds to exactly 12%) -> 32,619.97
+        // (annuity), ceiled to the paisa. 12%/12 = 1% a month gave 32,366.13, too little.
+        assertEquals(rs(32_619.97), Goals.requiredMonthlySip(rs(1_000_000.0), rs(100_000.0), 24, 12.0))
         assertEquals(rs(37_500.0), Goals.requiredMonthlySip(rs(1_000_000.0), rs(100_000.0), 24, 0.0))
     }
 
@@ -218,7 +219,9 @@ class PlanningTest {
         assertTrue(plan.isOnTrack(rs(10_000.0)))
         assertTrue(!plan.isOnTrack(rs(9_999.0)))
         assertTrue(Goals.plan(rs(100.0), rs(10.0), today.minusDays(1), today).overdue)
-        assertEquals(7, Goals.monthsBetween(today, LocalDate.of(2026, 7, 11)))
+        // Saving happens at month ends: a day past 6 months adds no month-end, so still 6 (rounding up asked too little).
+        assertEquals(6, Goals.monthsBetween(today, LocalDate.of(2026, 7, 11)))
+        assertEquals(0, Goals.monthsBetween(today, LocalDate.of(2026, 2, 9)))
     }
 
     @Test

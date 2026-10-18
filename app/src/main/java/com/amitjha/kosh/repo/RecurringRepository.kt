@@ -13,6 +13,7 @@ import com.amitjha.kosh.model.TxnType
 import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import java.time.LocalDate
 
 /**
@@ -82,13 +83,20 @@ class RecurringRepository(private val db: KoshDatabase, private val features: Fe
     fun observeDetected(): Flow<List<Recurring.Series>> =
         combine(db.transactions().observeBetween(Time.startOfDay(Time.today().minusDays(LOOKBACK_DAYS)), Long.MAX_VALUE), features.settings) { txns, f ->
             detect(txns, Time.today()).filterNot { it.key in f.hiddenRecurring }
-        }
+        }.flowOn(kotlinx.coroutines.Dispatchers.Default)
 
     suspend fun detected(today: LocalDate = Time.today()): List<Recurring.Series> {
         val hidden = features.current().hiddenRecurring
+        // Detection reads 13 months of transactions; Home asks after every change, so reuse it for a minute.
+        val now = System.currentTimeMillis()
+        lastDetected?.let { (day, at, series) -> if (day == today && now - at < DETECTED_TTL_MILLIS) return series.filterNot { it.key in hidden } }
         val txns = db.transactions().since(Time.startOfDay(today.minusDays(LOOKBACK_DAYS)))
-        return detect(txns, today).filterNot { it.key in hidden }
+        val series = detect(txns, today)
+        lastDetected = Triple(today, now, series)
+        return series.filterNot { it.key in hidden }
     }
+
+    @Volatile private var lastDetected: Triple<LocalDate, Long, List<Recurring.Series>>? = null
 
     suspend fun setHidden(key: String, hidden: Boolean) = features.setRecurringHidden(key, hidden)
 
@@ -138,6 +146,7 @@ class RecurringRepository(private val db: KoshDatabase, private val features: Fe
     companion object {
         const val MAX_CATCH_UP = 60
         const val LOOKBACK_DAYS = 400L
+        private const val DETECTED_TTL_MILLIS = 60_000L
         private const val RECORD_HOUR_MILLIS = 9L * 60 * 60 * 1000
     }
 }

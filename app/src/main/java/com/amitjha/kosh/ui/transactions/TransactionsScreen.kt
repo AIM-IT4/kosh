@@ -59,6 +59,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import com.amitjha.kosh.designsystem.theme.KoshTheme
 import com.amitjha.kosh.repo.TransactionRepository
@@ -125,7 +127,11 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     private val filters = MutableStateFlow<Set<String>>(emptySet())
     private val category = MutableStateFlow<String?>(null)
 
-    val state: StateFlow<TxnListState> = combine(period, query, filters, category) { p, q, f, cat -> listOf(p, q, f, cat) }
+    // Typing waits for a pause before re-querying; clearing the search applies at once.
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private val typed = query.debounce { if (it.isEmpty()) 0L else 250L }
+
+    val state: StateFlow<TxnListState> = combine(period, typed, filters, category) { p, q, f, cat -> listOf(p, q, f, cat) }
         .flatMapLatest { values ->
             val p = values[0] as Period
             val q = values[1] as String
@@ -150,6 +156,8 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
                 }
             }
         }
+        // Filtering, grouping and totals run off the main thread.
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TxnListState(Period.containing(Time.today())))
 
     /** The period currently shown (for callers that need it synchronously). */
@@ -177,6 +185,9 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     fun previous() { offset.value = offset.value + 1 }
     fun next() { offset.value = (offset.value - 1).coerceAtLeast(0) }
     fun setQuery(q: String) { query.value = q }
+
+    /** What is typed in the search box right now (the list follows after a short pause). */
+    val queryText: StateFlow<String> get() = query
     fun toggle(f: String) {
         if (f.startsWith(CATEGORY_CHIP_PREFIX)) {
             category.value = null
@@ -204,6 +215,7 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
 fun TransactionsScreen(nav: NavController) {
     val vm = koshViewModel { TransactionsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val typed by vm.queryText.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(Unit) {
         ActivityFilterRequest.consume()?.let(vm::only)
         ActivityFilterRequest.consumeCategory()?.let(vm::filterCategory)
@@ -213,7 +225,7 @@ fun TransactionsScreen(nav: NavController) {
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
     TransactionsContent(
-        state = state,
+        state = state.copy(query = typed),
         hidden = hidden,
         snackbar = snackbar,
         onPrevious = vm::previous,

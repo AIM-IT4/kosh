@@ -100,16 +100,25 @@ internal object Extract {
             "recurring (?:payment|debit|mandate)",
     )
 
+    private val atmWords = Regex("\\batm\\b|withdrawn|cash withdrawal")
+    private val neftWord = Regex("\\bneft\\b")
+    private val impsWord = Regex("\\bimps\\b")
+    private val rtgsWord = Regex("\\brtgs\\b")
+    private val upiWords = Regex("\\bupi\\b|\\bvpa\\b|[a-z0-9.\\-_]+@[a-z]+")
+    private val cardWords = Regex("\\bcard\\b|\\bpos\\b")
+    private val netbankingWords = Regex("net ?banking|\\bnetbanking\\b|\\bbil/")
+    private val chequeWords = Regex("\\bcheque\\b|\\bchq\\b")
+
     fun channel(lower: String): TxnChannel = when {
-        Regex("\\batm\\b|withdrawn|cash withdrawal").containsMatchIn(lower) -> TxnChannel.ATM
+        atmWords.containsMatchIn(lower) -> TxnChannel.ATM
         autoDebit.containsMatchIn(lower) -> TxnChannel.AUTO_DEBIT
-        Regex("\\bneft\\b").containsMatchIn(lower) -> TxnChannel.NEFT
-        Regex("\\bimps\\b").containsMatchIn(lower) -> TxnChannel.IMPS
-        Regex("\\brtgs\\b").containsMatchIn(lower) -> TxnChannel.RTGS
-        Regex("\\bupi\\b|\\bvpa\\b|[a-z0-9.\\-_]+@[a-z]+").containsMatchIn(lower) -> TxnChannel.UPI
-        Regex("\\bcard\\b|\\bpos\\b").containsMatchIn(lower) -> TxnChannel.CARD
-        Regex("net ?banking|\\bnetbanking\\b|\\bbil/").containsMatchIn(lower) -> TxnChannel.NETBANKING
-        Regex("\\bcheque\\b|\\bchq\\b").containsMatchIn(lower) -> TxnChannel.CHEQUE
+        neftWord.containsMatchIn(lower) -> TxnChannel.NEFT
+        impsWord.containsMatchIn(lower) -> TxnChannel.IMPS
+        rtgsWord.containsMatchIn(lower) -> TxnChannel.RTGS
+        upiWords.containsMatchIn(lower) -> TxnChannel.UPI
+        cardWords.containsMatchIn(lower) -> TxnChannel.CARD
+        netbankingWords.containsMatchIn(lower) -> TxnChannel.NETBANKING
+        chequeWords.containsMatchIn(lower) -> TxnChannel.CHEQUE
         else -> TxnChannel.OTHER
     }
 }

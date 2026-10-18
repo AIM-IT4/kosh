@@ -9,7 +9,13 @@ import com.amitjha.kosh.domain.Balances
 import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.Bank
 import com.amitjha.kosh.model.Paise
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -42,16 +48,28 @@ data class AccountWithBalance(
     val utilisation: Double? get() = account.creditLimit?.takeIf { it > 0 }?.let { outstanding.toDouble() / it }
 }
 
-class AccountRepository(private val db: KoshDatabase) {
+class AccountRepository(
+    private val db: KoshDatabase,
+    /** Where the shared balance computation runs while anything observes it. */
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+) {
 
     private val dao get() = db.accounts()
     private val txns get() = db.transactions()
 
-    /** Active accounts with balances (pending ones included, flagged), recomputed on any change. */
+    /**
+     * Balances computed once per change, off the main thread, and shared: Home, net worth, insights and the account
+     * screens all observe this instead of each recomputing every balance.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeAccounts(): Flow<List<AccountWithBalance>> =
+    private val shared: Flow<List<AccountWithBalance>> =
         combine(dao.observeActive(), txns.observeChanges()) { accounts, _ -> accounts }
             .mapLatest { accounts -> accounts.map { withBalance(it) } }
+            .flowOn(Dispatchers.Default)
+            .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** Active accounts with balances (pending ones included, flagged), recomputed on any change. */
+    fun observeAccounts(): Flow<List<AccountWithBalance>> = shared
 
     /** Accounts found in SMS/e-mail that the user still has to confirm, merge or ignore. */
     fun observePending(): Flow<List<AccountWithBalance>> = observeAccounts().map { list -> list.filter { it.isPending } }

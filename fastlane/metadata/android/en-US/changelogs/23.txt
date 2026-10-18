@@ -1,0 +1,3 @@
+- Payday follows weekends and holidays: due on a Sunday, salary is expected Friday, earlier past holidays, and the day it actually arrives starts the month. Set weekend and holidays in More › Budget month
+- Goals are more accurate: correct monthly return, inflation before a loan, overlapping goals, and one verdict on screen and in insights
+- Smoother: balances computed once, fewer reloads, lighter charts and SMS imports

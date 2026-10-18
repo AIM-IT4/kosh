@@ -63,7 +63,7 @@ class AuditRegressionTest {
             listOf(income(d, 50_000), expense(d, 60_000, "rent"))
         }
         val insight = InsightEngine.generate(InsightInput(today = today, transactions = txns, goals = listOf(goal)))
-            .first { it.id == "goal_car" }
+            .first { it.id.startsWith("goal_car_") }
         assertEquals(Severity.GOOD, insight.severity)
         assertFalse(insight.message, insight.message.contains("₹0 a month"))
     }

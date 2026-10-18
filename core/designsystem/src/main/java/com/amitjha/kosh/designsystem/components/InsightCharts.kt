@@ -71,7 +71,7 @@ fun SpendPaceChart(
     val grey = colors.tertiaryText.copy(alpha = 0.6f)
     val grid = colors.divider
     val surface = MaterialTheme.colorScheme.surface
-    val progress = rememberEntrance(current to previous, 1000)
+    val progress by rememberEntrance(1000)
     var selected by remember(current, previous) { mutableStateOf<Int?>(null) }
     val days = max(daysInMonth, max(current.size, previous.size)).coerceAtLeast(2)
 
@@ -182,7 +182,7 @@ fun MiniBarChart(
     highlightLast: Boolean = true,
 ) {
     val colors = KoshTheme.colors
-    val progress = rememberEntrance(values, 700)
+    val progress by rememberEntrance(700)
     var selected by remember(values) { mutableStateOf<Int?>(null) }
     Column(modifier.semantics { contentDescription = "Bar chart: " + labels.zip(values).joinToString { "${it.first} ${formatAmount(it.second, compact = true)}" } }) {
         Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -237,7 +237,7 @@ fun MiniLineChart(
     hidden: Boolean = false,
 ) {
     val colors = KoshTheme.colors
-    val progress = rememberEntrance(values, 800)
+    val progress by rememberEntrance(800)
     Column(modifier) {
         Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.weight(1f))

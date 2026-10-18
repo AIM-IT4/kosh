@@ -14,6 +14,7 @@ import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.Bank
 import com.amitjha.kosh.model.TxnSource
 import com.amitjha.kosh.model.TxnType
+import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -153,14 +154,15 @@ class SmsImporter(
         withContext(Dispatchers.IO) {
             var result = ImportResult(scanned = messages.size)
             val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
-            for (msg in messages.sortedBy { it.timestampMillis }) {
-                // One message that can't be stored must not hold up the ones after it (or the scan cursor).
+            for (batch in messages.sortedBy { it.timestampMillis }.chunked(IMPORT_BATCH)) {
+                // One write transaction per batch, so open screens recompute once per batch instead of once per
+                // message. If the transaction itself fails, the batch is imported again message by message.
                 result += try {
-                    if (isFinancialMessage(msg.sender, msg.body)) importOne(msg, rules).copy(financial = 1) else ImportResult()
+                    db.withTransaction { importBatch(batch, rules) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Throwable) {
-                    ImportResult(financial = 1, failed = 1, failures = listOf("${e.javaClass.simpleName} · ${ImportResult.mask(msg.sender, msg.body)}"))
+                    importBatch(batch, rules)
                 }
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
@@ -172,6 +174,21 @@ class SmsImporter(
             }
             result
         }
+    }
+
+    private suspend fun importBatch(batch: List<SmsMessage>, rules: Map<String, String>): ImportResult {
+        var result = ImportResult()
+        for (msg in batch) {
+            // One message that can't be stored must not hold up the ones after it (or the scan cursor).
+            result += try {
+                if (isFinancialMessage(msg.sender, msg.body)) importOne(msg, rules).copy(financial = 1) else ImportResult()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ImportResult(financial = 1, failed = 1, failures = listOf("${e.javaClass.simpleName} · ${ImportResult.mask(msg.sender, msg.body)}"))
+            }
+        }
+        return result
     }
 
     private suspend fun importOne(msg: SmsMessage, rules: Map<String, String>): ImportResult =
@@ -531,6 +548,8 @@ class SmsImporter(
 
     companion object {
         const val FIRST_SCAN_DAYS = 180L
+        /** Messages stored per database transaction. */
+        private const val IMPORT_BATCH = 50
         /** Days of messages the SMS check-up looks at. */
         const val CHECKUP_DAYS = 7L
         private const val DAY_MILLIS = 86_400_000L

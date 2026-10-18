@@ -64,6 +64,7 @@ import com.amitjha.kosh.model.TxnType
 import com.amitjha.kosh.repo.BudgetStatus
 import com.amitjha.kosh.repo.GoalStatus
 import com.amitjha.kosh.finance.GoalStanding
+import com.amitjha.kosh.finance.planGoal
 import com.amitjha.kosh.ui.common.AmountField
 import com.amitjha.kosh.ui.common.AmountSheet
 import com.amitjha.kosh.ui.common.ChoiceField

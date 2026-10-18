@@ -75,6 +75,8 @@ data class CategoryEntity(
     indices = [
         Index("accountId"), Index("timestamp"), Index("categoryKey"),
         Index(value = ["fingerprint"], unique = true),
+        // v9: balances look up both sides of a transfer, and every SMS checks reference numbers.
+        Index("toAccountId"), Index("referenceNo"),
     ],
 )
 data class TransactionEntity(

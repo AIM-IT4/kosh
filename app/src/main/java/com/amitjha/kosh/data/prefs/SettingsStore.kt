@@ -18,6 +18,7 @@ import com.amitjha.kosh.finance.PayWeekend
 import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -144,6 +145,8 @@ class SettingsStore(
             blockScreenshotsChoice = p[Keys.blockScreenshots],
         )
     }
+        // Writes to keys outside Settings (claimed notifications, repair version) mustn't re-run every screen.
+        .distinctUntilChanged()
 
     suspend fun current(): Settings = settings.first()
 

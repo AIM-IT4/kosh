@@ -29,6 +29,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,16 +72,19 @@ data class BarGroup(val label: String, val income: Paise, val expense: Paise)
 @Immutable
 data class ChartPoint(val label: String, val value: Paise)
 
+/**
+ * A chart's entrance, 0 → 1, played once when the chart first appears (new data just redraws it). Read it with `by`
+ * inside the draw code only, so each frame of the animation redraws the chart without recomposing it.
+ */
 @Composable
-internal fun rememberEntrance(key: Any?, durationMillis: Int = 900): Float {
+internal fun rememberEntrance(durationMillis: Int = 900): State<Float> {
     // Previews and screenshot tests capture a single frame: show the finished chart there.
-    if (LocalInspectionMode.current) return 1f
-    val progress = remember { Animatable(0f) }
-    LaunchedEffect(key) {
-        progress.snapTo(0f)
-        progress.animateTo(1f, tween(durationMillis, easing = FastOutSlowInEasing))
+    val inspection = LocalInspectionMode.current
+    val progress = remember { Animatable(if (inspection) 1f else 0f) }
+    if (!inspection) {
+        LaunchedEffect(Unit) { progress.animateTo(1f, tween(durationMillis, easing = FastOutSlowInEasing)) }
     }
-    return progress.value
+    return progress.asState()
 }
 
 /**
@@ -101,7 +105,7 @@ fun DonutChart(
     onSliceSelected: ((ChartSlice?) -> Unit)? = null,
 ) {
     val total = slices.sumOf { max(it.value, 0L) }.coerceAtLeast(1L)
-    val progress = rememberEntrance(slices)
+    val progress by rememberEntrance()
     var selected by remember(slices) { mutableStateOf<Int?>(null) }
     val track = KoshTheme.colors.cardSurfaceHigh
     val description = slices.joinToString { "${it.label} ${formatAmount(it.value, compact = true)}" }
@@ -233,7 +237,7 @@ fun BarChart(
     hidden: Boolean = false,
 ) {
     val colors = KoshTheme.colors
-    val progress = rememberEntrance(groups)
+    val progress by rememberEntrance()
     var selected by remember(groups) { mutableStateOf<Int?>(null) }
     val maxValue = groups.maxOfOrNull { max(it.income, it.expense) }?.coerceAtLeast(1L) ?: 1L
     val expenseBar = KoshTheme.colors.tertiaryText.copy(alpha = 0.55f)
@@ -352,7 +356,7 @@ fun LineAreaChart(
     hidden: Boolean = false,
     showHeader: Boolean = true,
 ) {
-    val progress = rememberEntrance(points, 1100)
+    val progress by rememberEntrance(1100)
     var selected by remember(points) { mutableStateOf<Int?>(null) }
     val subtle = KoshTheme.colors.subtleText
     val grid = KoshTheme.colors.divider
@@ -446,7 +450,7 @@ fun Sparkline(
     fill: Boolean = false,
     strokeWidth: Dp = 2.dp,
 ) {
-    val progress = rememberEntrance(values, 800)
+    val progress by rememberEntrance(800)
     Canvas(modifier = modifier.semantics { contentDescription = "Trend" }) {
         if (values.size < 2) return@Canvas
         val lo = values.min()
@@ -484,7 +488,7 @@ fun StackedBar(
     showLegend: Boolean = true,
     hidden: Boolean = false,
 ) {
-    val progress = rememberEntrance(slices)
+    val progress by rememberEntrance()
     val total = slices.sumOf { max(it.value, 0L) }.coerceAtLeast(1L)
     val track = KoshTheme.colors.cardSurfaceHigh
     Column(modifier) {

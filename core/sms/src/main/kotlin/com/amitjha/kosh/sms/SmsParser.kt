@@ -7,6 +7,8 @@ import com.amitjha.kosh.model.TxnChannel
 import com.amitjha.kosh.model.TxnType
 import java.security.MessageDigest
 
+private val spaces = Regex("\\s+")
+
 /** Entry point: turns one SMS into a transaction, a card bill, a balance update, or an ignore reason. */
 object SmsParser {
 
@@ -24,6 +26,11 @@ object SmsParser {
 
     private val refundWords = Regex("\\brefund|\\breversal|\\breversed|cashback|cash back")
 
+    // Compiled once; every bank SMS runs through these.
+    private val cardWord = Regex("\\bcard\\b")
+    private val accountWord = Regex("\\ba/?c\\b|\\bacct\\b|\\baccount\\b")
+    private val spentWord = Regex("\\bspent\\b|\\bused\\b")
+
     /**
      * A bank account was debited ("Acct XX123 debited", "debited from A/c XX4521"). When such a message also
      * mentions a credit card it is the bank side of a card bill payment, not a card spend.
@@ -34,13 +41,13 @@ object SmsParser {
     )
 
     fun parse(msg: SmsMessage): SmsParseResult {
-        val body = msg.body.replace(Regex("\\s+"), " ").trim()
+        val body = msg.body.replace(spaces, " ").trim()
         val lower = body.lowercase()
         val bank = BankDetector.detect(msg.sender, body) ?: return SmsParseResult.Ignored("not a bank sender")
 
         Filters.hardReject(lower)?.let { return SmsParseResult.Ignored(it) }
 
-        val mentionsCard = Regex("\\bcard\\b").containsMatchIn(lower)
+        val mentionsCard = cardWord.containsMatchIn(lower)
         val bankPaysCard = lower.contains("credit card") && accountDebited.containsMatchIn(lower)
         val creditCard = !bankPaysCard && (
             lower.contains("credit card") ||
@@ -85,9 +92,8 @@ object SmsParser {
 
     /** Spends phrased like "Spent Rs.X On HDFC Bank Card 5678 At ..." (no "debit card", no account). */
     private fun isCardSpend(lower: String): Boolean =
-        Regex("\\bcard\\b").containsMatchIn(lower) && !lower.contains("debit card") &&
-            !Regex("\\ba/?c\\b|\\bacct\\b|\\baccount\\b").containsMatchIn(lower) &&
-            Regex("\\bspent\\b|\\bused\\b").containsMatchIn(lower)
+        cardWord.containsMatchIn(lower) && !lower.contains("debit card") &&
+            !accountWord.containsMatchIn(lower) && spentWord.containsMatchIn(lower)
 
     /**
      * EXPENSE or INCOME, decided by whichever verb appears first ("debited ...; Zomato credited" is a debit).
@@ -149,12 +155,12 @@ object SmsParser {
 
 internal object Fingerprint {
     fun transaction(bank: Bank, last4: String?, amount: Paise, type: TxnType, ref: String?, msg: SmsMessage): String {
-        val b = BankDetector.fingerprintBank(bank, msg.body.replace(Regex("\\s+"), " "))
+        val b = BankDetector.fingerprintBank(bank, msg.body.replace(spaces, " "))
         val key = if (ref != null) {
             "T|$b|${last4.orEmpty()}|$amount|$type|$ref"
         } else {
             val minute = msg.timestampMillis / 60_000
-            val normalized = msg.body.lowercase().replace(Regex("\\s+"), " ").trim()
+            val normalized = msg.body.lowercase().replace(spaces, " ").trim()
             "T|$b|${last4.orEmpty()}|$amount|$type|$minute|${normalized.hashCode()}"
         }
         return sha(key)

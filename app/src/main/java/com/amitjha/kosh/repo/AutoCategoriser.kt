@@ -1,5 +1,6 @@
 package com.amitjha.kosh.repo
 
+import androidx.room.withTransaction
 import com.amitjha.kosh.data.KoshDatabase
 import com.amitjha.kosh.domain.SmsMapping
 
@@ -8,12 +9,10 @@ object AutoCategoriser {
     /** Returns how many transactions changed category. */
     suspend fun run(db: KoshDatabase): Int {
         val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
-        var changed = 0
-        for (txn in db.transactions().recategoriseCandidates()) {
-            val updated = SmsMapping.recategorised(txn, rules) ?: continue
-            db.transactions().update(updated)
-            changed++
-        }
-        return changed
+        val updates = db.transactions().recategoriseCandidates().mapNotNull { SmsMapping.recategorised(it, rules) }
+        if (updates.isEmpty()) return 0
+        // One transaction, so screens recompute once rather than once per row.
+        db.withTransaction { updates.forEach { db.transactions().update(it) } }
+        return updates.size
     }
 }
