@@ -109,7 +109,7 @@ class BudgetRepository(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeStatuses(): Flow<List<BudgetStatus>> = settings.settings.flatMapLatest { s ->
-        val period = Period.containing(Time.today(), s.monthStartDay)
+        val period = Period.containing(Time.today(), s.payCycle)
         // Rollover looks back up to [MAX_ROLLOVER_PERIODS] periods.
         var earliest = period
         repeat(MAX_ROLLOVER_PERIODS) { earliest = earliest.previous() }
@@ -152,7 +152,7 @@ class BudgetRepository(
     /** Income of the current period against what category budgets assign. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeEnvelope(): Flow<EnvelopeStatus> = settings.settings.flatMapLatest { s ->
-        val period = Period.containing(Time.today(), s.monthStartDay)
+        val period = Period.containing(Time.today(), s.payCycle)
         combine(db.budgets().observeAll(), db.transactions().observeBetween(period.startMillis, period.endMillis)) { budgets, txns ->
             val income = txns.filter { MoneyIn.isEarned(it) && SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
                 .sumOf { it.amount }
@@ -172,7 +172,7 @@ class BudgetRepository(
         val budgetId = existing?.id ?: id
         if (roll && existing?.rollover != true) {
             // Rollover starts with the current period: earlier months don't carry anything in.
-            val period = Period.containing(Time.today(), settings.current().monthStartDay)
+            val period = Period.containing(Time.today(), settings.current().payCycle)
             features.setRolloverSince(budgetId, period.start.toEpochDay())
         } else if (!roll) {
             features.setRolloverSince(budgetId, null)

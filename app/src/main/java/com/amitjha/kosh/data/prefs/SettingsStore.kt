@@ -12,6 +12,10 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.amitjha.kosh.finance.IndianHolidays
+import com.amitjha.kosh.finance.PayCycle
+import com.amitjha.kosh.finance.PayWeekend
+import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -37,6 +41,15 @@ data class Settings(
     /** When the user dismissed the Home notice about SMS going to ignored accounts; only newer ones show. */
     val ignoredNoticeAt: Long = 0L,
     val monthStartDay: Int = 1,
+    /** Salary comes on the working day before a weekend or holiday payday (see [payCycle]). */
+    val paydayToWorkingDay: Boolean = true,
+    val payWeekend: PayWeekend = PayWeekend.SAT_SUN,
+    /** Count India's national holidays as non-paydays. */
+    val nationalHolidays: Boolean = true,
+    /** State or company holidays the user added. */
+    val customHolidays: Set<LocalDate> = emptySet(),
+    /** Days salary actually arrived, learned from salary credits (see `repo.PaydayLearner`). */
+    val salaryDays: Set<LocalDate> = emptySet(),
     val notifyTransactions: Boolean = true,
     val notifyBills: Boolean = true,
     val notifyInsights: Boolean = true,
@@ -45,6 +58,21 @@ data class Settings(
     /** User's explicit choice for blocking screenshots and the recents preview; null follows [blockScreenshots]. */
     val blockScreenshotsChoice: Boolean? = null,
 ) {
+    /** When salary arrives, which sets where every budget period starts. */
+    val payCycle: PayCycle by lazy {
+        PayCycle(
+            day = monthStartDay,
+            toWorkingDay = paydayToWorkingDay,
+            weekend = payWeekend,
+            holidays = customHolidays + (if (nationalHolidays) IndianHolidays.dates else emptySet()),
+            paid = salaryDays,
+        )
+    }
+
+    /** Names for the holidays in [payCycle], for explaining a moved payday. */
+    val holidayNames: Map<LocalDate, String>
+        get() = (if (nationalHolidays) IndianHolidays.named else emptyMap()) + customHolidays.associateWith { "your holiday" }
+
     val currencySymbol: String get() = "₹"
 
     /** Screenshots and the recents preview are blocked by default while app lock or privacy mode is on. */
@@ -73,6 +101,11 @@ class SettingsStore(
             stringSetPreferencesKey("processed_email_ids"), stringPreferencesKey("gmail_last_summary"),
         )
         val monthStartDay = intPreferencesKey("month_start_day")
+        val paydayToWorkingDay = booleanPreferencesKey("payday_to_working_day")
+        val payWeekend = stringPreferencesKey("pay_weekend")
+        val nationalHolidays = booleanPreferencesKey("national_holidays")
+        val customHolidays = stringSetPreferencesKey("custom_holidays")
+        val salaryDays = stringSetPreferencesKey("salary_days")
         val notifyTransactions = booleanPreferencesKey("notify_transactions")
         val notifyBills = booleanPreferencesKey("notify_bills")
         val notifyInsights = booleanPreferencesKey("notify_insights")
@@ -98,6 +131,11 @@ class SettingsStore(
             smsProblemAt = p[Keys.smsProblemAt] ?: 0L,
             ignoredNoticeAt = p[Keys.ignoredNoticeAt] ?: 0L,
             monthStartDay = p[Keys.monthStartDay] ?: 1,
+            paydayToWorkingDay = p[Keys.paydayToWorkingDay] ?: true,
+            payWeekend = p[Keys.payWeekend]?.let { runCatching { PayWeekend.valueOf(it) }.getOrNull() } ?: PayWeekend.SAT_SUN,
+            nationalHolidays = p[Keys.nationalHolidays] ?: true,
+            customHolidays = dates(p[Keys.customHolidays]),
+            salaryDays = dates(p[Keys.salaryDays]),
             notifyTransactions = p[Keys.notifyTransactions] ?: true,
             notifyBills = p[Keys.notifyBills] ?: true,
             notifyInsights = p[Keys.notifyInsights] ?: true,
@@ -125,6 +163,14 @@ class SettingsStore(
         }
     }
     suspend fun setMonthStartDay(day: Int) = edit { it[Keys.monthStartDay] = day.coerceIn(1, 28) }
+    suspend fun setPaydayToWorkingDay(on: Boolean) = edit { it[Keys.paydayToWorkingDay] = on }
+    suspend fun setPayWeekend(weekend: PayWeekend) = edit { it[Keys.payWeekend] = weekend.name }
+    suspend fun setNationalHolidays(on: Boolean) = edit { it[Keys.nationalHolidays] = on }
+    suspend fun setCustomHolidays(days: Set<LocalDate>) = edit { it[Keys.customHolidays] = days.map(LocalDate::toString).toSet() }
+    suspend fun setSalaryDays(days: Set<LocalDate>) = edit { it[Keys.salaryDays] = days.map(LocalDate::toString).toSet() }
+
+    private fun dates(raw: Set<String>?): Set<LocalDate> =
+        raw.orEmpty().mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
     suspend fun setNotifyTransactions(enabled: Boolean) = edit { it[Keys.notifyTransactions] = enabled }
     suspend fun setNotifyBills(enabled: Boolean) = edit { it[Keys.notifyBills] = enabled }
     suspend fun setNotifyInsights(enabled: Boolean) = edit { it[Keys.notifyInsights] = enabled }

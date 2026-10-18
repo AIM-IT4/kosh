@@ -29,6 +29,7 @@ class KoshApp : Application() {
         }
         // No SMS catch-up here: this also runs when an SMS wakes the app, and a silent catch-up could import that
         // message before the receiver, which would then skip its alert. Opening the app catches up (MainActivity).
+        com.amitjha.kosh.repo.PaydayLearner.start(appScope, container.db, container.settings)
         WorkScheduler.schedule(this)
         com.amitjha.kosh.tools.WidgetUpdater.start(this)
         appScope.launch { runCatching { com.amitjha.kosh.tools.DigestSchedule.sync(this@KoshApp) } }

@@ -117,7 +117,7 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     /** Months before the current budgeting month (0 = this month). */
     private val offset = MutableStateFlow(0)
     private val period = combine(c.settings.settings, offset) { s, o ->
-        var p = Period.containing(Time.today(), s.monthStartDay)
+        var p = Period.containing(Time.today(), s.payCycle)
         repeat(o) { p = p.previous() }
         p
     }.distinctUntilChanged()

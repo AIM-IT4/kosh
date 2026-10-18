@@ -321,6 +321,7 @@ fun MoreScreen(nav: NavController) {
                         { d -> scope.launch { c.settings.setMonthStartDay(d) } },
                         leading = null,
                     )
+                    PaydaySettings(s)
                 }
             }
             item(key = "tools") { com.amitjha.kosh.ui.tools.ToolsSection(onMessage = { show(it) }) }

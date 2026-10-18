@@ -1,6 +1,7 @@
 package com.amitjha.kosh.repo
 
 import com.amitjha.kosh.finance.BudgetMath
+import com.amitjha.kosh.finance.PayCycle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,7 +12,8 @@ import java.time.LocalDate
 class SafeToSpendTest {
 
     private val today = LocalDate.of(2026, 10, 15)
-    private val payDay = 25 // next payday 25 Oct: 10 days away
+    // Salary on the 25th exactly (25 Oct 2026 is a Sunday; see weekendPaydayComesEarlier): 10 days away.
+    private val payDay = PayCycle(25, toWorkingDay = false)
     private fun rupees(r: Long) = r * 100
 
     @Test
@@ -90,5 +92,17 @@ class SafeToSpendTest {
         assertEquals(rupees(100_000), SafeToSpend.salaryFor(null, rupees(100_000), rupees(95_000)))
         assertEquals(rupees(95_000), SafeToSpend.salaryFor(null, 0, rupees(95_000)))
         assertNull(SafeToSpend.salaryFor(null, 0, null))
+    }
+
+    @Test
+    fun weekendPaydayComesEarlier() {
+        // Salary due Sunday 25 Oct arrives Friday 23 Oct, so the money has to last 8 days, not 10.
+        val r = SafeToSpend.plan(
+            today, PayCycle(25), liquid = rupees(600_000), cardDues = 0, upcoming = emptyList(),
+            overallBudget = rupees(50_000), incomeThisPeriod = 0, usualMonthlySpend = null, spentThisPeriod = rupees(10_000),
+        )!!
+        assertEquals(LocalDate.of(2026, 10, 23), r.payday)
+        assertEquals(8, r.days)
+        assertEquals(rupees(5_000), r.perDay)
     }
 }

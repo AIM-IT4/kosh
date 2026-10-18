@@ -100,7 +100,7 @@ fun ToolsSection(onMessage: (String) -> Unit) {
         scope.launch {
             val r = runCatching {
                 withContext(Dispatchers.IO) {
-                    val data = exportData(c, range, s.monthStartDay)
+                    val data = exportData(c, range, s.payCycle)
                     val text = Exporters.export(format, data)
                     context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
                         ?: error("Couldn't open the file")
@@ -193,7 +193,7 @@ fun ToolsSection(onMessage: (String) -> Unit) {
             onExport = { format, range ->
                 exportOpen = false
                 pendingExport = format to range
-                val (from, to) = rangeDates(range, s.monthStartDay, null)
+                val (from, to) = rangeDates(range, s.payCycle, null)
                 val name = Exporters.fileName(format, from ?: LocalDate.of(2000, 1, 1), to).let {
                     if (range == ExportRange.ALL) "kosh-all-${LocalDate.now()}.${format.extension}" else it
                 }
@@ -246,8 +246,8 @@ private fun formatMinutes(minutes: Int): String =
     LocalTime.of(minutes / 60, minutes % 60).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
 
 /** Inclusive dates for [range]; `from` is null for "All time" until the data is known. */
-internal fun rangeDates(range: ExportRange, monthStartDay: Int, earliest: LocalDate?, today: LocalDate = Time.today()): Pair<LocalDate?, LocalDate> {
-    val period = Period.containing(today, monthStartDay)
+internal fun rangeDates(range: ExportRange, cycle: com.amitjha.kosh.finance.PayCycle, earliest: LocalDate?, today: LocalDate = Time.today()): Pair<LocalDate?, LocalDate> {
+    val period = Period.containing(today, cycle)
     return when (range) {
         ExportRange.THIS_PERIOD -> period.start to period.lastDay
         ExportRange.LAST_PERIOD -> period.previous().let { it.start to it.lastDay }
@@ -256,12 +256,12 @@ internal fun rangeDates(range: ExportRange, monthStartDay: Int, earliest: LocalD
     }
 }
 
-private suspend fun exportData(c: AppContainer, range: ExportRange, monthStartDay: Int): ExportData {
+private suspend fun exportData(c: AppContainer, range: ExportRange, cycle: com.amitjha.kosh.finance.PayCycle): ExportData {
     val accounts = c.db.accounts().all()
     val categories = c.db.categories().all()
     val all = c.db.transactions().all()
     val earliest = all.minOfOrNull { it.timestamp }?.let { Time.toDate(it) }
-    val (from, to) = rangeDates(range, monthStartDay, earliest)
+    val (from, to) = rangeDates(range, cycle, earliest)
     val start = from ?: Time.today()
     // Transactions after the range stay in so balance assertions can tell whether a reported balance is final.
     return ExportData(accounts, categories, all, start, to)

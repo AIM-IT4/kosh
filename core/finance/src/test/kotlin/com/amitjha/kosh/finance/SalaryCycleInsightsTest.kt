@@ -50,4 +50,23 @@ class SalaryCycleInsightsTest {
         val bill = insights.first { it.id.contains("bill") }
         assertTrue("due date shown as the real 17 Oct: ${bill.message}", bill.message.contains("17 Oct") || bill.title.contains("2 days"))
     }
+
+    @Test
+    fun salaryOnTheFridayBeforeASundayPaydayStartsTheNewPeriod() {
+        // 25 Oct 2026 is a Sunday: salary lands on Friday 23 Oct and the November period starts then.
+        val day = LocalDate.of(2026, 10, 24)
+        val txns = listOf(
+            txn(LocalDate.of(2026, 10, 22), 5_000, TxnType.EXPENSE, "food", "Swiggy"),
+            txn(LocalDate.of(2026, 10, 23), 171_000, TxnType.INCOME, "salary", "Acme Corp"),
+            txn(LocalDate.of(2026, 10, 24), 1_200, TxnType.EXPENSE, "groceries", "BigBasket"),
+        )
+        val insights = InsightEngine.generate(
+            InsightInput(today = day, transactions = txns, monthStartDay = 25, payCycle = PayCycle(25)),
+        )
+        val summary = insights.first { it.isSummary }
+        assertTrue(summary.message, summary.message.contains("In November"))
+        assertTrue(summary.message, summary.message.contains("earned ₹1,71,000"))
+        assertTrue("the 22 Oct spend belongs to October: ${summary.message}", summary.message.contains("spent ₹1,200"))
+        assertFalse(insights.any { it.id.startsWith("no_income") })
+    }
 }

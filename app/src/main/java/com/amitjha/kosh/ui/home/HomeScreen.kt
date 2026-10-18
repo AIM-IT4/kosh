@@ -137,7 +137,7 @@ data class HomeState(
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
-    private val period = c.settings.settings.map { Period.containing(Time.today(), it.monthStartDay) }
+    private val period = c.settings.settings.map { Period.containing(Time.today(), it.payCycle) }
 
     private val summary = period.flatMapLatest { c.transactions.observeSummary(it) }
 
@@ -189,7 +189,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         summary,
         combine(c.budgets.observeStatuses(), c.featurePrefs.settings) { b, f -> b to f },
         c.recurring.observeRules(),
-    ) { (accounts, bills), s, sum, (budgets, f), _ -> SafeInputs(accounts, bills, s.monthStartDay, sum, budgets, f.salary, f.savingsTarget) }
+    ) { (accounts, bills), s, sum, (budgets, f), _ -> SafeInputs(accounts, bills, s.payCycle, sum, budgets, f.salary, f.savingsTarget, s.holidayNames) }
         .mapLatest { inp ->
             runCatching {
                 val today = Time.today()
@@ -201,28 +201,29 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
                 val salary = com.amitjha.kosh.repo.SafeToSpend.salaryFor(inp.salary, salaryThisPeriod, latestSalary)
                 // Usual monthly spending: the average of the last three budget months that had any.
                 val spends = mutableListOf<Long>()
-                var p = Period.containing(today, inp.payDay)
+                var p = Period.containing(today, inp.cycle)
                 repeat(3) {
                     p = p.previous()
                     c.transactions.summary(p).expense.takeIf { it > 0 }?.let(spends::add)
                 }
                 val usual = spends.takeIf { it.isNotEmpty() }?.let { it.sum() / it.size }
                 val result = com.amitjha.kosh.repo.SafeToSpend.compute(
-                    inp.accounts, inp.bills, inp.payDay, c.recurring, inp.budgets, inp.summary, usual, salary, inp.savingsTarget, today,
+                    inp.accounts, inp.bills, inp.cycle, c.recurring, inp.budgets, inp.summary, usual, salary, inp.savingsTarget, today,
                 )
-                result to SalaryPlanInfo(inp.salary, detected, inp.savingsTarget, inp.payDay)
-            }.getOrNull() ?: (null to SalaryPlanInfo(inp.salary, null, inp.savingsTarget, inp.payDay))
+                result to SalaryPlanInfo(inp.salary, detected, inp.savingsTarget, inp.cycle.dueDay, paydayNote(inp.cycle, inp.holidayNames, today))
+            }.getOrNull() ?: (null to SalaryPlanInfo(inp.salary, null, inp.savingsTarget, inp.cycle.dueDay, paydayNote(inp.cycle, inp.holidayNames, Time.today())))
         }
         .flowOn(Dispatchers.Default)
 
     private data class SafeInputs(
         val accounts: List<AccountWithBalance>,
         val bills: List<BillItem>,
-        val payDay: Int,
+        val cycle: com.amitjha.kosh.finance.PayCycle,
         val summary: MonthSummary,
         val budgets: List<com.amitjha.kosh.repo.BudgetStatus>,
         val salary: Long?,
         val savingsTarget: Long?,
+        val holidayNames: Map<java.time.LocalDate, String>,
     )
 
     fun dismissIgnoredNotice() = viewModelScope.launch { c.settings.dismissIgnoredNotice() }
@@ -804,7 +805,18 @@ data class SalaryPlanInfo(
     val salaryDetected: Long? = null,
     val savingsTarget: Long? = null,
     val payDay: Int = 1,
+    /** When the next salary is expected and why it moved, e.g. "Next salary Fri 23 Oct (25 Oct is a Sunday, …)". */
+    val paydayNote: String? = null,
 )
+
+/** When the next salary is expected and why it isn't on its due day; null for calendar months. */
+internal fun paydayNote(cycle: com.amitjha.kosh.finance.PayCycle, holidayNames: Map<java.time.LocalDate, String>, today: java.time.LocalDate): String? {
+    if (cycle.dueDay <= 1) return null
+    val next = cycle.nextPayday(today)
+    val why = cycle.reason(cycle.periodContaining(next).month, holidayNames)
+    val day = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.ENGLISH).format(next)
+    return "Next salary $day" + (why?.let { " ($it)" } ?: "")
+}
 
 @Composable
 private fun SafeToSpendCard(safe: com.amitjha.kosh.repo.SafeToSpend.Result, hidden: Boolean, onClick: () -> Unit) {
@@ -892,6 +904,15 @@ private fun SalaryPlanSheet(
                 Text("Kosh saw ${money(it)} credited as salary.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
             }
             com.amitjha.kosh.ui.common.ChoiceField("Salary arrives on", (1..28).toList(), payDay, { "Day $it of the month" }, { payDay = it })
+            if (payDay > 1) {
+                Text(
+                    (info.paydayNote?.takeIf { payDay == info.payDay }?.let { "$it. " } ?: "") +
+                        "On a weekend or holiday, Kosh expects salary the working day before, and follows the day it actually " +
+                        "arrives. Weekends and holidays are in More › Budget month.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = KoshTheme.colors.subtleText,
+                )
+            }
             com.amitjha.kosh.ui.common.AmountField("Save each month", save, { save = it })
             val base = salary
             if (base != null && base > 0) {

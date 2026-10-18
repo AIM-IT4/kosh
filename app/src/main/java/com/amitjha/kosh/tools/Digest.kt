@@ -120,7 +120,7 @@ class DigestWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         val sms = com.amitjha.kosh.sms.SmsCatchUp.run(c, alert = true)
         val settings = c.settings.current()
         val today = Time.today()
-        val period = Period.containing(today, settings.monthStartDay)
+        val period = Period.containing(today, settings.payCycle)
         val txns = c.db.transactions().between(period.startMillis, period.endMillis)
         val budget = c.db.budgets().all().firstOrNull { it.categoryKey == null }?.monthlyLimit
         val review = c.db.transactions().observeUnreviewed().first().size

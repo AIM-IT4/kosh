@@ -72,7 +72,7 @@ object WidgetUpdater {
         val c = app.container
         val settings = c.settings.current()
         val tools = ToolsSettings.get(context).current()
-        val period = Period.containing(Time.today(), settings.monthStartDay)
+        val period = Period.containing(Time.today(), settings.payCycle)
         val txns = c.db.transactions().between(period.startMillis, period.endMillis)
         val budget = c.db.budgets().all().firstOrNull { it.categoryKey == null }?.monthlyLimit
         val f = WidgetFigures.of(period, txns, budget)

@@ -77,6 +77,11 @@ data class InsightInput(
      * 25th to the 24th and are labelled with the month holding most of their days.
      */
     val monthStartDay: Int = 1,
+    /**
+     * When salary actually arrives (weekends, holidays, the day it came). With one that moves paydays, each period
+     * runs from its real payday instead of a fixed day; null keeps the fixed [monthStartDay].
+     */
+    val payCycle: PayCycle? = null,
 )
 
 /** Severity, from most to least urgent. */
@@ -160,8 +165,8 @@ object InsightEngine {
     const val BUDGET_ON_TRACK_FROM_DAY = 20
     const val SPENDING_DOWN_FROM_DAY = 15
 
-    /** A period is named after the month its start date plus this many days falls in (its 15th day). */
-    const val PERIOD_LABEL_DAY_OFFSET = 14L
+    /** A period due to start after this day of the month is named after the next month (as `Period.label`). */
+    const val PERIOD_LABEL_AFTER_DAY = 15
 
     /** Assumed gap between a card's statement date and its due date when the statement date is unknown. */
     const val ASSUMED_STATEMENT_TO_DUE_DAYS = 20L
@@ -169,17 +174,22 @@ object InsightEngine {
     fun generate(input: InsightInput): List<Insight> {
         val startDay = input.monthStartDay.coerceIn(1, 28)
         val shift = (startDay - 1).toLong()
+        val cycle = input.payCycle?.takeIf { it.moves && it.dueDay == startDay }
         // A period from day S of month M to day S-1 of M+1 has exactly as many days as M, so moving
-        // every date back by S-1 days maps budgeting periods exactly onto calendar months.
+        // every date back by S-1 days maps budgeting periods exactly onto calendar months. When paydays move
+        // (weekends, holidays), each date maps to its day within its own period instead.
         dateShift.set(shift)
+        engineCycle.set(cycle)
+        labelDay.set(startDay)
+        val toEngine: (LocalDate) -> LocalDate = if (cycle != null) { d -> engineDate(cycle, d) } else { d -> d.minusDays(shift) }
         val shifted = if (shift == 0L) input else input.copy(
-            today = input.today.minusDays(shift),
-            transactions = input.transactions.map { it.copy(date = it.date.minusDays(shift)) },
-            goals = input.goals.map { it.copy(deadline = it.deadline.minusDays(shift), createdAt = it.createdAt?.minusDays(shift)) },
+            today = toEngine(input.today),
+            transactions = input.transactions.map { it.copy(date = toEngine(it.date)) },
+            goals = input.goals.map { it.copy(deadline = toEngine(it.deadline), createdAt = it.createdAt?.let(toEngine)) },
             upcomingBills = input.upcomingBills.map {
-                it.copy(dueDate = it.dueDate.minusDays(shift), statementDate = it.statementDate?.minusDays(shift))
+                it.copy(dueDate = toEngine(it.dueDate), statementDate = it.statementDate?.let(toEngine))
             },
-            investments = input.investments.map { it.copy(maturityDate = it.maturityDate?.minusDays(shift)) },
+            investments = input.investments.map { it.copy(maturityDate = it.maturityDate?.let(toEngine)) },
         )
         val ctx = Context(shifted)
         val rules: List<(Context) -> List<Insight>> = listOf(
@@ -238,16 +248,29 @@ object InsightEngine {
     }
 
     private val dateShift = ThreadLocal.withInitial { 0L }
+    private val engineCycle = ThreadLocal<PayCycle?>()
+    private val labelDay = ThreadLocal.withInitial { 1 }
 
     /**
-     * The month a budgeting period is named after. The period behind engine month [m] really starts on day
-     * `monthStartDay` of [m]; like the app's `Period.label`, it is named after the month of its 15th day.
+     * The engine date of real date [d] when paydays move: engine month = the month whose salary starts d's period,
+     * day = d's day within that period (a period longer than the month ends on its last day).
      */
-    internal fun periodLabel(m: YearMonth, monthStartDay: Int = (dateShift.get() + 1).toInt()): YearMonth =
-        YearMonth.from(m.atDay(1).plusDays(monthStartDay.coerceIn(1, 28) - 1L + PERIOD_LABEL_DAY_OFFSET))
+    private fun engineDate(cycle: PayCycle, d: LocalDate): LocalDate {
+        val p = cycle.periodContaining(d)
+        val day = java.time.temporal.ChronoUnit.DAYS.between(p.start, d) + 1
+        return p.month.atDay(day.coerceAtMost(p.month.lengthOfMonth().toLong()).toInt())
+    }
+
+    /**
+     * The month a budgeting period is named after. The period behind engine month [m] is due to start on day
+     * `monthStartDay` of [m]; like the app's `Period.label`, one due on day 16–28 is named after the next month.
+     */
+    internal fun periodLabel(m: YearMonth, monthStartDay: Int = labelDay.get()): YearMonth =
+        if (monthStartDay.coerceIn(1, 28) > PERIOD_LABEL_AFTER_DAY) m.plusMonths(1) else m
 
     /** The real calendar date of a (shifted) engine date. */
-    private fun real(d: LocalDate): LocalDate = d.plusDays(dateShift.get())
+    private fun real(d: LocalDate): LocalDate =
+        engineCycle.get()?.let { it.payday(YearMonth.from(d)).plusDays(d.dayOfMonth - 1L) } ?: d.plusDays(dateShift.get())
 
     private fun isWeekendDay(d: LocalDate): Boolean =
         real(d).dayOfWeek == DayOfWeek.SATURDAY || real(d).dayOfWeek == DayOfWeek.SUNDAY
