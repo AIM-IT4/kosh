@@ -6,13 +6,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -106,7 +104,7 @@ fun SmsCheckupScreen(nav: NavController) {
         actions = {
             val list = items
             if (list != null) {
-                IconButton(onClick = { shareReport(context, report(context, status, s.smsLastScanMillis, s.smsProblem, list, read)) }) {
+                IconButton(onClick = { shareReport(context, report(status, s.smsLastScanMillis, s.smsProblem, list, read)) }) {
                     Icon(Icons.Outlined.Share, contentDescription = "Share report")
                 }
             }
@@ -250,21 +248,20 @@ private fun checkupStatus(context: Context, autoImport: Boolean): CheckupStatus 
 }
 
 /** Plain-text report with numbers masked; counted spends are listed without their message. */
-private fun report(context: Context, st: CheckupStatus, lastScan: Long, problem: String?, items: List<CheckupItem>, read: Int): String = buildString {
-    val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
+private fun report(st: CheckupStatus, lastScan: Long, problem: String?, items: List<CheckupItem>, read: Int): String = buildString {
     fun yes(b: Boolean) = if (b) "yes" else "NO"
-    appendLine("Kosh $version · SMS check-up · ${Fmt.fullDate(LocalDate.now())} ${Fmt.time(System.currentTimeMillis())}")
+    appendLine("Kosh ${com.amitjha.kosh.BuildConfig.VERSION_NAME} · SMS check-up · ${Fmt.fullDate(LocalDate.now())} ${Fmt.time(System.currentTimeMillis())}")
     appendLine("Read SMS ${yes(st.readSms)} · receive SMS ${yes(st.receiveSms)} · auto-import ${yes(st.autoImport)} · battery unrestricted ${yes(st.batteryUnrestricted)}")
     appendLine("Last inbox check ${Fmt.ago(lastScan)}${problem?.let { " · problem: $it" } ?: ""}")
     appendLine("$read SMS read, ${items.size} from banks")
     for (item in items) {
         appendLine()
-        val when_ = "${Fmt.date(dayOf(item.at))} ${Fmt.time(item.at)}"
+        val at = "${Fmt.date(dayOf(item.at))} ${Fmt.time(item.at)}"
         val note = when (item.verdict) {
             Verdict.COUNTED -> "counted${misdated(item)?.let { ", dated $it" } ?: ""}"
             else -> "${item.verdict.name.lowercase().replace('_', ' ')}${item.reason?.let { ": $it" } ?: ""}"
         }
-        appendLine("$when_ · ${item.title} · $note")
+        appendLine("$at · ${item.title} · $note")
         if (item.verdict != Verdict.COUNTED || misdated(item) != null) appendLine("  ${item.masked}")
     }
 }
