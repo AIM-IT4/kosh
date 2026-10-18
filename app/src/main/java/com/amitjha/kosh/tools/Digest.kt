@@ -124,7 +124,8 @@ class DigestWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         val txns = c.db.transactions().between(period.startMillis, period.endMillis)
         val budget = c.db.budgets().all().firstOrNull { it.categoryKey == null }?.monthlyLimit
         val review = c.db.transactions().observeUnreviewed().first().size
-        val text = DigestText.build(DigestText.figures(today, txns, budget, review), settings.hideAmounts, sms?.problem)
+        val smsNote = sms?.problem ?: "Bank SMS import is off".takeIf { !settings.smsAutoImport && c.smsImporter.hasPermission() }
+        val text = DigestText.build(DigestText.figures(today, txns, budget, review), settings.hideAmounts, smsNote)
         notify(applicationContext, text)
     }
 

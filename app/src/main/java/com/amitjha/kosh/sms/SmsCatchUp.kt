@@ -39,7 +39,8 @@ object SmsCatchUp {
                 ?: ImportResult(readError = "Reading bank SMS took too long")
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Callers run this from the app scope and workers: an error here must never take the app down.
             ImportResult(readError = "Bank SMS couldn't be imported (${e.javaClass.simpleName})")
         }
         // importInbox records its own outcome; a timeout or a crash outside it is recorded here.
