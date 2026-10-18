@@ -109,9 +109,12 @@ class BudgetRepository(
     private val features: com.amitjha.kosh.data.prefs.FeaturePrefs,
 ) {
 
+    /** Only the pay cycle matters here, so other settings writes (scan times, privacy mode) don't re-query 13 months. */
+    private fun cycle() = settings.settings.map { it.payCycle }.distinctUntilChanged()
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeStatuses(): Flow<List<BudgetStatus>> = settings.settings.flatMapLatest { s ->
-        val period = Period.containing(Time.today(), s.payCycle)
+    fun observeStatuses(): Flow<List<BudgetStatus>> = cycle().flatMapLatest { payCycle ->
+        val period = Period.containing(Time.today(), payCycle)
         // Rollover looks back up to [MAX_ROLLOVER_PERIODS] periods.
         var earliest = period
         repeat(MAX_ROLLOVER_PERIODS) { earliest = earliest.previous() }
@@ -153,8 +156,8 @@ class BudgetRepository(
 
     /** Income of the current period against what category budgets assign. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeEnvelope(): Flow<EnvelopeStatus> = settings.settings.flatMapLatest { s ->
-        val period = Period.containing(Time.today(), s.payCycle)
+    fun observeEnvelope(): Flow<EnvelopeStatus> = cycle().flatMapLatest { payCycle ->
+        val period = Period.containing(Time.today(), payCycle)
         combine(db.budgets().observeAll(), db.transactions().observeBetween(period.startMillis, period.endMillis)) { budgets, txns ->
             val income = txns.filter { MoneyIn.isEarned(it) && SmsMapping.countsInStats(it) && Time.toDate(it.timestamp) in period }
                 .sumOf { it.amount }

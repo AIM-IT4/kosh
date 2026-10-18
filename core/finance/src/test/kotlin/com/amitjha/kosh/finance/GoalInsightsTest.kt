@@ -36,8 +36,8 @@ class GoalInsightsTest {
     private fun run(goals: List<GoalInput>, txns: List<InsightTxn> = history(100_000.0, 60_000.0)) =
         InsightEngine.generate(InsightInput(today = today, transactions = txns, goals = goals))
 
-    // Ids carry the goal and its standing ("goal_car_on_track"), so a dismissal doesn't hide a later change.
-    private fun List<Insight>.goal(name: String) = first { it.id.startsWith("goal_${name.lowercase()}_") }
+    // Ids carry the goal and its standing ("goal_7_on_track"), so a dismissal doesn't hide a later change.
+    private fun List<Insight>.goal(name: String) = first { it.id.startsWith("goal_") && name in it.title }
 
     @Test
     fun loanReducesWhatHasToBeSaved() {
