@@ -122,6 +122,8 @@ data class HomeState(
     val charts: HomeCharts = HomeCharts(),
     /** Accounts found in SMS/e-mail waiting for the user's confirmation (not in net worth). */
     val pendingAccounts: Int = 0,
+    /** Bank SMS from the last week stored on accounts the user ignored, so left out of every total. */
+    val ignoredSms: Int = 0,
     /** Imported expenses this month still in "Other". */
     val uncategorised: Int = 0,
     /** What can be spent each day until payday, once bills and repeating payments are set aside. */
@@ -175,6 +177,12 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         rows.count { it.source != com.amitjha.kosh.model.TxnSource.MANUAL && Time.toDate(it.timestamp) in p }
     }
 
+    private val ignoredSms = c.settings.settings
+        .map { maxOf(System.currentTimeMillis() - IGNORED_NOTICE_DAYS * 86_400_000L, it.ignoredNoticeAt) }
+        .flatMapLatest { from -> c.db.transactions().observeCountOnIgnored(from) }
+
+    private val counts = combine(uncategorised, ignoredSms) { other, ignored -> other to ignored }
+
     private val safeToSpend = combine(
         combine(c.accounts.observeAccounts(), c.bills.observeUnpaid()) { a, b -> a to b },
         c.settings.settings,
@@ -217,16 +225,19 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         val savingsTarget: Long?,
     )
 
+    fun dismissIgnoredNotice() = viewModelScope.launch { c.settings.dismissIgnoredNotice() }
+
     fun saveSalaryPlan(salary: Long?, savingsTarget: Long?, payDay: Int) = viewModelScope.launch {
         c.featurePrefs.setSalaryPlan(salary, savingsTarget)
         c.settings.setMonthStartDay(payDay)
     }
 
-    val state: StateFlow<HomeState> = combine(money, lists, charts, uncategorised, safeToSpend) { (nw, trend, s), l, ch, other, safe ->
+    val state: StateFlow<HomeState> = combine(money, lists, charts, counts, safeToSpend) { (nw, trend, s), l, ch, (other, ignored), safe ->
         HomeState(
             safeToSpend = safe.first,
             salaryPlan = safe.second,
             pendingAccounts = nw.pending.size,
+            ignoredSms = ignored,
             uncategorised = other,
             charts = ch,
             loading = false,
@@ -294,6 +305,8 @@ fun HomeScreen(nav: NavController) {
         onAddAccount = { nav.navigate(Routes.editAccount()) },
         onNetWorth = { nav.navigate(Routes.NET_WORTH) },
         onPendingAccounts = { nav.navigate(Routes.PENDING_ACCOUNTS) },
+        onIgnoredSms = { nav.navigate(Routes.ACCOUNTS) },
+        onDismissIgnoredSms = { vm.dismissIgnoredNotice() },
         onUncategorised = { nav.navigate(Routes.UNCATEGORISED) },
         onSafeToSpend = { planSheet = true },
         householdCard = if (com.amitjha.kosh.ui.household.householdAvailable) {
@@ -315,6 +328,9 @@ fun HomeScreen(nav: NavController) {
 /** Shown when more imported expenses than this are in "Other" this month. */
 const val UNCATEGORISED_BANNER_MIN = 5
 
+/** Days of bank SMS on ignored accounts the Home notice looks back over. */
+const val IGNORED_NOTICE_DAYS = 7L
+
 /** Stateless Home screen, rendered from [HomeState]; used by the app and by screenshot tests. */
 @Composable
 fun HomeContent(
@@ -335,6 +351,8 @@ fun HomeContent(
     onLoadDemo: () -> Unit = {},
     onNetWorth: () -> Unit = {},
     onPendingAccounts: () -> Unit = {},
+    onIgnoredSms: () -> Unit = {},
+    onDismissIgnoredSms: () -> Unit = {},
     onUncategorised: () -> Unit = {},
     onSafeToSpend: () -> Unit = {},
     /** Household sync's card (null in previews and in the offline edition); it draws nothing until paired. */
@@ -435,6 +453,12 @@ fun HomeContent(
                         )
                     }
                 }
+            }
+        }
+
+        if (state.ignoredSms > 0) {
+            item(key = "ignored-sms") {
+                com.amitjha.kosh.ui.accounts.IgnoredSmsBanner(state.ignoredSms, onIgnoredSms, onDismissIgnoredSms, pad.padding(top = 16.dp))
             }
         }
 

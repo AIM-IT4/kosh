@@ -444,17 +444,20 @@ class SmsImporter(
             }
         }
         val owner = accounts.firstOrNull { it.id == row.accountId }
+        // The same rule every total uses; the reason only explains it.
+        val counted = SmsMapping.countsInStats(row)
         val reason = when {
+            counted -> null
             row.type == TxnType.TRANSFER || row.categoryKey == SmsMapping.TRANSFER_CATEGORY -> "a transfer between your own accounts"
-            owner?.archived == true -> "its account is ignored"
+            owner?.archived == true -> "you ignored its account"
             row.suspicious -> "held for review: the amount looks unusual"
-            row.excludeFromStats -> "excluded from totals"
-            else -> null
+            else -> "excluded from totals"
         }
         return base.copy(
-            verdict = if (reason == null) CheckupItem.Verdict.COUNTED else CheckupItem.Verdict.NOT_COUNTED,
+            verdict = if (counted) CheckupItem.Verdict.COUNTED else CheckupItem.Verdict.NOT_COUNTED,
             reason = reason,
             accountName = owner?.name,
+            accountIgnored = owner?.archived == true,
             datedAt = row.timestamp,
             transactionId = row.id,
         )

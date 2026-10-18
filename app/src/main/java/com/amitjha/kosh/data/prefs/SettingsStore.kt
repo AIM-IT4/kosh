@@ -34,6 +34,8 @@ data class Settings(
     /** What went wrong in the last inbox scan (see `ImportResult.problem`), and when; null after a clean scan. */
     val smsProblem: String? = null,
     val smsProblemAt: Long = 0L,
+    /** When the user dismissed the Home notice about SMS going to ignored accounts; only newer ones show. */
+    val ignoredNoticeAt: Long = 0L,
     val monthStartDay: Int = 1,
     val notifyTransactions: Boolean = true,
     val notifyBills: Boolean = true,
@@ -64,6 +66,7 @@ class SettingsStore(
         val smsLastScan = longPreferencesKey("sms_last_scan")
         val smsProblem = stringPreferencesKey("sms_problem")
         val smsProblemAt = longPreferencesKey("sms_problem_at")
+        val ignoredNoticeAt = longPreferencesKey("ignored_notice_at")
         // Left by the removed Gmail import; cleared on start.
         val legacyGmail = listOf(
             stringPreferencesKey("gmail_email"), longPreferencesKey("gmail_last_sync"), booleanPreferencesKey("gmail_reconnect"),
@@ -93,6 +96,7 @@ class SettingsStore(
             smsLastScanMillis = p[Keys.smsLastScan] ?: 0L,
             smsProblem = p[Keys.smsProblem],
             smsProblemAt = p[Keys.smsProblemAt] ?: 0L,
+            ignoredNoticeAt = p[Keys.ignoredNoticeAt] ?: 0L,
             monthStartDay = p[Keys.monthStartDay] ?: 1,
             notifyTransactions = p[Keys.notifyTransactions] ?: true,
             notifyBills = p[Keys.notifyBills] ?: true,
@@ -110,6 +114,7 @@ class SettingsStore(
     suspend fun setThemeMode(mode: ThemeMode) = edit { it[Keys.themeMode] = mode.name }
     suspend fun setSmsAutoImport(enabled: Boolean) = edit { it[Keys.smsAutoImport] = enabled }
     suspend fun setSmsLastScan(millis: Long) = edit { it[Keys.smsLastScan] = millis }
+    suspend fun dismissIgnoredNotice(at: Long = System.currentTimeMillis()) = edit { it[Keys.ignoredNoticeAt] = at }
     suspend fun setSmsProblem(problem: String?, at: Long = System.currentTimeMillis()) = edit {
         if (problem == null) {
             it.remove(Keys.smsProblem)

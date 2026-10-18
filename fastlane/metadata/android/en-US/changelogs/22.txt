@@ -1,0 +1,5 @@
+- Ignored accounts can be counted again: Accounts › Ignored lists them with what they hold
+- Home warns when this week's bank SMS went to an ignored account, so spends don't vanish silently
+- Ignoring an account found in SMS now asks first and explains what it does
+- SMS check-up names the account a message went to
+- No error in one bank SMS can stop the rest importing or crash the app

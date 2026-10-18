@@ -163,4 +163,18 @@ class AccountRepository(private val db: KoshDatabase) {
         txns.excludeAccountFromStats(id)
         archive(id)
     }
+
+    fun observeIgnored(): Flow<List<AccountEntity>> = dao.observeIgnored()
+
+    /**
+     * Stops ignoring an account: it shows again and its transactions count (transfers aside). One Kosh found in SMS
+     * goes back to the accounts to confirm or merge.
+     */
+    suspend fun restore(id: Long) {
+        db.withTransaction {
+            val account = dao.byId(id) ?: return@withTransaction
+            dao.update(account.copy(archived = false))
+            txns.includeAccountInStats(id)
+        }
+    }
 }

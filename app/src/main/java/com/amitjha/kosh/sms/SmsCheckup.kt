@@ -10,6 +10,8 @@ data class CheckupItem(
     /** Why it isn't counted or was skipped; null when it is counted. */
     val reason: String? = null,
     val accountName: String? = null,
+    /** The account the transaction is stored on is ignored (archived), so none of its SMS count. */
+    val accountIgnored: Boolean = false,
     /** The date of the stored transaction, which can differ from the message's. */
     val datedAt: Long? = null,
     val transactionId: Long? = null,
