@@ -1,0 +1,1 @@
+- Ready for F-Droid: the APK no longer carries Google's encrypted dependency list

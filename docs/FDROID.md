@@ -44,5 +44,6 @@ the main F-Droid repository. F-Droid builds the app from source and signs it wit
   the NDK on the build machine doesn't matter. Release builds skip the Gradle build cache (`--no-build-cache`):
   a cached Kotlin compile can differ from a clean one (Compose stability markers), and F-Droid always builds
   clean.
-- **Anti-features:** none expected. The standard edition fetches public NPS prices from npsnav.in; the offline
-  edition never uses the network.
+- **Anti-features:** none expected. The standard edition fetches public NPS prices from npsnav.in, and checks the
+  GitHub API for a newer release once a day only when it wasn't installed by F-Droid or another store (the F-Droid
+  build leaves updates to F-Droid; the user can turn the check on or off). The offline edition never uses the network.

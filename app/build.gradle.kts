@@ -14,8 +14,8 @@ android {
         applicationId = "com.amitjha.kosh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "2.3.0"
+        versionCode = 25
+        versionName = "2.3.1"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -72,6 +72,12 @@ android {
         // Native libraries are packaged exactly as the libraries ship them. Stripping depends on which NDK the build
         // machine has, which would make F-Droid's rebuild differ from the release APK (reproducible builds).
         jniLibs.keepDebugSymbols += "**/*.so"
+    }
+    // No "dependency metadata" in the APK signing block: it is encrypted for Google Play only, and F-Droid's scanner
+    // rejects APKs that carry it.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 }
 

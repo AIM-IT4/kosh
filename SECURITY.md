@@ -17,8 +17,9 @@ this data never leaves the phone.
 **Protections**
 
 - **No servers or accounts:** Kosh has no backend, no analytics and no third-party SDKs.
-- **Network:** the standard edition only fetches public NPS NAVs (no personal data in requests). The offline
-  edition has no INTERNET permission at all.
+- **Network:** the standard edition only fetches public NPS NAVs and, once a day, the latest release number from
+  the GitHub API (no personal data in either request; the update check is off for app-store installs and can be
+  turned off in More › Updates). The offline edition has no INTERNET permission at all.
 - **Encryption at rest:** the database is encrypted with SQLCipher (AES-256). Its key is random, generated on
   the device and stored wrapped by a non-exportable AES-GCM key in the Android Keystore.
 - **Backups:** user-initiated exports are encrypted with AES-256-GCM and a PBKDF2-SHA256 key (600,000
