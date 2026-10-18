@@ -1,0 +1,4 @@
+- Fixed: one bank SMS that couldn't be saved held up every message after it, so spends, the digest and the heat map could stay at ₹0. Opening Kosh brings the missed ones in.
+- New SMS check-up (More › Bank SMS): which bank SMS this week were counted, which weren't and why
+- The digest says when it couldn't check new SMS
+- Messages with a wrong network time are dated by when the phone got them

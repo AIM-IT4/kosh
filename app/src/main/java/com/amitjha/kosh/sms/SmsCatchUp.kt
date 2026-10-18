@@ -9,6 +9,7 @@ import com.amitjha.kosh.data.prefs.Settings
 import com.amitjha.kosh.di.AppContainer
 import com.amitjha.kosh.model.Money
 import com.amitjha.kosh.model.TxnType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -22,13 +23,27 @@ object SmsCatchUp {
     const val MAX_ALERTS = 5
 
     /**
-     * Reads the inbox since the last scan. Returns what was imported, or null when import is off, SMS access is
-     * missing, the first scan hasn't been done yet (onboarding does that long one), or it took too long.
+     * Reads the inbox since the last scan. Returns what was imported (with [ImportResult.problem] set when SMS access
+     * is missing or the scan failed or took too long), or null when import is off or the first scan hasn't been done
+     * yet (onboarding does that long one). A failure is remembered for More › Bank SMS instead of passing silently.
      */
     suspend fun run(container: AppContainer, alert: Boolean, timeoutMillis: Long = 30_000): ImportResult? {
         val settings = container.settings.current()
-        if (!settings.smsAutoImport || settings.smsLastScanMillis <= 0 || !container.smsImporter.hasPermission()) return null
-        val result = withTimeoutOrNull(timeoutMillis) { runCatching { container.smsImporter.importInbox() }.getOrNull() } ?: return null
+        if (!settings.smsAutoImport || settings.smsLastScanMillis <= 0) return null
+        if (!container.smsImporter.hasPermission()) {
+            container.settings.setSmsProblem(ImportResult(permissionMissing = true).problem)
+            return ImportResult(permissionMissing = true)
+        }
+        val result = try {
+            withTimeoutOrNull(timeoutMillis) { container.smsImporter.importInbox() }
+                ?: ImportResult(readError = "Reading bank SMS took too long")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ImportResult(readError = "Bank SMS couldn't be imported (${e.javaClass.simpleName})")
+        }
+        // importInbox records its own outcome; a timeout or a crash outside it is recorded here.
+        if (result.scanned == 0 && result.problem != null) container.settings.setSmsProblem(result.problem)
         if (alert) postAlerts(container, settings, result.insertedTransactions)
         return result
     }

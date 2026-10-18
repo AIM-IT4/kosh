@@ -31,6 +31,9 @@ data class Settings(
     val themeMode: ThemeMode = ThemeMode.LIGHT,
     val smsAutoImport: Boolean = true,
     val smsLastScanMillis: Long = 0L,
+    /** What went wrong in the last inbox scan (see `ImportResult.problem`), and when; null after a clean scan. */
+    val smsProblem: String? = null,
+    val smsProblemAt: Long = 0L,
     val monthStartDay: Int = 1,
     val notifyTransactions: Boolean = true,
     val notifyBills: Boolean = true,
@@ -59,6 +62,8 @@ class SettingsStore(
         val themeMode = stringPreferencesKey("theme_mode")
         val smsAutoImport = booleanPreferencesKey("sms_auto_import")
         val smsLastScan = longPreferencesKey("sms_last_scan")
+        val smsProblem = stringPreferencesKey("sms_problem")
+        val smsProblemAt = longPreferencesKey("sms_problem_at")
         // Left by the removed Gmail import; cleared on start.
         val legacyGmail = listOf(
             stringPreferencesKey("gmail_email"), longPreferencesKey("gmail_last_sync"), booleanPreferencesKey("gmail_reconnect"),
@@ -86,6 +91,8 @@ class SettingsStore(
             themeMode = p[Keys.themeMode]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.LIGHT,
             smsAutoImport = p[Keys.smsAutoImport] ?: true,
             smsLastScanMillis = p[Keys.smsLastScan] ?: 0L,
+            smsProblem = p[Keys.smsProblem],
+            smsProblemAt = p[Keys.smsProblemAt] ?: 0L,
             monthStartDay = p[Keys.monthStartDay] ?: 1,
             notifyTransactions = p[Keys.notifyTransactions] ?: true,
             notifyBills = p[Keys.notifyBills] ?: true,
@@ -103,6 +110,15 @@ class SettingsStore(
     suspend fun setThemeMode(mode: ThemeMode) = edit { it[Keys.themeMode] = mode.name }
     suspend fun setSmsAutoImport(enabled: Boolean) = edit { it[Keys.smsAutoImport] = enabled }
     suspend fun setSmsLastScan(millis: Long) = edit { it[Keys.smsLastScan] = millis }
+    suspend fun setSmsProblem(problem: String?, at: Long = System.currentTimeMillis()) = edit {
+        if (problem == null) {
+            it.remove(Keys.smsProblem)
+            it.remove(Keys.smsProblemAt)
+        } else {
+            it[Keys.smsProblem] = problem.take(200)
+            it[Keys.smsProblemAt] = at
+        }
+    }
     suspend fun setMonthStartDay(day: Int) = edit { it[Keys.monthStartDay] = day.coerceIn(1, 28) }
     suspend fun setNotifyTransactions(enabled: Boolean) = edit { it[Keys.notifyTransactions] = enabled }
     suspend fun setNotifyBills(enabled: Boolean) = edit { it[Keys.notifyBills] = enabled }
