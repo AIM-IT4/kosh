@@ -16,9 +16,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.TravelExplore
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -117,6 +120,43 @@ fun PendingAccountsBanner(count: Int, onClick: () -> Unit, modifier: Modifier = 
     }
 }
 
+/**
+ * Bank SMS from the last week went to accounts the user ignored, so no total includes them. Easy to miss otherwise:
+ * the spends simply don't appear anywhere.
+ */
+@Composable
+fun IgnoredSmsBanner(count: Int, onClick: () -> Unit, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    if (count <= 0) return
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        color = KoshTheme.colors.alert.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.VisibilityOff, contentDescription = null, tint = KoshTheme.colors.alert)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (count == 1) "1 bank SMS this week isn't counted" else "$count bank SMS this week aren't counted",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "They went to accounts you ignored. Tap to count them",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = KoshTheme.colors.subtleText,
+                )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Outlined.Close, contentDescription = "Dismiss", tint = KoshTheme.colors.subtleText)
+            }
+        }
+    }
+}
+
 /** One line describing where a balance comes from, used here and in the net worth breakdown. */
 fun AccountWithBalance.sourceLine(): String = when (val s = source) {
     is BalanceSource.Entered ->
@@ -139,6 +179,7 @@ fun PendingAccountsScreen(nav: NavController) {
     val hidden = LocalHideAmounts.current
     var merging by remember { mutableStateOf<AccountWithBalance?>(null) }
     var adding by remember { mutableStateOf<AccountWithBalance?>(null) }
+    var ignoring by remember { mutableStateOf<AccountWithBalance?>(null) }
 
     KoshScreen(title = "Accounts found in SMS", onBack = { nav.popBackSafely() }) { padding ->
         if (state.loaded && state.pending.isEmpty()) {
@@ -187,11 +228,26 @@ fun PendingAccountsScreen(nav: NavController) {
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SecondaryButton(text = "Add as new", onClick = { adding = a }, modifier = Modifier.weight(1f))
-                        SecondaryButton(text = "Ignore", onClick = { vm.ignore(a.id) }, modifier = Modifier.weight(1f))
+                        SecondaryButton(text = "Ignore", onClick = { ignoring = a }, modifier = Modifier.weight(1f))
                     }
                 }
             }
         }
+    }
+
+    ignoring?.let { a ->
+        com.amitjha.kosh.ui.common.ConfirmDialog(
+            "Ignore ${a.account.label()}?",
+            "Use this for an account that isn't yours. Its bank SMS will keep arriving but never count in your spending, " +
+                "balances or net worth. If it is yours, choose \"This is one of my accounts\" or \"Add as new\" instead. " +
+                "You can undo this in Accounts › Ignored.",
+            "Ignore",
+            onConfirm = {
+                vm.ignore(a.id)
+                ignoring = null
+            },
+            onDismiss = { ignoring = null },
+        )
     }
 
     merging?.let { pending ->

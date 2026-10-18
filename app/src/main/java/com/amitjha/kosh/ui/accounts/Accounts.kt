@@ -83,6 +83,7 @@ import com.amitjha.kosh.ui.common.KoshScreen
 import com.amitjha.kosh.ui.common.KoshTextField
 import com.amitjha.kosh.ui.common.LocalHideAmounts
 import com.amitjha.kosh.ui.common.koshViewModel
+import com.amitjha.kosh.ui.common.bankEnum
 import com.amitjha.kosh.ui.common.label
 import com.amitjha.kosh.ui.home.TxnRow
 import com.amitjha.kosh.ui.nav.Routes
@@ -97,16 +98,28 @@ import com.amitjha.kosh.ui.nav.popBackSafely
 
 // ---------------------------------------------------------------- list
 
-class AccountsViewModel(c: AppContainer) : ViewModel() {
+/** An account the user ignored, with how much of its history totals leave out. */
+data class IgnoredAccount(val account: AccountEntity, val transactions: Int, val latest: Long?)
+
+class AccountsViewModel(private val c: AppContainer) : ViewModel() {
     val accounts: StateFlow<List<AccountWithBalance>?> =
         c.accounts.observeAccounts().map<List<AccountWithBalance>, List<AccountWithBalance>?> { it }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val ignored: StateFlow<List<IgnoredAccount>> =
+        combine(c.accounts.observeIgnored(), c.db.transactions().observeIgnoredActivity()) { list, activity ->
+            val byId = activity.associateBy { it.accountId }
+            list.map { IgnoredAccount(it, byId[it.id]?.count ?: 0, byId[it.id]?.latest) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun restore(id: Long) = viewModelScope.launch { c.accounts.restore(id) }
 }
 
 @Composable
 fun AccountsScreen(nav: NavController) {
     val vm = koshViewModel { AccountsViewModel(it) }
     val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val ignored by vm.ignored.collectAsStateWithLifecycle()
     val hidden = LocalHideAmounts.current
     KoshScreen(
         title = "Accounts",
@@ -114,7 +127,7 @@ fun AccountsScreen(nav: NavController) {
         actions = { IconButton(onClick = { nav.navigate(Routes.editAccount()) }) { Icon(Icons.Outlined.Add, contentDescription = "Add account") } },
     ) { padding ->
         val list = accounts ?: return@KoshScreen
-        if (list.isEmpty()) {
+        if (list.isEmpty() && ignored.isEmpty()) {
             EmptyState(
                 "No accounts yet",
                 "Add your bank accounts and credit cards to track balances.",
@@ -149,6 +162,19 @@ fun AccountsScreen(nav: NavController) {
                     items(items, key = { it.id }) { a -> AccountListRow(a, hidden) { nav.navigate(Routes.account(a.id)) } }
                 }
             }
+            if (ignored.isNotEmpty()) {
+                item(key = "ignored") {
+                    Column(Modifier.padding(top = 20.dp, bottom = 4.dp)) {
+                        Text("Ignored · not counted", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Kosh still reads their SMS but leaves them out of spending, balances and net worth.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = KoshTheme.colors.subtleText,
+                        )
+                    }
+                }
+                items(ignored, key = { "ignored-${it.account.id}" }) { ig -> IgnoredAccountRow(ig) { vm.restore(ig.account.id) } }
+            }
             item(key = "add") {
                 Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = { nav.navigate(Routes.editAccount()) }, modifier = Modifier.weight(1f)) { Text("Add bank / cash") }
@@ -156,6 +182,36 @@ fun AccountsScreen(nav: NavController) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun IgnoredAccountRow(ig: IgnoredAccount, onRestore: () -> Unit) {
+    KoshCard(Modifier.padding(vertical = 5.dp), contentPadding = PaddingValues(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BankBadge(ig.account.bankEnum(), size = 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(ig.account.label(), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    buildString {
+                        append(ig.account.type.label())
+                        if (ig.transactions > 0) {
+                            append(" · ${ig.transactions} transaction${if (ig.transactions == 1) "" else "s"} left out")
+                            ig.latest?.let { append(", latest ${Fmt.date(com.amitjha.kosh.util.Time.toDate(it))}") }
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = KoshTheme.colors.subtleText,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        com.amitjha.kosh.designsystem.components.SecondaryButton(
+            text = if (ig.account.autoCreated) "Count again and review" else "Count again",
+            onClick = onRestore,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -377,7 +433,8 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
     if (archive) {
         ConfirmDialog(
             "Archive account?",
-            "It will be hidden from lists and totals. Its transactions stay in your history.",
+            "It will be hidden and left out of spending, balances and net worth, including its future bank SMS. " +
+                "Its transactions stay in your history, and Accounts › Ignored can count it again.",
             "Archive",
             onConfirm = {
                 archive = false

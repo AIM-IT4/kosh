@@ -14,6 +14,9 @@ data class CategoryTotal(val categoryKey: String, val total: Paise, val count: I
 data class DayTotal(val day: Long, val income: Paise, val expense: Paise)
 data class MerchantTotal(val merchant: String, val total: Paise, val count: Int)
 
+/** How much history an ignored account holds: [count] transactions, the newest at [latest]. */
+data class AccountActivity(val accountId: Long, val count: Int, val latest: Long?)
+
 @Dao
 interface AccountDao {
     @Query("SELECT * FROM accounts WHERE archived = 0 ORDER BY type, name")
@@ -21,6 +24,10 @@ interface AccountDao {
 
     @Query("SELECT * FROM accounts ORDER BY type, name")
     suspend fun all(): List<AccountEntity>
+
+    /** Accounts the user ignored or archived: their SMS are still read but never counted. */
+    @Query("SELECT * FROM accounts WHERE archived = 1 ORDER BY type, name")
+    fun observeIgnored(): Flow<List<AccountEntity>>
 
     @Query("SELECT * FROM accounts WHERE id = :id")
     suspend fun byId(id: Long): AccountEntity?
@@ -177,6 +184,29 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET excludeFromStats = 1 WHERE accountId = :accountId")
     suspend fun excludeAccountFromStats(accountId: Long)
+
+    /**
+     * Counts an account's transactions again after the user stops ignoring it. Everything else Kosh leaves out of
+     * totals is a transfer between own accounts, so those stay out.
+     */
+    @Query(
+        """UPDATE transactions SET excludeFromStats = CASE WHEN type = 'TRANSFER' OR categoryKey = 'transfer' THEN 1 ELSE 0 END
+           WHERE accountId = :accountId""",
+    )
+    suspend fun includeAccountInStats(accountId: Long)
+
+    @Query(
+        """SELECT accountId, COUNT(*) AS count, MAX(timestamp) AS latest FROM transactions
+           WHERE accountId IN (SELECT id FROM accounts WHERE archived = 1) GROUP BY accountId""",
+    )
+    fun observeIgnoredActivity(): Flow<List<AccountActivity>>
+
+    /** Bank SMS imported since [from] onto accounts the user ignored, which totals leave out. */
+    @Query(
+        """SELECT COUNT(*) FROM transactions WHERE source = 'SMS' AND timestamp >= :from
+           AND accountId IN (SELECT id FROM accounts WHERE archived = 1)""",
+    )
+    fun observeCountOnIgnored(from: Long): Flow<Int>
 
     /** Imported expenses still in "other", for the fix-uncategorised screen. */
     @Query("SELECT * FROM transactions WHERE type = 'EXPENSE' AND categoryKey = 'other' ORDER BY timestamp DESC")

@@ -160,6 +160,17 @@ fun SmsCheckupScreen(nav: NavController) {
                         Spacer(Modifier.height(8.dp))
                         PrimaryButton(if (busy) "Importing…" else "Import missing now", onClick = { importMissing() }, enabled = !busy && status.readSms)
                     }
+                    val ignored = list.filter { it.accountIgnored }.mapNotNull { it.accountName }.distinct()
+                    if (ignored.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Not counted because you ignored ${ignored.joinToString(", ")}. Count ${if (ignored.size == 1) "it" else "them"} " +
+                                "again in Accounts › Ignored.",
+                            style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.alert,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        PrimaryButton("Review ignored accounts", onClick = { nav.navigate(Routes.ACCOUNTS) })
+                    }
                 }
             }
             if (list.isEmpty()) {
@@ -218,7 +229,7 @@ private fun verdictLine(item: CheckupItem): Pair<String, Color> = when (item.ver
         item.accountName?.let { append(" · $it") }
         misdated(item)?.let { append(" · dated $it") }
     } to (if (misdated(item) != null) KoshTheme.colors.warning else KoshTheme.colors.good)
-    Verdict.NOT_COUNTED -> "In Kosh, not counted: ${item.reason}" to KoshTheme.colors.warning
+    Verdict.NOT_COUNTED -> "In Kosh, not counted: ${item.reason}${item.accountName?.let { " · $it" } ?: ""}" to KoshTheme.colors.warning
     Verdict.MISSING -> "Not in Kosh yet" to KoshTheme.colors.alert
     Verdict.OTHER -> (item.reason ?: "Not a spend").replaceFirstChar { it.uppercase() } to KoshTheme.colors.subtleText
     Verdict.SKIPPED -> "Skipped: ${item.reason}" to KoshTheme.colors.subtleText
@@ -260,7 +271,7 @@ private fun report(st: CheckupStatus, lastScan: Long, problem: String?, items: L
         val note = when (item.verdict) {
             Verdict.COUNTED -> "counted${misdated(item)?.let { ", dated $it" } ?: ""}"
             else -> "${item.verdict.name.lowercase().replace('_', ' ')}${item.reason?.let { ": $it" } ?: ""}"
-        }
+        } + (item.accountName?.let { " · ${it.replace(Regex("\\d{3,}")) { d -> "X".repeat(d.value.length) }}" } ?: "")
         appendLine("$at · ${item.title} · $note")
         if (item.verdict != Verdict.COUNTED || misdated(item) != null) appendLine("  ${item.masked}")
     }
