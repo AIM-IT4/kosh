@@ -27,7 +27,7 @@
 <p><b>Privacy and security</b></p>
 <ul>
 <li>Everything stays on your phone. The database is encrypted with SQLCipher, its key held in the Android Keystore.</li>
-<li>The offline edition has no internet permission at all. The standard edition only goes online to fetch public NPS prices.</li>
+<li>The offline edition has no internet permission at all. The standard edition only goes online to fetch public NPS prices and, unless you turn it off or installed from an app store, to ask GitHub once a day for the latest version number.</li>
 <li>App lock with fingerprint or face, privacy mode, screenshot blocking, and encrypted backups that can run automatically.</li>
 <li>English and Hindi.</li>
 </ul>
