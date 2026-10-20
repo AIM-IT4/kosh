@@ -73,11 +73,27 @@ class MainActivity : FragmentActivity() {
         takeRoute(intent)?.let { pendingRoute.value = it }
     }
 
-    /** Reads the notification route and removes it, so it is handled exactly once. */
+    /**
+     * Reads the notification route and removes it, so it is handled exactly once. Text shared into Kosh (a bank SMS
+     * forwarded as a chat message) opens the Family screen to file it.
+     */
     private fun takeRoute(intent: Intent?): String? {
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.take(MAX_SHARED_CHARS)
+            intent.removeExtra(Intent.EXTRA_TEXT)
+            if (!text.isNullOrBlank()) {
+                com.amitjha.kosh.ui.family.SharedSms.pending.value = text
+                return Notifications.ROUTE_FAMILY
+            }
+        }
         val route = intent?.getStringExtra(Notifications.EXTRA_ROUTE)
         intent?.removeExtra(Notifications.EXTRA_ROUTE)
         return route
+    }
+
+    private companion object {
+        /** A bank SMS is a few hundred characters; anything far longer isn't one. */
+        const val MAX_SHARED_CHARS = 2_000
     }
 
     private fun applySecureWindow(secure: Boolean) {

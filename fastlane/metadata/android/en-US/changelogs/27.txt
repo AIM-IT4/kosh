@@ -1,0 +1,3 @@
+- Family members: a link SMS that didn't arrive no longer leaves them "waiting". Kosh lists numbers that sent a code or bank SMS so you can say who each is, and bank SMS they forwarded before move from your accounts to theirs
+- Forwards that came as chat messages (RCS, WhatsApp): paste them, or Share › Kosh
+- Explains when messages arrive as RCS chats, which Android doesn't let Kosh read

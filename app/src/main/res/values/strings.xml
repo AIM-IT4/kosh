@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Kosh</string>
+    <string name="share_bank_sms">Kosh · bank SMS</string>
 </resources>

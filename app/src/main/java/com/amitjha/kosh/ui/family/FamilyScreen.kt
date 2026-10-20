@@ -36,6 +36,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import com.amitjha.kosh.sms.FamilyCandidate
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -126,8 +131,55 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
         onAdded(m.copy(countInTotals = count))
     }
 
+    /** What "Look for their SMS" found: numbers not linked yet that sent a code or bank alerts. */
+    data class Check(val running: Boolean = false, val done: Boolean = false, val candidates: List<FamilyCandidate> = emptyList(), val smsAccess: Boolean = true)
+
+    private val _check = MutableStateFlow(Check())
+    val check: StateFlow<Check> = _check
+
+    /** One-line results for the snackbar. */
+    val messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /**
+     * Reads SMS that arrived while Kosh wasn't listening (link codes are applied there), then lists numbers that
+     * sent a link code or bank alerts but aren't linked.
+     */
+    fun lookForSms() = viewModelScope.launch {
+        _check.value = _check.value.copy(running = true)
+        runCatching { com.amitjha.kosh.sms.SmsCatchUp.run(c, alert = false) }
+        val found = runCatching { c.smsImporter.familyCandidates() }.getOrDefault(emptyList())
+        _check.value = Check(running = false, done = true, candidates = found, smsAccess = c.smsImporter.hasPermission())
+    }
+
     fun rename(id: Long, name: String) = viewModelScope.launch { c.family.rename(id, name) }
-    fun linkNumber(id: Long, phone: String) = viewModelScope.launch { c.family.linkNumber(id, phone) }
+
+    /** Links [phone] to the member and files what it forwarded before under their accounts. */
+    fun linkNumber(id: Long, phone: String) = viewModelScope.launch {
+        if (!c.family.linkNumber(id, phone)) {
+            messages.tryEmit("That doesn't look like a mobile number")
+            return@launch
+        }
+        val r = runCatching { c.smsImporter.adoptForwards(id) }.getOrNull()
+        val name = c.family.members().firstOrNull { it.id == id }?.name.orEmpty()
+        val moved = (r?.adopted ?: 0) + (r?.inserted ?: 0)
+        messages.tryEmit(if (moved > 0) "$name linked · $moved earlier SMS added to their accounts" else "$name linked")
+        _check.value = _check.value.copy(candidates = _check.value.candidates.filter { it.phone != com.amitjha.kosh.sms.FamilyForward.phoneKey(phone) })
+    }
+
+    /** A forwarded bank SMS pasted or shared into Kosh, for [memberId] (null: the user's own). */
+    fun paste(memberId: Long?, text: String) = viewModelScope.launch {
+        val r = runCatching { c.smsImporter.importPasted(memberId, text) }.getOrNull()
+        val t = r?.insertedTransactions?.firstOrNull()
+        messages.tryEmit(
+            when {
+                t != null -> "Added " + com.amitjha.kosh.model.Money.format(t.amount) + (if (t.type == com.amitjha.kosh.model.TxnType.INCOME) " received" else " spent") +
+                    (t.merchant?.let { " · $it" } ?: "")
+                r != null && r.duplicates > 0 -> "Already in Kosh"
+                r != null && r.bills > 0 -> "Card bill added"
+                else -> "Kosh couldn't find a bank transaction in that text"
+            },
+        )
+    }
     fun unlink(id: Long) = viewModelScope.launch { c.family.unlink(id) }
     fun setCount(id: Long, count: Boolean) = viewModelScope.launch { c.family.setCountInTotals(id, count) }
     fun remove(id: Long) = viewModelScope.launch { c.family.remove(id) }
@@ -162,7 +214,23 @@ fun FamilyScreen(nav: NavController) {
         }
     }
 
-    KoshScreen(title = "Family members", onBack = { nav.popBackSafely() }) { padding ->
+    val check by vm.check.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
+    var pasting by remember { mutableStateOf<String?>(null) }
+    // Text shared into Kosh from another app (a forward that came as a chat message).
+    val shared by SharedSms.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(shared) {
+        shared?.let {
+            pasting = it
+            SharedSms.pending.value = null
+        }
+    }
+    val waiting = state.rows.filter { it.member.phone == null }
+    // Someone still to link: look through the inbox once on opening.
+    LaunchedEffect(waiting.isNotEmpty()) { if (waiting.isNotEmpty() && !check.done && !check.running) vm.lookForSms() }
+
+    KoshScreen(title = "Family members", onBack = { nav.popBackSafely() }, snackbar = snackbar) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 40.dp)) {
             item(key = "intro") {
                 KoshCard(Modifier.padding(bottom = 12.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)) {
@@ -192,6 +260,17 @@ fun FamilyScreen(nav: NavController) {
                     }
                 }
             }
+            if (waiting.isNotEmpty()) {
+                item(key = "check") {
+                    LinkHelp(
+                        check,
+                        waiting.map { it.member },
+                        onLook = vm::lookForSms,
+                        onLink = { member, phone -> vm.linkNumber(member.id, phone) },
+                        onPaste = { pasting = "" },
+                    )
+                }
+            }
             if (state.loaded && state.rows.isEmpty()) {
                 item(key = "empty") {
                     EmptyState(
@@ -212,6 +291,7 @@ fun FamilyScreen(nav: NavController) {
                     onAccount = { nav.navigate(Routes.account(it)) },
                     onRename = { renaming = row.member },
                     onTypeNumber = { typingNumber = row.member },
+                    onPaste = { pasting = "" },
                     onUnlink = { vm.unlink(row.member.id) },
                     onRemove = { removing = row },
                 )
@@ -282,6 +362,17 @@ fun FamilyScreen(nav: NavController) {
             onDismiss = { typingNumber = null },
         )
     }
+    pasting?.let { text ->
+        PasteDialog(
+            initial = text,
+            members = state.rows.map { it.member },
+            onAdd = { memberId, body ->
+                vm.paste(memberId, body)
+                pasting = null
+            },
+            onDismiss = { pasting = null },
+        )
+    }
     removing?.let { row ->
         ConfirmDialog(
             "Remove ${row.member.name}?",
@@ -305,6 +396,7 @@ private fun MemberCard(
     onAccount: (Long) -> Unit,
     onRename: () -> Unit,
     onTypeNumber: () -> Unit,
+    onPaste: () -> Unit,
     onUnlink: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -318,13 +410,14 @@ private fun MemberCard(
                 if (m.phone != null) {
                     Pill("Linked · ••${m.phone.takeLast(4)}", KoshTheme.colors.income)
                 } else {
-                    Pill(tr("Waiting for their link SMS"), KoshTheme.colors.warning)
+                    Pill(tr("Not linked yet"), KoshTheme.colors.warning)
                 }
             }
             IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text(tr("Rename")) }, onClick = { menu = false; onRename() })
                 DropdownMenuItem(text = { Text(tr("Type their number instead")) }, onClick = { menu = false; onTypeNumber() })
+                DropdownMenuItem(text = { Text(tr("Paste a forwarded SMS")) }, onClick = { menu = false; onPaste() })
                 if (m.phone != null) DropdownMenuItem(text = { Text(tr("Stop reading their SMS")) }, onClick = { menu = false; onUnlink() })
                 DropdownMenuItem(text = { Text(tr("Remove"), color = KoshTheme.colors.alert) }, onClick = { menu = false; onRemove() })
             }
@@ -453,6 +546,100 @@ private fun LinkSheet(member: FamilyMemberEntity, myPhone: String, onSteps: () -
     }
 }
 
+/**
+ * Helps link someone whose link message didn't arrive: numbers in the inbox that sent a code or bank alerts (pick who
+ * each is), or, when there are none, why Kosh may not see their messages.
+ */
+@Composable
+private fun LinkHelp(
+    check: FamilyViewModel.Check,
+    waiting: List<FamilyMemberEntity>,
+    onLook: () -> Unit,
+    onLink: (FamilyMemberEntity, String) -> Unit,
+    onPaste: () -> Unit,
+) {
+    KoshCard(Modifier.padding(vertical = 6.dp)) {
+        when {
+            check.running -> Text(tr("Looking for their SMS…"), style = MaterialTheme.typography.bodyMedium)
+            check.candidates.isNotEmpty() -> {
+                Text(tr("SMS from numbers not linked yet"), fontWeight = FontWeight.SemiBold)
+                Text(
+                    tr("Pick who sent them. Bank SMS they forwarded before move to their accounts."),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = KoshTheme.colors.subtleText,
+                )
+                check.candidates.forEach { cand ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(cand.number, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                    val what = listOfNotNull(
+                        cand.linkCode?.let { "sent link code $it" },
+                        cand.forwards.takeIf { it > 0 }?.let { "$it bank SMS" },
+                    ).joinToString(" · ")
+                    Text(
+                        what + " · " + com.amitjha.kosh.ui.common.Fmt.date(Time.toDate(cand.lastAt)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = KoshTheme.colors.subtleText,
+                    )
+                    // The member whose code it sent first, then everyone else still waiting.
+                    val order = waiting.sortedBy { if (it.linkCode == cand.linkCode) 0 else 1 }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        order.take(3).forEach { m ->
+                            SecondaryButton("This is ${m.name}", onClick = { onLink(m, cand.number) })
+                        }
+                    }
+                }
+            }
+            check.done -> {
+                Text(tr("No SMS from them yet"), fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (!check.smsAccess) tr("Kosh can't read SMS: allow SMS access in More › Bank SMS.") else tr(NOT_SMS_HELP),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = KoshTheme.colors.subtleText,
+                )
+            }
+            else -> Text(tr("Their link SMS hasn't arrived yet."), style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 10.dp)) {
+            SecondaryButton("Look again", onClick = onLook, enabled = !check.running, modifier = Modifier.weight(1f))
+            SecondaryButton("Paste an SMS", onClick = onPaste, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/** Why a family member's messages may not reach Kosh, and what to do. */
+const val NOT_SMS_HELP =
+    "Kosh can only read SMS. If their messages show as chats in your Messages app (RCS, or \"Chat message\"; " +
+        "iPhones use RCS too), Android doesn't let Kosh see them. Ask them to send as SMS: in Google Messages, turn off " +
+        "Settings › RCS chats; on an iPhone, Settings › Apps › Messages › RCS Messaging. Or copy a forwarded SMS and paste " +
+        "it here, or use Share › Kosh. You can also type their number (⋮ › Type their number instead)."
+
+/** A forwarded bank SMS typed, pasted or shared in, and whose it is. */
+@Composable
+private fun PasteDialog(initial: String, members: List<FamilyMemberEntity>, onAdd: (Long?, String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(initial) }
+    val mine = -1L
+    var owner by remember { mutableStateOf(members.singleOrNull()?.id ?: members.firstOrNull()?.id ?: mine) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(tr("Add a forwarded bank SMS")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                KoshTextField(text, { text = it }, "Bank SMS", singleLine = false, supporting = "Paste the message as the bank sent it")
+                com.amitjha.kosh.ui.common.ChoiceField(
+                    "Whose account",
+                    members.map { it.id } + mine,
+                    owner,
+                    { id -> members.firstOrNull { it.id == id }?.name ?: "Mine" },
+                    { owner = it },
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onAdd(owner.takeIf { it != mine }, text) }, enabled = text.isNotBlank()) { Text(tr("Add")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } },
+    )
+}
+
 /** How a family member forwards their bank SMS, on Android and iPhone, with a button to send them the steps. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -490,4 +677,6 @@ fun forwardingSteps(me: String): String =
         "iPhone (automatic): open Shortcuts › Automation › New Automation › Message. Set \"Message Contains\" to Rs " +
         "(make a second one for INR), choose Run Immediately, then add the action Send Message: tap Message and pick " +
         "Shortcut Input, and set the recipient to $me.\n\n" +
-        "Only bank alerts are added; everything else is ignored. Forwarding uses normal SMS."
+        "Please send them as SMS: if your messages to $me show as chat (RCS), turn it off in Google Messages " +
+        "(Settings › RCS chats) or on iPhone (Settings › Apps › Messages › RCS Messaging).\n\n" +
+        "Only bank alerts are added; everything else is ignored."

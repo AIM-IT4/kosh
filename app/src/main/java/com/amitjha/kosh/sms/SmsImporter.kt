@@ -48,6 +48,8 @@ data class ImportResult(
     val redated: Int = 0,
     /** Family members whose phone was linked by a link message in this import. */
     val linkedMembers: List<String> = emptyList(),
+    /** Earlier imports of a newly linked member's forwards moved from the user's accounts to theirs. */
+    val adopted: Int = 0,
 ) {
     /** Number of SMS read from the phone. */
     val messagesRead: Int get() = scanned
@@ -84,6 +86,7 @@ data class ImportResult(
         failures = (failures + o.failures).take(MAX_SAMPLES),
         redated = redated + o.redated,
         linkedMembers = linkedMembers + o.linkedMembers,
+        adopted = adopted + o.adopted,
     )
 
     companion object {
@@ -170,6 +173,17 @@ class SmsImporter(
                     importBatch(batch, rules, family)
                 }
             }
+            // A number linked just now may have forwarded bank SMS before: they become the member's.
+            for (id in family.linkedNow.distinct()) {
+                val member = family.all.firstOrNull { it.id == id } ?: continue
+                result += try {
+                    adopt(member, rules, family)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    ImportResult()
+                }
+            }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
             // Only the window around these messages can gain new pairs; a live SMS shouldn't rescan everything.
             val earliest = messages.minOfOrNull { it.timestampMillis }
@@ -188,6 +202,9 @@ class SmsImporter(
 
         /** Members whose money is kept out of the user's totals. */
         val apart: Set<Long> get() = all.filter { !it.countInTotals }.map { it.id }.toSet()
+
+        /** Members linked during this run. */
+        val linkedNow = mutableListOf<Long>()
     }
 
     private suspend fun importBatch(batch: List<SmsMessage>, rules: Map<String, String>, family: Family): ImportResult {
@@ -230,7 +247,134 @@ class SmsImporter(
         family.byPhone.entries.removeAll { it.value.id == member.id }
         family.byPhone[phone] = linked
         family.all.replaceAll { if (it.id == member.id) linked else it }
+        family.linkedNow += member.id
         return ImportResult(linkedMembers = listOf(member.name))
+    }
+
+    /** After a member's number is linked by hand: what they forwarded before becomes theirs. */
+    suspend fun adoptForwards(memberId: Long): ImportResult = lock.withLock {
+        withContext(Dispatchers.IO) {
+            val family = Family(db.family().all())
+            val member = family.all.firstOrNull { it.id == memberId && it.phone != null } ?: return@withContext ImportResult()
+            val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
+            val result = adopt(member, rules, family)
+            runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
+            runCatching { com.amitjha.kosh.repo.TransferPairer.run(db) }
+            result
+        }
+    }
+
+    /**
+     * Makes a newly linked member's earlier forwards theirs. Messages from their number that an earlier import filed
+     * under the user's accounts (as a forward from an unknown number looks like the user's own bank SMS) move to the
+     * member's accounts; accounts Kosh had created for the user from them, now empty, go; the rest are imported.
+     */
+    private suspend fun adopt(member: FamilyMemberEntity, rules: Map<String, String>, family: Family): ImportResult {
+        val phone = member.phone ?: return ImportResult()
+        if (!hasPermission()) return ImportResult()
+        val (messages, _) = readAll(System.currentTimeMillis() - FIRST_SCAN_DAYS * DAY_MILLIS)
+        val theirs = messages
+            .filter { FamilyForward.phoneKey(it.sender) == phone && FamilyForward.linkCode(it.body) == null }
+            .sortedBy { it.timestampMillis }
+        if (theirs.isEmpty()) return ImportResult()
+        val dao = db.transactions()
+        val emptied = HashSet<Long>()
+        var result = ImportResult()
+        db.withTransaction {
+            for (msg in theirs) {
+                val inner = FamilyForward.inner(msg)
+                val asForward = runCatching { SmsParser.parse(inner) }.getOrNull()
+                val asOwn = runCatching { SmsParser.parse(msg) }.getOrNull()
+                val handled = when (asForward) {
+                    is SmsParseResult.Transaction -> {
+                        val p = asForward.txn
+                        val row = listOfNotNull((asOwn as? SmsParseResult.Transaction)?.txn?.fingerprint, p.fingerprint).distinct()
+                            .firstNotNullOfOrNull { dao.byFingerprint(it) }
+                        val from = row?.let { db.accounts().byId(it.accountId) }
+                        if (row != null && from != null && from.memberId != member.id) {
+                            val debitCard = !p.isCreditCard && SmsMapping.isDebitCardMessage(inner.body)
+                            val to = resolveAccount(p.bank, p.accountLast4, p.isCreditCard, member, debitCard) {}
+                            val transfer = row.type == TxnType.TRANSFER || row.categoryKey == SmsMapping.TRANSFER_CATEGORY
+                            dao.update(row.copy(accountId = to.id, excludeFromStats = transfer || !member.countInTotals))
+                            // A balance this message reported on the user's account was the member's.
+                            if (from.reportedAt != null && from.reportedAt == p.timestampMillis) {
+                                db.accounts().byId(from.id)?.let { db.accounts().update(it.copy(reportedBalance = null, reportedAt = null)) }
+                            }
+                            val balance = p.availableBalance
+                            if (!p.isCreditCard && balance != null) updateReported(to, balance, p.timestampMillis)
+                            emptied += from.id
+                            result += ImportResult(adopted = 1)
+                        }
+                        row != null
+                    }
+                    is SmsParseResult.CardBill -> {
+                        val b = asForward.bill
+                        val bill = listOfNotNull((asOwn as? SmsParseResult.CardBill)?.bill?.fingerprint, b.fingerprint).distinct()
+                            .firstNotNullOfOrNull { db.bills().byFingerprint(it) }
+                        val from = bill?.let { db.accounts().byId(it.accountId) }
+                        if (bill != null && from != null && from.memberId != member.id) {
+                            val card = resolveAccount(b.bank, b.cardLast4, isCard = true, owner = member) {}
+                            db.bills().update(bill.copy(accountId = card.id))
+                            emptied += from.id
+                            result += ImportResult(adopted = 1)
+                        }
+                        bill != null
+                    }
+                    else -> false
+                }
+                if (!handled && isFinancialMessage(inner.sender, inner.body)) {
+                    result += importOne(inner, rules, member, family).copy(financial = 1)
+                }
+            }
+            // Accounts Kosh had made for the user from these messages, now empty, go.
+            for (id in emptied) {
+                val a = db.accounts().byId(id) ?: continue
+                if (a.autoCreated && a.memberId == null && dao.countFor(id) == 0 && db.bills().countFor(id) == 0) db.accounts().delete(a)
+            }
+        }
+        return result
+    }
+
+    /**
+     * A bank SMS the user pasted or shared into Kosh, filed as [memberId]'s (null: the user's own). For forwards that
+     * arrived as chat messages (RCS, WhatsApp), which apps can't read the way they read SMS.
+     */
+    suspend fun importPasted(memberId: Long?, text: String, now: Long = System.currentTimeMillis()): ImportResult = lock.withLock {
+        withContext(Dispatchers.IO) {
+            val family = Family(db.family().all())
+            val member = memberId?.let { id -> family.all.firstOrNull { it.id == id } }
+            val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
+            val inner = FamilyForward.inner(SmsMessage(FamilyForward.SENDER, text.trim(), now))
+            if (!isFinancialMessage(inner.sender, inner.body)) return@withContext ImportResult(ignored = 1)
+            val result = db.withTransaction { importOne(inner, rules, member, family) }.copy(financial = 1)
+            runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
+            runCatching { com.amitjha.kosh.repo.TransferPairer.run(db, now - com.amitjha.kosh.domain.TransferPairing.WINDOW_MILLIS - DAY_MILLIS) }
+            result
+        }
+    }
+
+    /**
+     * Personal numbers in the last [days] days of SMS that sent a link code or bank alerts (forwards, it seems) and
+     * aren't linked to anyone: who a waiting family member might be, when their link message didn't do it.
+     */
+    suspend fun familyCandidates(days: Long = CANDIDATE_DAYS): List<FamilyCandidate> = withContext(Dispatchers.IO) {
+        if (!hasPermission()) return@withContext emptyList()
+        val linked = db.family().all().mapNotNull { it.phone }.toSet()
+        val (messages, _) = readAll(System.currentTimeMillis() - days * DAY_MILLIS)
+        messages
+            .mapNotNull { m -> FamilyForward.phoneKey(m.sender)?.takeIf { it !in linked }?.let { it to m } }
+            .groupBy({ it.first }, { it.second })
+            .mapNotNull { (phone, msgs) ->
+                val code = msgs.firstNotNullOfOrNull { FamilyForward.linkCode(it.body) }
+                val forwards = msgs.count { m -> FamilyForward.linkCode(m.body) == null && looksTransactional(FamilyForward.unwrap(m.body).body) }
+                if (code == null && forwards == 0) {
+                    null
+                } else {
+                    val latest = msgs.maxBy { it.timestampMillis }
+                    FamilyCandidate(phone, latest.sender, forwards, latest.timestampMillis, code)
+                }
+            }
+            .sortedByDescending { it.lastAt }
     }
 
     private suspend fun importOne(msg: SmsMessage, rules: Map<String, String>, owner: FamilyMemberEntity?, family: Family): ImportResult =
@@ -621,6 +765,8 @@ class SmsImporter(
         private const val IMPORT_BATCH = 50
         /** Days of messages the SMS check-up looks at. */
         const val CHECKUP_DAYS = 7L
+        /** Days of messages searched for family members' numbers. */
+        const val CANDIDATE_DAYS = 60L
         private const val DAY_MILLIS = 86_400_000L
         /** Re-read a little before the last scan so messages delivered late are not missed. */
         private const val OVERLAP_MILLIS = 2 * DAY_MILLIS
