@@ -175,4 +175,33 @@ class MigrationSchemaTest {
             indexSql(schema(9), "transactions") - indexSql(schema(8), "transactions"),
         )
     }
+
+    @Test
+    fun version10AddsFamilyMembersAndTheAccountOwner() {
+        assertEquals(setOf("family_members"), tables(schema(10)) - tables(schema(9)))
+        val v9 = columns(schema(9), "accounts")
+        val v10 = columns(schema(10), "accounts")
+        assertEquals(setOf("memberId"), v10.keys - v9.keys)
+        assertEquals("INTEGER", v10.getValue("memberId").getString("affinity"))
+        assertTrue(!v10.getValue("memberId").getBoolean("notNull"))
+        tables(schema(9)).filter { it != "accounts" }.forEach { table ->
+            assertEquals(table, columns(schema(9), table).keys, columns(schema(10), table).keys)
+            assertEquals(table, indexSql(schema(9), table), indexSql(schema(10), table))
+        }
+    }
+
+    @Test
+    fun migration9To10RunsExactlyWhatRoomExpects() {
+        val sql = mutableListOf<String>()
+        val db = java.lang.reflect.Proxy.newProxyInstance(
+            javaClass.classLoader, arrayOf(androidx.sqlite.db.SupportSQLiteDatabase::class.java),
+        ) { _, m, args -> if (m.name == "execSQL") sql += args[0] as String; null } as androidx.sqlite.db.SupportSQLiteDatabase
+        KoshDatabase.MIGRATION_9_10.migrate(db)
+        val entities = schema(10).getJSONArray("entities")
+        val family = (0 until entities.length()).map { entities.getJSONObject(it) }.first { it.getString("tableName") == "family_members" }
+        val expected = listOf(family.getString("createSql").replace("\${TABLE_NAME}", "family_members")) +
+            indexSql(schema(10), "family_members") +
+            "ALTER TABLE accounts ADD COLUMN memberId INTEGER"
+        assertEquals(expected, sql)
+    }
 }

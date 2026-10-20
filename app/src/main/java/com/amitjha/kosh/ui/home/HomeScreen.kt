@@ -1,10 +1,12 @@
 package com.amitjha.kosh.ui.home
 
 import com.amitjha.kosh.designsystem.components.tr
+import com.amitjha.kosh.ui.common.NameDialog
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -290,9 +292,16 @@ fun HomeScreen(nav: NavController) {
             onUpcoming = { planSheet = false; nav.navigate(Routes.RECURRING) },
         )
     }
+    val settings = com.amitjha.kosh.ui.common.LocalSettings.current
+    var editingName by remember { mutableStateOf(false) }
+    if (editingName) {
+        NameDialog(settings.userName, onSave = { scope.launch { container.settings.setUserName(it) }; editingName = false }, onDismiss = { editingName = false })
+    }
     HomeContent(
         state = state,
         hidden = hidden,
+        userName = settings.userName,
+        onEditName = { editingName = true },
         loadingDemo = loadingDemo,
         onToggleHidden = { vm.toggleHidden(hidden) },
         onInsights = { nav.navigate(Routes.INSIGHTS) },
@@ -362,6 +371,9 @@ fun HomeContent(
     onSafeToSpend: () -> Unit = {},
     /** Household sync's card (null in previews and in the offline edition); it draws nothing until paired. */
     householdCard: (@Composable (Modifier) -> Unit)? = null,
+    /** The user's name for the greeting; empty until set. */
+    userName: String = "",
+    onEditName: () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     val pad = Modifier.padding(horizontal = 20.dp)
@@ -377,7 +389,23 @@ fun HomeContent(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(Fmt.todayLong(), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
-                    Text(Fmt.greeting(), style = KoshText.screenTitle)
+                    // Tapping the greeting sets the name; until then a small pencil says it can be personalised.
+                    Row(
+                        Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).clickable(onClick = onEditName),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            Fmt.greetingFor(tr(Fmt.greeting()), userName),
+                            style = KoshText.screenTitle,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (userName.isBlank()) {
+                            Spacer(Modifier.width(6.dp))
+                            Icon(Icons.Outlined.Edit, contentDescription = "Add your name", tint = KoshTheme.colors.subtleText, modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
                 IconButton(onClick = onToggleHidden) {
                     Icon(

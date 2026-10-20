@@ -25,6 +25,9 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE archived = 0 ORDER BY type, name")
     fun observeActive(): Flow<List<AccountEntity>>
 
+    @Query("SELECT * FROM accounts WHERE memberId = :memberId")
+    suspend fun ofMember(memberId: Long): List<AccountEntity>
+
     @Query("SELECT * FROM accounts ORDER BY type, name")
     suspend fun all(): List<AccountEntity>
 
@@ -187,6 +190,9 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET excludeFromStats = 1 WHERE accountId = :accountId")
     suspend fun excludeAccountFromStats(accountId: Long)
+
+    @Query("SELECT fingerprint FROM transactions WHERE accountId = :accountId AND fingerprint IS NOT NULL")
+    suspend fun fingerprintsOf(accountId: Long): List<String>
 
     /**
      * Counts an account's transactions again after the user stops ignoring it. Everything else Kosh leaves out of

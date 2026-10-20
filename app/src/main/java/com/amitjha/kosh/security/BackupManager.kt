@@ -13,6 +13,7 @@ import com.amitjha.kosh.data.SplitEntity
 import com.amitjha.kosh.data.BudgetEntity
 import com.amitjha.kosh.data.CardBillEntity
 import com.amitjha.kosh.data.CategoryEntity
+import com.amitjha.kosh.data.FamilyMemberEntity
 import com.amitjha.kosh.data.DeletedFingerprintEntity
 import com.amitjha.kosh.data.GoalEntity
 import com.amitjha.kosh.data.InvestmentEntity
@@ -74,11 +75,12 @@ class BackupManager(private val context: Context, private val db: KoshDatabase, 
         withContext(NonCancellable) {
             db.withTransaction {
                 val r = db.restore()
-                r.clearAttachments(); r.clearSplits(); r.clearRecurring(); r.clearDebts(); r.clearLoans()
+                r.clearAttachments(); r.clearSplits(); r.clearRecurring(); r.clearDebts(); r.clearLoans(); r.clearFamilyMembers()
                 r.clearTransactions(); r.clearBills(); r.clearSnapshots()
                 r.clearAccounts(); r.clearInvestments(); r.clearCategories(); r.clearBudgets()
                 r.clearGoals(); r.clearRules(); r.clearNetWorth(); r.clearTombstones()
                 r.insertCategories(data.categories)
+                r.insertFamilyMembers(data.familyMembers)
                 r.insertAccounts(data.accounts)
                 r.insertTransactions(data.transactions)
                 r.insertBills(data.bills)
@@ -125,6 +127,7 @@ class BackupManager(private val context: Context, private val db: KoshDatabase, 
             recurring = r.recurring(),
             loans = r.loans(),
             attachments = r.attachments(),
+            familyMembers = r.familyMembers(),
         ).let { d -> d.copy(attachmentFiles = d.attachments.mapNotNull { a -> runCatching { a.fileName to files.read(a.fileName) }.getOrNull() }.toMap()) }
     }
 
@@ -148,6 +151,7 @@ data class BackupData(
     val recurring: List<RecurringRuleEntity> = emptyList(),
     val loans: List<LoanEntity> = emptyList(),
     val attachments: List<AttachmentEntity> = emptyList(),
+    val familyMembers: List<FamilyMemberEntity> = emptyList(),
     /** Decrypted receipt files by [AttachmentEntity.fileName]. */
     val attachmentFiles: Map<String, ByteArray> = emptyMap(),
 )
@@ -157,9 +161,10 @@ object BackupJson {
     /**
      * 1: original format. 2: adds goal loans, per-account savings interest settings, deleted-import fingerprints
      * and the data-repair version. 3: adds tags, split parts, budget rollover, money lent and borrowed, recurring
-     * rules, loans and receipts (with their files). Older files still restore; missing fields take the migrations' defaults.
+     * rules, loans and receipts (with their files). 4: adds family members and which of them owns an account. Older
+     * files still restore; missing fields take the migrations' defaults.
      */
-    const val FORMAT_VERSION = 3
+    const val FORMAT_VERSION = 4
 
     fun meta(json: String): BackupMeta {
         val o = JSONObject(json)
@@ -181,7 +186,11 @@ object BackupJson {
                 .putOpt("creditLimit", a.creditLimit).putOpt("statementDay", a.statementDay).putOpt("dueDay", a.dueDay)
                 .putOpt("colorArgb", a.colorArgb).put("archived", a.archived).put("autoCreated", a.autoCreated)
                 .putOpt("interestRatePct", a.interestRatePct).put("interestCreditFrequency", a.interestCreditFrequency)
-                .putOpt("otherDigits", a.otherDigits)
+                .putOpt("otherDigits", a.otherDigits).putOpt("memberId", a.memberId)
+        })
+        .put("familyMembers", arr(d.familyMembers) { m ->
+            JSONObject().put("id", m.id).put("name", m.name).putOpt("phone", m.phone).put("linkCode", m.linkCode)
+                .putOpt("linkedAt", m.linkedAt).put("countInTotals", m.countInTotals).put("createdAt", m.createdAt)
         })
         .put("categories", arr(d.categories) { c ->
             JSONObject().put("id", c.id).put("key", c.key).put("name", c.name).put("type", c.type.name)
@@ -269,6 +278,13 @@ object BackupJson {
                     interestRatePct = a.double("interestRatePct"),
                     interestCreditFrequency = a.optString("interestCreditFrequency", "QUARTERLY"),
                     otherDigits = a.str("otherDigits"),
+                    memberId = a.long("memberId"),
+                )
+            },
+            familyMembers = list(o, "familyMembers") { m ->
+                FamilyMemberEntity(
+                    id = m.getLong("id"), name = m.getString("name"), phone = m.str("phone"), linkCode = m.getString("linkCode"),
+                    linkedAt = m.long("linkedAt"), countInTotals = m.optBoolean("countInTotals", true), createdAt = m.optLong("createdAt"),
                 )
             },
             categories = list(o, "categories") { c ->

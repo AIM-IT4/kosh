@@ -60,10 +60,11 @@ then turn scanning back on.
 - **Automatic import:**
   - **Bank SMS:** ICICI, HDFC, Kotak, DBS, SBI and Axis messages in detail; PNB, Bank of Baroda, Canara, Union Bank, IDFC FIRST, IndusInd, Yes Bank, AU Small Finance Bank and Federal Bank recognised by sender; and a generic parser for other banks. UPI AutoPay, e-mandate/NACH and standing-instruction debits are marked as auto-debits. New messages are picked up live, de-duplicated and sorted into categories.
   - **Credit-card bills:** read from card SMS, with due-date reminders.
+  - **Family members:** their bank SMS too, without Kosh on their phone. They scan a QR code once (it opens their Messages app with a link code addressed to you), then forward their bank alerts; Kosh files them under their own accounts and, if you choose, counts them in your totals.
   - **Review inbox:** confirm or fix imported transactions. Recategorising a merchant can remember that category for future imports.
 - **Accounts and cards:** balances that reconcile with what bank SMS report, card outstanding and utilisation, and "mark paid" recording the transfer from your bank account.
 - **Investments that update themselves:**
-  - **FD:** interest accrues daily with quarterly compounding.
+  - **FD:** interest accrues daily with quarterly compounding. Payout FDs show every interest credit (monthly, quarterly, half-yearly or yearly; monthly at the bank's discounted rate), the next one's date and amount, and tick each off against your bank SMS.
   - **EPF:** monthly contributions plus EPFO-style interest.
   - **NPS:** valued from live NAVs.
   - **Net worth:** tracked over time.

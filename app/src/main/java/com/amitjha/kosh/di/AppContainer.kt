@@ -36,6 +36,7 @@ class AppContainer(context: Context, sandbox: com.amitjha.kosh.security.DecoySan
     val notifications = Notifications(app)
 
     val accounts = AccountRepository(db)
+    val family = com.amitjha.kosh.repo.FamilyRepository(db)
     val loans = com.amitjha.kosh.repo.LoanRepository(db)
     val categories = CategoryRepository(db)
     val transactions = TransactionRepository(db)

@@ -342,6 +342,7 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
             Notifications.ROUTE_INSIGHTS -> Routes.INSIGHTS
             Notifications.ROUTE_INVESTMENTS -> Routes.WEALTH
             Notifications.ROUTE_WARRANTIES -> Routes.WARRANTIES
+            Notifications.ROUTE_FAMILY -> Routes.FAMILY
             Notifications.ROUTE_RECURRING -> Routes.RECURRING
             com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_EXPENSE -> Routes.addTxn(TxnType.EXPENSE)
             com.amitjha.kosh.tools.QuickLaunch.ROUTE_ADD_INCOME -> Routes.addTxn(TxnType.INCOME)
@@ -544,6 +545,7 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.CALENDAR) { com.amitjha.kosh.ui.features.CalendarScreen(nav) }
         composable(Routes.WARRANTIES) { com.amitjha.kosh.ui.features.WarrantiesScreen(nav) }
         composable(Routes.SMS_CHECKUP) { com.amitjha.kosh.ui.settings.SmsCheckupScreen(nav) }
+        composable(Routes.FAMILY) { com.amitjha.kosh.ui.family.FamilyScreen(nav) }
     }
 }
 

@@ -46,22 +46,38 @@ object SmsCatchUp {
         // importInbox records its own outcome; a timeout or a crash outside it is recorded here.
         if (result.scanned == 0 && result.problem != null) container.settings.setSmsProblem(result.problem)
         if (alert) postAlerts(container, settings, result.insertedTransactions)
+        postLinked(container, result.linkedMembers)
         return result
     }
 
-    /** "₹X spent at Y" notifications, as the live receiver posts them; newest first, at most [MAX_ALERTS]. */
-    fun postAlerts(container: AppContainer, settings: Settings, txns: List<TransactionEntity>) {
-        if (!settings.notifyTransactions) return
+    /**
+     * "₹X spent at Y" notifications, as the live receiver posts them; newest first, at most [MAX_ALERTS]. A family
+     * member's says whose it is ("Mom: ₹X spent at Y").
+     */
+    suspend fun postAlerts(container: AppContainer, settings: Settings, txns: List<TransactionEntity>) {
+        if (!settings.notifyTransactions || txns.isEmpty()) return
+        val owners = runCatching {
+            val members = container.db.family().all().associateBy { it.id }
+            container.db.accounts().all().mapNotNull { a -> a.memberId?.let { members[it] }?.let { a.id to it.name } }.toMap()
+        }.getOrDefault(emptyMap())
         for (txn in txns.sortedByDescending { it.timestamp }.take(MAX_ALERTS)) {
             val verb = if (txn.type == TxnType.INCOME) "received" else "spent"
+            val whose = owners[txn.accountId]?.let { "$it: " } ?: ""
             // Privacy mode keeps both the amount and the merchant off the notification shade.
             val text = if (settings.hideAmounts) {
-                "New transaction $verb"
+                "${whose}New transaction $verb"
             } else {
                 val where = txn.merchant?.let { if (txn.type == TxnType.INCOME) " from $it" else " at $it" } ?: ""
-                "${Money.format(txn.amount)} $verb$where"
+                "$whose${Money.format(txn.amount)} $verb$where"
             }
             container.notifications.transaction(txn.id, text, "Tap to review and categorise")
+        }
+    }
+
+    /** "Mom's phone is linked": the link message from a family member's phone arrived. */
+    fun postLinked(container: AppContainer, names: List<String>) {
+        names.distinct().forEach { name ->
+            container.notifications.familyLinked(name)
         }
     }
 

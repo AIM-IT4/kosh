@@ -326,5 +326,47 @@ object Hindi {
         "All caught up" to "सब हो गया",
         "No bills due" to "कोई बिल बाकी नहीं",
         "No insights right now" to "अभी कोई सुझाव नहीं",
+
+        // Greeting and name
+        "Good morning" to "सुप्रभात",
+        "Good afternoon" to "शुभ दोपहर",
+        "Good evening" to "शुभ संध्या",
+        "Hello" to "नमस्ते",
+        "Your name" to "आपका नाम",
+        "Home greets you by name" to "होम पर आपका नाम दिखेगा",
+        "Home greets you with it. It stays on this phone." to "होम पर यही नाम दिखेगा। यह इसी फ़ोन पर रहता है।",
+
+        // FD interest payouts
+        "Interest is credited" to "ब्याज जमा होता है",
+        "Amount per credit (from your bank)" to "हर बार की राशि (बैंक से)",
+        "Credited on day (optional)" to "किस तारीख को जमा (वैकल्पिक)",
+        "Credited to" to "किस खाते में",
+        "Choose the account" to "खाता चुनें",
+        "Interest credits" to "ब्याज जमा",
+        "FD interest coming up" to "आने वाला FD ब्याज",
+
+        // Family members
+        "Family members" to "परिवार के सदस्य",
+        "Track their bank SMS here, no app on their phone" to "उनके बैंक SMS यहाँ, उनके फ़ोन पर ऐप के बिना",
+        "Add family member" to "परिवार का सदस्य जोड़ें",
+        "No family members yet" to "अभी परिवार का कोई सदस्य नहीं",
+        "Your mobile number" to "आपका मोबाइल नंबर",
+        "Mobile number" to "मोबाइल नंबर",
+        "They forward their SMS to it. Tap to add." to "वे इसी नंबर पर SMS भेजेंगे। जोड़ने के लिए टैप करें।",
+        "Count in my totals" to "मेरे कुल में गिनें",
+        "Show QR code" to "QR कोड दिखाएँ",
+        "Link again" to "फिर से लिंक करें",
+        "How to forward" to "फ़ॉरवर्ड कैसे करें",
+        "Spent this month" to "इस महीने खर्च",
+        "transactions" to "लेन-देन",
+        "to confirm" to "पुष्टि बाकी",
+        "Waiting for their link SMS" to "उनके लिंक SMS का इंतज़ार",
+        "Their accounts appear here with the first SMS they forward." to "उनका पहला SMS आते ही उनके खाते यहाँ दिखेंगे।",
+        "Whose account" to "किसका खाता",
+        "Rename" to "नाम बदलें",
+        "Remove" to "हटाएँ",
+        "Next" to "आगे",
+        "Type their number instead" to "इसके बजाय उनका नंबर लिखें",
+        "Stop reading their SMS" to "उनके SMS पढ़ना बंद करें",
     )
 }

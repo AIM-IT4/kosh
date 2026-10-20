@@ -234,6 +234,32 @@ fun WealthContent(
                     }
                 }
             }
+            val credits = upcomingFdCredits(state.items, com.amitjha.kosh.util.Time.today())
+            if (credits.isNotEmpty()) {
+                item(key = "fd-interest") {
+                    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = KoshTheme.spacing.section)) {
+                        SectionHeader("FD interest coming up")
+                        KoshCard {
+                            credits.forEach { (inv, credit) ->
+                                Row(
+                                    Modifier.fillMaxWidth().clickable { onOpen(inv.id) }.padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(inv.entity.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            Fmt.fullDate(credit.date) + if (credit.final) " · with the principal" else "",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = KoshTheme.colors.subtleText,
+                                        )
+                                    }
+                                    AmountText(credit.amount, style = AmountStyles.small, hidden = hidden, color = KoshTheme.colors.income)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (state.history.size >= 2) {
                 item(key = "hist") {
                     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = KoshTheme.spacing.section)) {
@@ -291,8 +317,14 @@ fun InvestmentRow(inv: InvestmentItem, hidden: Boolean, modifier: Modifier = Mod
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(inv.entity.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val payoutFd = (inv.spec as? com.amitjha.kosh.domain.InvestmentSpec.Fd)?.takeIf { it.paysOut }
+                val next = payoutFd?.toFinance(inv.entity.institution, inv.entity.name)?.nextPayout(com.amitjha.kosh.util.Time.today())
                 val sub = when (inv.type) {
-                    InvestmentType.FD -> inv.daysToMaturity()?.let { d -> if (d > 0) "${inv.entity.institution} · matures in $d days" else "${inv.entity.institution} · matured" }
+                    InvestmentType.FD -> if (next != null) {
+                        "${inv.entity.institution} · next interest ${Fmt.date(next.date)}"
+                    } else {
+                        inv.daysToMaturity()?.let { d -> if (d > 0) "${inv.entity.institution} · matures in $d days" else "${inv.entity.institution} · matured" }
+                    }
                     InvestmentType.EPF -> "Contributions added monthly"
                     InvestmentType.NPS -> "Updated with live NAV"
                 } ?: inv.entity.institution
@@ -300,7 +332,17 @@ fun InvestmentRow(inv: InvestmentItem, hidden: Boolean, modifier: Modifier = Mod
             }
             Column(horizontalAlignment = Alignment.End) {
                 AmountText(inv.value, style = AmountStyles.medium, hidden = hidden)
-                inv.gainPct?.let {
+                if (payoutFd != null) {
+                    // A payout FD doesn't grow; what it pays is the useful figure.
+                    Text(
+                        if (hidden) "₹ •••• " + payoutFd.payoutFrequency.per() else
+                            com.amitjha.kosh.model.Money.format(payoutFd.toFinance(inv.entity.institution, inv.entity.name).regularPayout(), showPaise = false) +
+                                " " + payoutFd.payoutFrequency.per(),
+                        color = KoshTheme.colors.income,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                } else inv.gainPct?.let {
                     Text(
                         (if (it >= 0) "+" else "") + Fmt.pct(it),
                         color = if (it >= 0) KoshTheme.colors.income else KoshTheme.colors.expense,
@@ -313,3 +355,14 @@ fun InvestmentRow(inv: InvestmentItem, hidden: Boolean, modifier: Modifier = Mod
     }
 }
 
+
+/** The next interest credit of each payout FD within [FD_CREDIT_WINDOW_DAYS] of [today], soonest first. */
+fun upcomingFdCredits(items: List<InvestmentItem>, today: java.time.LocalDate): List<Pair<InvestmentItem, com.amitjha.kosh.finance.FdPayoutCredit>> =
+    items.mapNotNull { inv ->
+        val spec = (inv.spec as? com.amitjha.kosh.domain.InvestmentSpec.Fd)?.takeIf { it.paysOut } ?: return@mapNotNull null
+        val next = spec.toFinance(inv.entity.institution, inv.entity.name).nextPayout(today) ?: return@mapNotNull null
+        if (next.date.isAfter(today.plusDays(FD_CREDIT_WINDOW_DAYS))) null else inv to next
+    }.sortedBy { it.second.date }
+
+/** How far ahead "FD interest coming up" looks. */
+const val FD_CREDIT_WINDOW_DAYS = 35L

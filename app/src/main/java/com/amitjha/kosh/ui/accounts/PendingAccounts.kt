@@ -76,7 +76,7 @@ data class PendingState(
 
 class PendingAccountsViewModel(private val c: AppContainer) : ViewModel() {
     val state: StateFlow<PendingState> = c.accounts.observeAccounts()
-        .map { all -> PendingState(all.filter { it.isPending }, all.filter { it.counted }, loaded = true) }
+        .map { all -> PendingState(all.filter { it.isPending }, all.filter { !it.isPending }, loaded = true) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PendingState())
 
     private val guard = com.amitjha.kosh.ui.common.ActionGuard()
@@ -252,7 +252,7 @@ fun PendingAccountsScreen(nav: NavController) {
 
     merging?.let { pending ->
         // Same bank first: an HDFC message most likely belongs to the HDFC account.
-        val options = state.confirmed.filter { it.isCard == pending.isCard }
+        val options = state.confirmed.filter { it.isCard == pending.isCard && it.account.memberId == pending.account.memberId }
             .sortedBy { if (it.bank == pending.bank) 0 else 1 }
         AlertDialog(
             onDismissRequest = { merging = null },

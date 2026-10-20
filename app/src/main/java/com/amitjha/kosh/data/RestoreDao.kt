@@ -28,6 +28,7 @@ interface RestoreDao {
     @Query("DELETE FROM recurring_rules") suspend fun clearRecurring()
     @Query("DELETE FROM debts") suspend fun clearDebts()
     @Query("DELETE FROM loans") suspend fun clearLoans()
+    @Query("DELETE FROM family_members") suspend fun clearFamilyMembers()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAccounts(items: List<AccountEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertCategories(items: List<CategoryEntity>)
@@ -45,6 +46,7 @@ interface RestoreDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertRecurring(items: List<RecurringRuleEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertLoans(items: List<LoanEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAttachments(items: List<AttachmentEntity>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertFamilyMembers(items: List<FamilyMemberEntity>)
 
     @Query("SELECT * FROM accounts") suspend fun accounts(): List<AccountEntity>
     @Query("SELECT * FROM categories") suspend fun categories(): List<CategoryEntity>
@@ -62,4 +64,5 @@ interface RestoreDao {
     @Query("SELECT * FROM recurring_rules") suspend fun recurring(): List<RecurringRuleEntity>
     @Query("SELECT * FROM loans") suspend fun loans(): List<LoanEntity>
     @Query("SELECT * FROM attachments") suspend fun attachments(): List<AttachmentEntity>
+    @Query("SELECT * FROM family_members") suspend fun familyMembers(): List<FamilyMemberEntity>
 }

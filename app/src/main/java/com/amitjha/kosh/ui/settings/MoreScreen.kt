@@ -30,6 +30,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.FamilyRestroom
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Backup
@@ -195,6 +197,9 @@ fun MoreScreen(nav: NavController) {
                     ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Outlined.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
                     ActionRow("Tax planner", "Old vs new regime, 80C, 80D, HRA and more", Icons.Outlined.Calculate) { nav.navigate(Routes.TAX) }
                     ActionRow("Categories", null, Icons.Outlined.Category) { nav.navigate(Routes.CATEGORIES) }
+                    ActionRow("Family members", "Track their bank SMS here, no app on their phone", Icons.Outlined.FamilyRestroom) {
+                        nav.navigate(Routes.FAMILY)
+                    }
                     if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) {
                         ActionRow("Household sync", "Share with your partner's phone over Wi-Fi, encrypted", Icons.Outlined.Groups) {
                             nav.navigate(Routes.HOUSEHOLD)
@@ -215,6 +220,15 @@ fun MoreScreen(nav: NavController) {
             }
             item(key = "appearance") {
                 Section("Appearance & privacy") {
+                    var editingName by remember { mutableStateOf(false) }
+                    ActionRow("Your name", s.userName.ifBlank { "Home greets you by name" }, Icons.Outlined.Person) { editingName = true }
+                    if (editingName) {
+                        com.amitjha.kosh.ui.common.NameDialog(
+                            s.userName,
+                            onSave = { name -> scope.launch { c.settings.setUserName(name) }; editingName = false },
+                            onDismiss = { editingName = false },
+                        )
+                    }
                     SegmentedTabs(
                         listOf("System", "Light", "Dark"),
                         ThemeMode.entries.indexOf(s.themeMode),

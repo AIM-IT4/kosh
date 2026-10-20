@@ -6,6 +6,7 @@ import com.amitjha.kosh.finance.FdPayout
 import com.amitjha.kosh.finance.FixedDeposit
 import com.amitjha.kosh.finance.NpsAccount
 import com.amitjha.kosh.finance.NpsHolding
+import com.amitjha.kosh.finance.PayoutFrequency
 import com.amitjha.kosh.model.InvestmentType
 import com.amitjha.kosh.model.Paise
 import org.json.JSONArray
@@ -23,10 +24,19 @@ sealed interface InvestmentSpec {
         val maturityDate: LocalDate,
         val compounding: Compounding = Compounding.QUARTERLY,
         val payout: FdPayout = FdPayout.CUMULATIVE,
+        /** For a payout FD: how often interest is credited. */
+        val payoutFrequency: PayoutFrequency = PayoutFrequency.QUARTERLY,
+        /** The bank's figure for each credit, when the user entered it. */
+        val payoutAmount: Paise? = null,
+        /** Day of the month interest is credited, when it isn't the deposit's own date. */
+        val payoutDay: Int? = null,
+        /** The account the interest is credited to. */
+        val payoutAccountId: Long? = null,
     ) : InvestmentSpec {
         override val type get() = InvestmentType.FD
+        val paysOut: Boolean get() = payout == FdPayout.INTEREST_PAYOUT
         fun toFinance(bank: String, name: String) =
-            FixedDeposit(principal, annualRatePct, startDate, maturityDate, compounding, payout, bank, name)
+            FixedDeposit(principal, annualRatePct, startDate, maturityDate, compounding, payout, bank, name, payoutFrequency, payoutAmount, payoutDay)
     }
 
     data class Epf(
@@ -123,6 +133,10 @@ object SpecCodec {
             .put("maturity", spec.maturityDate.toString())
             .put("compounding", spec.compounding.name)
             .put("payout", spec.payout.name)
+            .put("payoutFrequency", spec.payoutFrequency.name)
+            .putOpt("payoutAmount", spec.payoutAmount)
+            .putOpt("payoutDay", spec.payoutDay)
+            .putOpt("payoutAccountId", spec.payoutAccountId)
         is InvestmentSpec.Epf -> JSONObject()
             .put("type", "EPF")
             .put("balance", spec.balanceAsOf)
@@ -172,6 +186,10 @@ object SpecCodec {
                 maturityDate = LocalDate.parse(o.getString("maturity")),
                 compounding = Compounding.valueOf(o.optString("compounding", Compounding.QUARTERLY.name)),
                 payout = FdPayout.valueOf(o.optString("payout", FdPayout.CUMULATIVE.name)),
+                payoutFrequency = PayoutFrequency.fromName(o.optString("payoutFrequency", "")),
+                payoutAmount = if (o.has("payoutAmount")) o.getLong("payoutAmount") else null,
+                payoutDay = if (o.has("payoutDay")) o.getInt("payoutDay") else null,
+                payoutAccountId = if (o.has("payoutAccountId")) o.getLong("payoutAccountId") else null,
             )
             "EPF" -> InvestmentSpec.Epf(
                 balanceAsOf = o.getLong("balance"),

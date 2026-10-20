@@ -104,7 +104,7 @@ object SafeToSpend {
         savingsTarget: Paise?,
         today: LocalDate,
     ): Result? {
-        val cashAccounts = accounts.filter { !it.isPending && it.account.type != AccountType.CREDIT_CARD }
+        val cashAccounts = accounts.filter { it.counted && it.account.type != AccountType.CREDIT_CARD }
         if (cashAccounts.isEmpty() || summary == null) return null
         val payday = cycle.nextPayday(today)
         val cardDues = bills.filter { !it.bill.paid && it.bill.totalDue > 0 && it.dueDate?.isBefore(payday) == true }.sumOf { it.bill.totalDue }

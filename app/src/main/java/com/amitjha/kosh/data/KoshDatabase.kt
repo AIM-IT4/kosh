@@ -27,8 +27,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RecurringRuleEntity::class,
         LoanEntity::class,
         AttachmentEntity::class,
+        FamilyMemberEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class KoshDatabase : RoomDatabase() {
@@ -50,6 +51,7 @@ abstract class KoshDatabase : RoomDatabase() {
     abstract fun recurringRules(): RecurringRuleDao
     abstract fun loans(): LoanDao
     abstract fun attachments(): AttachmentDao
+    abstract fun family(): FamilyDao
 
     companion object {
         /** v2 adds `transactions.suspicious`; existing rows keep their data and start unflagged. */
@@ -157,8 +159,24 @@ abstract class KoshDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v10 adds family members whose forwarded bank SMS Kosh reads, and which of them owns an account. Every existing
+         * account stays the user's own (memberId NULL).
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `family_members` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`phone` TEXT, `linkCode` TEXT NOT NULL, `linkedAt` INTEGER, `countInTotals` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)",
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_family_members_phone` ON `family_members` (`phone`)")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN memberId INTEGER")
+            }
+        }
+
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+            MIGRATION_9_10,
         )
 
         /**

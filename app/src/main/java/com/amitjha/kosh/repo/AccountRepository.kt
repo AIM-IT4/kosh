@@ -2,6 +2,7 @@ package com.amitjha.kosh.repo
 
 import androidx.room.withTransaction
 import com.amitjha.kosh.data.AccountEntity
+import com.amitjha.kosh.data.FamilyMemberEntity
 import com.amitjha.kosh.data.KoshDatabase
 import com.amitjha.kosh.domain.AccountBalance
 import com.amitjha.kosh.domain.BalanceSource
@@ -31,6 +32,8 @@ data class AccountWithBalance(
     val source: BalanceSource = BalanceSource.Entered(account.openingBalance, account.openingDate),
     /** Transactions that moved the balance since the [source] anchor. */
     val transactionsSinceAnchor: Int = 0,
+    /** The family member it belongs to; null for the user's own. */
+    val member: FamilyMemberEntity? = null,
 ) {
     val id: Long get() = account.id
     val bank: Bank get() = Bank.fromName(account.bank)
@@ -39,8 +42,10 @@ data class AccountWithBalance(
     /** Found in SMS or e-mail and not yet confirmed by the user; never counted in net worth. */
     val isPending: Boolean get() = account.autoCreated
 
-    /** Whether this account contributes to net worth and balance-based insights. */
-    val counted: Boolean get() = !isPending
+    /** Whether this account contributes to net worth and balance-based insights. A family member's counts unless they're kept apart. */
+    val counted: Boolean get() = !isPending && (member?.countInTotals ?: true)
+
+    val isFamily: Boolean get() = account.memberId != null
 
     val balanceKnown: Boolean get() = source !is BalanceSource.Unknown
 
@@ -63,8 +68,11 @@ class AccountRepository(
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val shared: Flow<List<AccountWithBalance>> =
-        combine(dao.observeActive(), txns.observeChanges()) { accounts, _ -> accounts }
-            .mapLatest { accounts -> accounts.map { withBalance(it) } }
+        combine(dao.observeActive(), txns.observeChanges(), db.family().observeAll()) { accounts, _, members -> accounts to members }
+            .mapLatest { (accounts, members) ->
+                val byId = members.associateBy { it.id }
+                accounts.map { withBalance(it, it.memberId?.let(byId::get)) }
+            }
             .flowOn(Dispatchers.Default)
             // The last value is dropped once nothing observes it, so a screen opened later never sees stale balances.
             .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0), replay = 1)
@@ -78,9 +86,12 @@ class AccountRepository(
     fun observeAccount(id: Long): Flow<AccountWithBalance?> =
         observeAccounts().map { list -> list.firstOrNull { it.id == id } }
 
-    suspend fun accounts(): List<AccountWithBalance> = dao.all().filter { !it.archived }.map { withBalance(it) }
+    suspend fun accounts(): List<AccountWithBalance> {
+        val members = db.family().all().associateBy { it.id }
+        return dao.all().filter { !it.archived }.map { withBalance(it, it.memberId?.let(members::get)) }
+    }
 
-    suspend fun withBalance(account: AccountEntity): AccountWithBalance {
+    suspend fun withBalance(account: AccountEntity, member: FamilyMemberEntity? = null): AccountWithBalance {
         val sinceOpening = txns.netFlow(account.id, account.openingDate)
         val sinceReported = account.reportedAt?.let { txns.netFlow(account.id, it + 1) }
         val b = Balances.compute(account, sinceOpening, sinceReported)
@@ -90,7 +101,8 @@ class AccountRepository(
             BalanceSource.Unknown -> null
         }
         val count = anchorTime?.let { txns.countSince(account.id, it) } ?: 0
-        return AccountWithBalance(account, b.balance, b.outstanding, b.availableLimit, b.creditBalance, b.source, count)
+        val owner = member ?: account.memberId?.let { db.family().byId(it) }
+        return AccountWithBalance(account, b.balance, b.outstanding, b.availableLimit, b.creditBalance, b.source, count, owner)
     }
 
     suspend fun byId(id: Long): AccountEntity? = dao.byId(id)
@@ -157,6 +169,8 @@ class AccountRepository(
         db.withTransaction {
             val pending = dao.byId(pendingId) ?: return@withTransaction
             val target = dao.byId(targetId) ?: return@withTransaction
+            // One person's account never absorbs another's.
+            if (pending.memberId != target.memberId) return@withTransaction
             txns.moveAccount(pendingId, targetId)
             txns.moveToAccount(pendingId, targetId)
             db.bills().moveAccount(pendingId, targetId)
@@ -193,7 +207,9 @@ class AccountRepository(
         db.withTransaction {
             val account = dao.byId(id) ?: return@withTransaction
             dao.update(account.copy(archived = false))
-            txns.includeAccountInStats(id)
+            // A family member kept apart from the user's totals stays apart.
+            val apart = account.memberId?.let { db.family().byId(it) }?.countInTotals == false
+            if (!apart) txns.includeAccountInStats(id)
         }
     }
 }

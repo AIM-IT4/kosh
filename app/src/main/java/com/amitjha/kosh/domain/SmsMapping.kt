@@ -2,6 +2,7 @@ package com.amitjha.kosh.domain
 
 import com.amitjha.kosh.data.AccountEntity
 import com.amitjha.kosh.data.CardBillEntity
+import com.amitjha.kosh.data.FamilyMemberEntity
 import com.amitjha.kosh.data.TransactionEntity
 import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.Bank
@@ -83,7 +84,6 @@ object SmsMapping {
         return median > 0 && amount > median * SUSPICIOUS_MEDIAN_MULTIPLE
     }
 
-    /** The account to create when no existing account matches. */
     /**
      * A debit card has its own number, different from its account's. A debit-card message whose digits match no
      * account belongs to the user's account at that bank when they have exactly one (confirmed) there.
@@ -98,11 +98,13 @@ object SmsMapping {
     private val keyPrefix = Regex("^(upi|vpa|pos)[ :/-]+")
     private val nonKey = Regex("[^a-z0-9]")
 
-    fun newAccountFor(bank: Bank, last4: String?, isCard: Boolean, now: Long): AccountEntity {
+    /** The account to create when no existing account matches; a family member's is named after them ("Mom · SBI Account ••1234"). */
+    fun newAccountFor(bank: Bank, last4: String?, isCard: Boolean, now: Long, owner: FamilyMemberEntity? = null): AccountEntity {
         val suffix = last4?.let { " ••$it" } ?: ""
         val kind = if (isCard) "Card" else "Account"
         return AccountEntity(
-            name = "${bank.shortName} $kind$suffix",
+            name = (owner?.let { "${it.name} · " } ?: "") + "${bank.shortName} $kind$suffix",
+            memberId = owner?.id,
             type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK,
             bank = bank.name,
             last4 = last4,

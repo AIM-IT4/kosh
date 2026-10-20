@@ -97,6 +97,12 @@ object Fmt {
         in 17..21 -> "Good evening"
         else -> "Hello"
     }
+
+    /** "Good evening, Amit"; just the greeting while no name is set. Only the first name is used. */
+    fun greetingFor(greeting: String, name: String): String {
+        val first = name.trim().substringBefore(' ')
+        return if (first.isEmpty()) greeting else "$greeting, $first"
+    }
 }
 
 fun CategoryEntity?.color(): Color = Color(this?.colorArgb ?: 0xFFADB5BD)
