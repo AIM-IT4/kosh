@@ -326,7 +326,7 @@ private fun monthSpend(data: HouseholdData, categoryKey: String?, period: Period
     }.sumOf { it.amount }
 }
 
-private fun qrBitmap(text: String, size: Int): Bitmap {
+internal fun qrBitmap(text: String, size: Int): Bitmap {
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 1))
     val pixels = IntArray(size * size) { i -> if (matrix[i % size, i / size]) 0xFF111111.toInt() else 0xFFFFFFFF.toInt() }
     return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)

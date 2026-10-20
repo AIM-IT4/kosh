@@ -26,7 +26,9 @@ class SmsReceiver : BroadcastReceiver() {
                 // network clock falls back to now, as the inbox falls back to the time it stored the message.
                 SmsTime.message(sender, pdus.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }, pdus.first().timestampMillis, now, keepReceived = false)
             }
-            .filter { it.body.isNotBlank() && isFinancialMessage(it.sender, it.body) }
+            // Bank SMS, plus anything from a personal number that could be a family member's link message or forward;
+            // the importer checks the number against the linked members.
+            .filter { it.body.isNotBlank() && (isFinancialMessage(it.sender, it.body) || FamilyForward.mayBeFamily(it.sender, it.body)) }
         if (messages.isEmpty()) return
 
         val app = context.applicationContext as KoshApp
@@ -38,6 +40,7 @@ class SmsReceiver : BroadcastReceiver() {
                 if (!settings.smsAutoImport) return@launch
                 val result = container.smsImporter.importMessages(messages)
                 SmsCatchUp.postAlerts(container, settings, result.insertedTransactions)
+                SmsCatchUp.postLinked(container, result.linkedMembers)
             } catch (e: Exception) {
                 // A failed live import is retried by the next inbox scan; never take the app down for it.
             } finally {

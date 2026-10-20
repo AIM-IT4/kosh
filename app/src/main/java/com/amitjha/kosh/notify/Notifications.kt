@@ -51,6 +51,12 @@ class Notifications(private val context: Context) {
 
     fun reminder(key: Int, title: String, text: String) = post(CH_INSIGHTS, NOTIF_REMINDER_BASE + key, title, text, ROUTE_RECURRING)
 
+    /** A family member's phone sent its link message. */
+    fun familyLinked(name: String) = post(
+        CH_INSIGHTS, NOTIF_FAMILY_BASE + (name.hashCode() and 0xFFFF), "$name's phone is linked",
+        "Bank SMS $name forwards to you are now added to $name's accounts in Kosh.", ROUTE_FAMILY,
+    )
+
     private fun post(channel: String, id: Int, title: String, text: String, route: String) {
         if (!canNotify()) return
         val intent = Intent(context, MainActivity::class.java)
@@ -99,6 +105,7 @@ class Notifications(private val context: Context) {
         const val ROUTE_INVESTMENTS = "investments"
         const val ROUTE_WARRANTIES = "warranties"
         const val ROUTE_RECURRING = "recurring"
+        const val ROUTE_FAMILY = "family"
 
         /** Lock-screen text per channel, with no amounts or merchants. */
         private val PUBLIC_TEXT = mapOf(
@@ -114,5 +121,6 @@ class Notifications(private val context: Context) {
         private const val NOTIF_MATURITY_BASE = 500_000
         private const val NOTIF_WARRANTY_BASE = 600_000
         private const val NOTIF_REMINDER_BASE = 700_000
+        private const val NOTIF_FAMILY_BASE = 800_000
     }
 }

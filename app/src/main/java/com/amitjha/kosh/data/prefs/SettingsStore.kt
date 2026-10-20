@@ -58,6 +58,10 @@ data class Settings(
     val dismissedInsightIds: Set<String> = emptySet(),
     /** User's explicit choice for blocking screenshots and the recents preview; null follows [blockScreenshots]. */
     val blockScreenshotsChoice: Boolean? = null,
+    /** What Home calls the user ("Good evening, Amit"); empty until they set it. */
+    val userName: String = "",
+    /** The user's mobile number, for the QR code family members scan to forward their bank SMS. */
+    val myPhone: String = "",
 ) {
     /** When salary arrives, which sets where every budget period starts. */
     val payCycle: PayCycle by lazy {
@@ -116,6 +120,8 @@ class SettingsStore(
         val notifiedBills = stringSetPreferencesKey("notified_bills")
         val repairVersion = intPreferencesKey("repair_version")
         val blockScreenshots = booleanPreferencesKey("block_screenshots")
+        val userName = stringPreferencesKey("user_name")
+        val myPhone = stringPreferencesKey("my_phone")
     }
 
     val settings: Flow<Settings> = store.data.catch { e ->
@@ -143,6 +149,8 @@ class SettingsStore(
             hideAmounts = p[Keys.hideAmounts] ?: false,
             dismissedInsightIds = p[Keys.dismissedInsights] ?: emptySet(),
             blockScreenshotsChoice = p[Keys.blockScreenshots],
+            userName = p[Keys.userName].orEmpty(),
+            myPhone = p[Keys.myPhone].orEmpty(),
         )
     }
         // Writes to keys outside Settings (claimed notifications, repair version) mustn't re-run every screen.
@@ -179,6 +187,8 @@ class SettingsStore(
     suspend fun setNotifyInsights(enabled: Boolean) = edit { it[Keys.notifyInsights] = enabled }
     suspend fun setHideAmounts(hidden: Boolean) = edit { it[Keys.hideAmounts] = hidden }
     suspend fun setBlockScreenshots(blocked: Boolean) = edit { it[Keys.blockScreenshots] = blocked }
+    suspend fun setUserName(name: String) = edit { it[Keys.userName] = name.trim().take(MAX_NAME) }
+    suspend fun setMyPhone(phone: String) = edit { it[Keys.myPhone] = phone.trim() }
 
     /** Clears preferences left by the removed Gmail import. */
     suspend fun clearLegacyGmail() = edit { prefs -> Keys.legacyGmail.forEach { prefs.remove(it) } }
@@ -216,5 +226,6 @@ class SettingsStore(
 
     companion object {
         const val MAX_IDS = 500
+        const val MAX_NAME = 30
     }
 }

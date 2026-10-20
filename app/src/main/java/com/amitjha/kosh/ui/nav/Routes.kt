@@ -54,6 +54,7 @@ object Routes {
     const val CALENDAR = "calendar"
     const val WARRANTIES = "warranties"
     const val SMS_CHECKUP = "sms/checkup"
+    const val FAMILY = "family"
 
     fun addTxn(type: TxnType = TxnType.EXPENSE, accountId: Long? = null) = "txn/add?type=${type.name}&account=${accountId ?: -1}"
     fun editTxn(id: Long) = "txn/edit/$id"

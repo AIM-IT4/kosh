@@ -29,6 +29,10 @@ this data never leaves the phone.
   background, screenshot and recents-preview blocking, privacy mode, and lock-screen notifications that hide
   amounts and merchants.
 - **SMS:** the SMS receiver only accepts broadcasts from the system (`BROADCAST_SMS` permission).
+- **Family forwarding:** a message from a personal number is read as a family member's bank SMS only after that
+  number sent the member's 6-digit link code (shown in the QR code on the user's phone) or the user typed it in.
+  Forwarded messages only ever match that member's accounts, never the user's own, and the user can stop reading
+  a number at any time (which also changes the code).
 
 **Out of scope**
 

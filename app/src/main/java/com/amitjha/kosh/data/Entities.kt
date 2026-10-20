@@ -45,6 +45,8 @@ data class AccountEntity(
      * digits of an account found in SMS that the user merged into this one.
      */
     val otherDigits: String? = null,
+    /** The family member this account belongs to ([FamilyMemberEntity]); null for the user's own accounts. */
+    val memberId: Long? = null,
 ) {
     private val otherDigitList: List<String> get() = otherDigits.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
 

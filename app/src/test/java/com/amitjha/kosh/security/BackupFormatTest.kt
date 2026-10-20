@@ -4,6 +4,7 @@ import com.amitjha.kosh.data.AccountEntity
 import com.amitjha.kosh.data.AttachmentEntity
 import com.amitjha.kosh.data.BudgetEntity
 import com.amitjha.kosh.data.DebtEntity
+import com.amitjha.kosh.data.FamilyMemberEntity
 import com.amitjha.kosh.data.LoanEntity
 import com.amitjha.kosh.data.RecurringRuleEntity
 import com.amitjha.kosh.data.SplitEntity
@@ -101,6 +102,23 @@ class BackupFormatTest {
         assertEquals(v3.copy(attachmentFiles = emptyMap()), back.copy(attachmentFiles = emptyMap()))
         assertEquals(v3.attachmentFiles.keys, back.attachmentFiles.keys)
         assert(back.attachmentFiles.getValue("a.bin").contentEquals(byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
+    fun formatFourKeepsFamilyMembersAndWhoOwnsEachAccount() {
+        val v4 = v3.copy(
+            accounts = v3.accounts + AccountEntity(2, "Mom · SBI ••1234", AccountType.BANK, "SBI", "1234", autoCreated = true, memberId = 1),
+            familyMembers = listOf(FamilyMemberEntity(1, "Mom", "9876543210", "482913", linkedAt = 77, countInTotals = false, createdAt = 9)),
+        )
+        val back = BackupJson.decode(BackupJson.encode(v4))
+        assertEquals(v4.accounts, back.accounts)
+        assertEquals(v4.familyMembers, back.familyMembers)
+        // A format-3 file has neither: every account is the user's own.
+        val o = JSONObject(BackupJson.encode(v3)).put("format", 3)
+        o.remove("familyMembers")
+        val old = BackupJson.decode(o.toString())
+        assertEquals(emptyList<FamilyMemberEntity>(), old.familyMembers)
+        assertNull(old.accounts.single().memberId)
     }
 
     @Test

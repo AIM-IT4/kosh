@@ -1,0 +1,3 @@
+- Family members: track their bank SMS without them installing Kosh. They scan a QR code once, then forward their bank SMS to you, and Kosh adds them to their own accounts (More › Family members)
+- FD interest paid out monthly or quarterly: see when each credit comes and how much, ticked off from your bank SMS
+- Home greets you by name: tap the greeting to set it

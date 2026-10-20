@@ -139,7 +139,9 @@ fun AccountsScreen(nav: NavController) {
             return@KoshScreen
         }
         val pendingCount = list.count { it.isPending }
-        val groups = list.filter { it.counted }.groupBy {
+        // Family members' accounts get a section each; the usual groups are the user's own.
+        val family = list.filter { it.isFamily && !it.isPending }.groupBy { it.member?.name ?: "Family" }
+        val groups = list.filter { !it.isFamily && it.counted }.groupBy {
             when (it.account.type) {
                 AccountType.BANK -> "Bank accounts"
                 AccountType.CREDIT_CARD -> "Credit cards"
@@ -161,6 +163,14 @@ fun AccountsScreen(nav: NavController) {
                     }
                     items(items, key = { it.id }) { a -> AccountListRow(a, hidden) { nav.navigate(Routes.account(a.id)) } }
                 }
+            }
+            family.forEach { (name, items) ->
+                item(key = "family-$name") {
+                    val total = items.sumOf { if (it.isCard) -it.outstanding else it.balance }
+                    val apart = items.firstOrNull()?.member?.countInTotals == false
+                    DateHeader("$name's accounts" + if (apart) " · not in your totals" else "", netPaise = total, hidden = hidden)
+                }
+                items(items, key = { it.id }) { a -> AccountListRow(a, hidden) { nav.navigate(Routes.account(a.id)) } }
             }
             if (ignored.isNotEmpty()) {
                 item(key = "ignored") {
@@ -302,7 +312,7 @@ fun AccountDetailScreen(nav: NavController, id: Long) {
 
     KoshScreen(
         title = a?.account?.name ?: "Account",
-        subtitle = a?.account?.type?.label(),
+        subtitle = a?.let { acc -> listOfNotNull(acc.member?.let { "${it.name}'s" }, acc.account.type.label()).joinToString(" · ") },
         onBack = { nav.popBackSafely() },
         actions = {
             if (a != null) {
@@ -472,9 +482,16 @@ fun ordinal(day: Int): String = day.toString() + when {
 class AccountEditViewModel(private val c: AppContainer) : ViewModel() {
     suspend fun load(id: Long): AccountWithBalance? = c.accounts.byId(id)?.let { c.accounts.withBalance(it) }
 
+    val members: StateFlow<List<com.amitjha.kosh.data.FamilyMemberEntity>> = c.family.observeMembers()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val guard = com.amitjha.kosh.ui.common.ActionGuard()
 
-    fun save(existing: AccountEntity?, draft: AccountEntity, currentAmount: Long, onDone: (Long) -> Unit) = launchGuarded(guard) {
+    fun save(existing: AccountEntity?, entered: AccountEntity, currentAmount: Long, onDone: (Long) -> Unit) = launchGuarded(guard) {
+        // A family member's account carries their name ("Mom · SBI Savings"), so every list and transaction shows whose it is.
+        val members = c.family.members()
+        val bare = members.fold(entered.name) { n, m -> n.removePrefix("${m.name} · ") }
+        val draft = entered.copy(name = members.firstOrNull { it.id == entered.memberId }?.let { "${it.name} · $bare" } ?: bare)
         if (existing == null) {
             // For cards the opening balance is the amount owed; for others, money held.
             val id = c.accounts.add(draft.copy(openingBalance = currentAmount, openingDate = System.currentTimeMillis()))
@@ -488,6 +505,8 @@ class AccountEditViewModel(private val c: AppContainer) : ViewModel() {
                     creditLimit = draft.creditLimit, statementDay = draft.statementDay, dueDay = draft.dueDay,
                 ),
             )
+            // Given to (or taken back from) a family member: its owner and whether its history counts follow.
+            if (existing.memberId != draft.memberId) c.family.moveAccount(existing.id, draft.memberId)
             onDone(existing.id)
         }
     }
@@ -507,6 +526,8 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
     var limit by remember { mutableStateOf<Long?>(null) }
     var statementDay by remember { mutableStateOf("") }
     var dueDay by remember { mutableStateOf("") }
+    var memberId by remember { mutableStateOf<Long?>(null) }
+    val members by vm.members.collectAsStateWithLifecycle()
 
     LaunchedEffect(editId) {
         if (editId != null) {
@@ -520,6 +541,7 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
             limit = a.account.creditLimit
             statementDay = a.account.statementDay?.toString().orEmpty()
             dueDay = a.account.dueDay?.toString().orEmpty()
+            memberId = a.account.memberId
         }
     }
 
@@ -538,6 +560,16 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
         ) {
             FormColumn {
                 SegmentedTabs(listOf("Bank", "Card", "Cash", "Wallet"), TYPES.indexOf(type), onSelect = { type = TYPES[it] })
+                if (members.isNotEmpty()) {
+                    // A family member's account: their forwarded SMS match it, and only theirs do.
+                    com.amitjha.kosh.ui.common.ChoiceField(
+                        "Whose account",
+                        listOf<Long?>(null) + members.map { it.id },
+                        memberId,
+                        { id -> members.firstOrNull { it.id == id }?.name ?: "Mine" },
+                        { memberId = it },
+                    )
+                }
                 if (needsBank) {
                     Text("Bank", style = MaterialTheme.typography.labelLarge, color = KoshTheme.colors.subtleText)
                     BankPicker(bank) {
@@ -589,6 +621,7 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
                             creditLimit = if (isCard) limit else null,
                             statementDay = if (isCard) statementDay.toIntOrNull()?.coerceIn(1, 31) else null,
                             dueDay = if (isCard) dueDay.toIntOrNull()?.coerceIn(1, 31) else null,
+                            memberId = memberId,
                         )
                         vm.save(existing, draft, amount ?: 0) { nav.popBackSafely() }
                     },

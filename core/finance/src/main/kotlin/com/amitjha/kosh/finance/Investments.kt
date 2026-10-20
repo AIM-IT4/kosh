@@ -16,6 +16,18 @@ enum class Compounding(val periodsPerYear: Int) {
 
 enum class FdPayout { CUMULATIVE, INTEREST_PAYOUT }
 
+/** How often a payout FD credits its interest. */
+enum class PayoutFrequency(val months: Int) {
+    MONTHLY(1), QUARTERLY(3), HALF_YEARLY(6), YEARLY(12);
+
+    companion object {
+        fun fromName(name: String?): PayoutFrequency = entries.firstOrNull { it.name == name } ?: QUARTERLY
+    }
+}
+
+/** One interest credit of a payout FD; [final] is the part-period interest paid with the principal at maturity. */
+data class FdPayoutCredit(val date: LocalDate, val amount: Paise, val final: Boolean = false)
+
 private const val DAYS_IN_YEAR = 365.0
 
 /**
@@ -25,7 +37,8 @@ private const val DAYS_IN_YEAR = 365.0
  * compounding period counted in calendar months from [startDate]; for the last, incomplete period simple
  * interest is accrued on the compounded amount for the elapsed days (actual/365). Values are capped at
  * [maturityDate]. With [FdPayout.INTEREST_PAYOUT] the interest is paid out, so the deposit's value stays at
- * the principal and [interestEarnedTill] reports the simple interest paid so far.
+ * the principal and [interestEarnedTill] reports the simple interest earned so far; [payoutSchedule] says when the
+ * bank credits it and how much.
  */
 data class FixedDeposit(
     val principal: Paise,
@@ -36,6 +49,12 @@ data class FixedDeposit(
     val payout: FdPayout = FdPayout.CUMULATIVE,
     val bank: String = "",
     val name: String = "",
+    /** How often a payout FD credits its interest. */
+    val payoutFrequency: PayoutFrequency = PayoutFrequency.QUARTERLY,
+    /** The bank's figure for each regular credit, when the user entered it; otherwise [computedPayout]. */
+    val payoutAmount: Paise? = null,
+    /** Day of the month the bank credits interest; null for the deposit's own date each period (the usual case). */
+    val payoutDay: Int? = null,
 ) {
     init {
         require(principal >= 0) { "principal must be non-negative" }
@@ -66,6 +85,80 @@ data class FixedDeposit(
         }
     }
 
+    /**
+     * The regular interest credit of a payout FD, the way Indian banks work it out. For a payout period at least as
+     * long as the compounding period it is the interest compounded over the period (quarterly: P × r/4; half-yearly
+     * with quarterly compounding: P × ((1 + r/4)² − 1)). For a shorter one, such as monthly payouts on a deposit that
+     * compounds quarterly, it is the discounted value of the period's interest, so that the payouts reinvested at the
+     * deposit's rate add up to it: Q × j / ((1 + j)^k − 1), with Q = P × r/4, j = r/12 and k = 3 (₹1 lakh at 7%:
+     * ₹579.94 a month, not ₹583.33).
+     */
+    fun computedPayout(): Paise {
+        val r = rate
+        if (r <= 0.0) return 0
+        val m = payoutFrequency.months
+        val amount = when {
+            compounding == Compounding.SIMPLE -> principal * r * m / 12.0
+            m >= compounding.monthsPerPeriod ->
+                principal * ((1 + r / compounding.periodsPerYear).pow(m.toDouble() / compounding.monthsPerPeriod) - 1)
+            else -> {
+                val periodInterest = principal * r / compounding.periodsPerYear
+                val j = r * m / 12.0
+                periodInterest * j / ((1 + j).pow(compounding.monthsPerPeriod / m) - 1)
+            }
+        }
+        return amount.roundToLong()
+    }
+
+    /** Each regular credit: the bank's figure when entered, else [computedPayout]. */
+    fun regularPayout(): Paise = payoutAmount ?: computedPayout()
+
+    /**
+     * When a payout FD credits interest and how much, over its whole term: every [payoutFrequency] from the start
+     * date (or on [payoutDay] of those months, the first credit then covering only the days since the start), and
+     * the interest for a last part-period with the principal at maturity. Empty for a cumulative FD.
+     */
+    fun payoutSchedule(): List<FdPayoutCredit> {
+        if (payout != FdPayout.INTEREST_PAYOUT) return emptyList()
+        val regular = regularPayout()
+        val out = ArrayList<FdPayoutCredit>()
+        var last = startDate
+        var k = 1
+        while (out.size < MAX_PAYOUTS) {
+            val date = payoutDate(k)
+            if (date.isAfter(maturityDate)) break
+            val amount = if (k == 1 && payoutDay != null) {
+                // Credits on a fixed day of the month: the first covers only the days since the deposit was made.
+                val full = ChronoUnit.DAYS.between(startDate, startDate.plusMonths(payoutFrequency.months.toLong()))
+                (regular * ChronoUnit.DAYS.between(startDate, date).toDouble() / full).roundToLong().coerceAtMost(regular)
+            } else {
+                regular
+            }
+            out += FdPayoutCredit(date, amount, final = date == maturityDate)
+            last = date
+            k++
+        }
+        if (last.isBefore(maturityDate)) {
+            val days = ChronoUnit.DAYS.between(last, maturityDate)
+            val part = (principal * rate * days / DAYS_IN_YEAR).roundToLong()
+            if (part > 0) out += FdPayoutCredit(maturityDate, part, final = true)
+        }
+        return out
+    }
+
+    private fun payoutDate(k: Int): LocalDate {
+        val date = startDate.plusMonths(k.toLong() * payoutFrequency.months)
+        val day = payoutDay ?: return date
+        val month = YearMonth.from(date)
+        return month.atDay(min(day.coerceIn(1, 31), month.lengthOfMonth()))
+    }
+
+    /** Interest the bank has credited by [date] (inclusive), from [payoutSchedule]. */
+    fun interestPaidTill(date: LocalDate): Paise = payoutSchedule().filter { !it.date.isAfter(date) }.sumOf { it.amount }
+
+    /** The next credit on or after [today], or null when none is left. */
+    fun nextPayout(today: LocalDate): FdPayoutCredit? = payoutSchedule().firstOrNull { !it.date.isBefore(today) }
+
     fun daysToMaturity(date: LocalDate): Long = maxOf(0L, ChronoUnit.DAYS.between(date, maturityDate))
 
     fun isMatured(date: LocalDate): Boolean = !date.isBefore(maturityDate)
@@ -83,6 +176,50 @@ data class FixedDeposit(
         val amount = principal * (1 + rate / n).pow(periods)
         val partialDays = ChronoUnit.DAYS.between(lastPeriodStart, date)
         return amount * (1 + rate * partialDays / DAYS_IN_YEAR)
+    }
+
+    private companion object {
+        /** 100 years of monthly credits: a guard against a mistyped maturity year, never reached by a real FD. */
+        const val MAX_PAYOUTS = 1200
+    }
+}
+
+/** A scheduled FD interest credit and the matching credit found in the bank's messages, if any. */
+data class SeenPayout(val due: FdPayoutCredit, val creditedOn: LocalDate? = null, val credited: Paise? = null) {
+    val seen: Boolean get() = creditedOn != null
+}
+
+/** Finds FD interest credits among a bank account's credits. */
+object FdPayouts {
+    /** A credit can arrive this many days before its due date (a holiday moves it earlier)... */
+    const val EARLY_DAYS = 3L
+
+    /** ...or this many after. */
+    const val LATE_DAYS = 7L
+
+    /**
+     * Pairs each due credit in [schedule] with a credit from [credits] (date and amount) within [EARLY_DAYS] before
+     * to [LATE_DAYS] after its date, of 85% to 105% of the amount due, so a credit net of 10% TDS still counts.
+     * The closest in time wins and each credit is used once.
+     */
+    fun match(schedule: List<FdPayoutCredit>, credits: List<Pair<LocalDate, Paise>>): List<SeenPayout> {
+        val used = HashSet<Int>()
+        return schedule.map { due ->
+            val best = credits.indices
+                .filter { it !in used }
+                .filter { i ->
+                    val (date, amount) = credits[i]
+                    !date.isBefore(due.date.minusDays(EARLY_DAYS)) && !date.isAfter(due.date.plusDays(LATE_DAYS)) &&
+                        amount >= due.amount * 0.85 && amount <= due.amount * 1.05
+                }
+                .minByOrNull { kotlin.math.abs(ChronoUnit.DAYS.between(due.date, credits[it].first)) }
+            if (best == null) {
+                SeenPayout(due)
+            } else {
+                used += best
+                SeenPayout(due, credits[best].first, credits[best].second)
+            }
+        }
     }
 }
 

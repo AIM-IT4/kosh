@@ -412,6 +412,42 @@ fun ConfirmDialog(
     )
 }
 
+/** A dialog asking for one line of text, such as the user's name. [valid] decides when Save is enabled. */
+@Composable
+fun TextInputDialog(
+    title: String,
+    label: String,
+    initial: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+    supporting: String? = null,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    valid: (String) -> Boolean = { true },
+) {
+    var text by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(tr(title)) },
+        text = { KoshTextField(text, { text = it }, label, keyboardType = keyboardType, supporting = supporting) },
+        confirmButton = { TextButton(onClick = { onSave(text.trim()) }, enabled = valid(text.trim())) { Text(tr("Save")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } },
+    )
+}
+
+/** Asks what Home should call the user. Saving an empty name goes back to the plain greeting. */
+@Composable
+fun NameDialog(current: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    TextInputDialog(
+        title = "Your name",
+        label = "Name",
+        initial = current,
+        supporting = "Home greets you with it. It stays on this phone.",
+        onSave = onSave,
+        onDismiss = onDismiss,
+        valid = { it.length <= com.amitjha.kosh.data.prefs.SettingsStore.MAX_NAME },
+    )
+}
+
 /** Vertical form layout with consistent spacing. */
 @Composable
 fun FormColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {

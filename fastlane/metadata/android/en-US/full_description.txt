@@ -6,6 +6,7 @@
 <li>Smart categories from an open dataset of over 1,000 Indian merchants; it learns from every correction.</li>
 <li>Transfers between your own accounts are recognised and never counted as spending. Income means what you earn; refunds and cashback come off spending.</li>
 <li>Credit cards: outstanding, utilisation and statement bills from SMS, with due-date reminders.</li>
+<li>Family members' bank SMS too, without Kosh on their phone: they scan a QR code once and forward their alerts to you.</li>
 <li>Import bank statements (CSV), split transactions, tags, receipts and warranties.</li>
 </ul>
 
@@ -19,7 +20,7 @@
 
 <p><b>Wealth and reports</b></p>
 <ul>
-<li>FD, EPF and NPS values update automatically; savings interest is estimated at your bank's rate.</li>
+<li>FD, EPF and NPS values update automatically, with the date and amount of every FD interest payout; savings interest is estimated at your bank's rate.</li>
 <li>A transparent net worth: every number shows where it came from.</li>
 <li>PDF reports for any month or year, a year in review and a spending calendar.</li>
 </ul>

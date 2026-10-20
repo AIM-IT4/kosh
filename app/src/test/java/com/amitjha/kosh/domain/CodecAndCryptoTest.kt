@@ -11,6 +11,8 @@ import com.amitjha.kosh.data.MerchantRuleEntity
 import com.amitjha.kosh.data.NetWorthSnapshotEntity
 import com.amitjha.kosh.data.TransactionEntity
 import com.amitjha.kosh.finance.Compounding
+import com.amitjha.kosh.finance.FdPayout
+import com.amitjha.kosh.finance.PayoutFrequency
 import com.amitjha.kosh.finance.NpsHolding
 import com.amitjha.kosh.model.AccountType
 import com.amitjha.kosh.model.InvestmentType
@@ -33,6 +35,10 @@ class CodecAndCryptoTest {
     fun specCodecRoundTrips() {
         val specs = listOf(
             InvestmentSpec.Fd(1_00_000_00, 7.1, LocalDate.of(2025, 1, 15), LocalDate.of(2026, 1, 15), Compounding.MONTHLY),
+            InvestmentSpec.Fd(
+                5_00_000_00, 7.25, LocalDate.of(2025, 3, 10), LocalDate.of(2028, 3, 10), Compounding.QUARTERLY,
+                FdPayout.INTEREST_PAYOUT, PayoutFrequency.MONTHLY, payoutAmount = 2_995_00, payoutDay = 1, payoutAccountId = 7,
+            ),
             InvestmentSpec.Epf(6_42_000_00, LocalDate.of(2025, 4, 1), 7_800_00, 2_386_00, 8.25, 10),
             InvestmentSpec.Nps(
                 holdings = listOf(NpsHolding("SM008001", "Scheme E", 3850.5, 51.1015, LocalDate.of(2025, 10, 1)), NpsHolding("SM008002", "Scheme C", 10.0, 27.4)),
@@ -44,6 +50,15 @@ class CodecAndCryptoTest {
             ),
         )
         for (spec in specs) assertEquals(spec, SpecCodec.decode(SpecCodec.encode(spec)))
+    }
+
+    @Test
+    fun payoutFdsSavedBeforeTheScheduleReadAsQuarterly() {
+        val legacy = """{"type":"FD","principal":10000000,"rate":7.0,"start":"2025-01-01","maturity":"2026-01-01","compounding":"QUARTERLY","payout":"INTEREST_PAYOUT"}"""
+        val fd = SpecCodec.decode(legacy) as InvestmentSpec.Fd
+        assertEquals(PayoutFrequency.QUARTERLY, fd.payoutFrequency)
+        assertEquals(null, fd.payoutAmount)
+        assertEquals(null, fd.payoutAccountId)
     }
 
     @Test

@@ -11,7 +11,9 @@ object TransferPairer {
      * considered (imports pass the window around the new messages instead of scanning everything).
      */
     suspend fun run(db: KoshDatabase, sinceMillis: Long? = null): Int {
-        val accounts = db.accounts().all()
+        // A family member kept apart from the user's totals isn't "own": money sent to them is spending.
+        val apart = db.family().all().filter { !it.countInTotals }.map { it.id }.toSet()
+        val accounts = db.accounts().all().map { if (it.memberId != null && it.memberId in apart) it.copy(archived = true) else it }
         val txns = if (sinceMillis != null) db.transactions().since(sinceMillis) else db.transactions().all()
         val pairs = TransferPairing.findPairs(txns, accounts)
         if (pairs.isEmpty()) return 0

@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.provider.Telephony
 import androidx.core.content.ContextCompat
 import com.amitjha.kosh.data.AccountEntity
+import com.amitjha.kosh.data.FamilyMemberEntity
 import com.amitjha.kosh.data.KoshDatabase
 import com.amitjha.kosh.data.TransactionEntity
 import com.amitjha.kosh.data.prefs.SettingsStore
@@ -45,6 +46,8 @@ data class ImportResult(
     val failures: List<String> = emptyList(),
     /** Earlier imports moved to the right date (their send time was implausible, see [SmsTime]). */
     val redated: Int = 0,
+    /** Family members whose phone was linked by a link message in this import. */
+    val linkedMembers: List<String> = emptyList(),
 ) {
     /** Number of SMS read from the phone. */
     val messagesRead: Int get() = scanned
@@ -80,6 +83,7 @@ data class ImportResult(
         failed = failed + o.failed,
         failures = (failures + o.failures).take(MAX_SAMPLES),
         redated = redated + o.redated,
+        linkedMembers = linkedMembers + o.linkedMembers,
     )
 
     companion object {
@@ -154,15 +158,16 @@ class SmsImporter(
         withContext(Dispatchers.IO) {
             var result = ImportResult(scanned = messages.size)
             val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
+            val family = Family(db.family().all())
             for (batch in messages.sortedBy { it.timestampMillis }.chunked(IMPORT_BATCH)) {
                 // One write transaction per batch, so open screens recompute once per batch instead of once per
                 // message. If the transaction itself fails, the batch is imported again message by message.
                 result += try {
-                    db.withTransaction { importBatch(batch, rules) }
+                    db.withTransaction { importBatch(batch, rules, family) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Throwable) {
-                    importBatch(batch, rules)
+                    importBatch(batch, rules, family)
                 }
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
@@ -176,12 +181,31 @@ class SmsImporter(
         }
     }
 
-    private suspend fun importBatch(batch: List<SmsMessage>, rules: Map<String, String>): ImportResult {
+    /** The family members an import run knows, with links made during the run. */
+    private class Family(members: List<FamilyMemberEntity>) {
+        val all = members.toMutableList()
+        val byPhone = members.filter { it.phone != null }.associateBy { it.phone!! }.toMutableMap()
+
+        /** Members whose money is kept out of the user's totals. */
+        val apart: Set<Long> get() = all.filter { !it.countInTotals }.map { it.id }.toSet()
+    }
+
+    private suspend fun importBatch(batch: List<SmsMessage>, rules: Map<String, String>, family: Family): ImportResult {
         var result = ImportResult()
         for (msg in batch) {
             // One message that can't be stored must not hold up the ones after it (or the scan cursor).
             result += try {
-                if (isFinancialMessage(msg.sender, msg.body)) importOne(msg, rules).copy(financial = 1) else ImportResult()
+                val phone = FamilyForward.phoneKey(msg.sender)
+                val member = phone?.let { family.byPhone[it] }
+                when {
+                    phone != null && FamilyForward.linkCode(msg.body) != null -> link(msg, phone, family)
+                    // Forwarded by a linked family member: their bank SMS, for their accounts only.
+                    member != null -> FamilyForward.inner(msg).let { inner ->
+                        if (isFinancialMessage(inner.sender, inner.body)) importOne(inner, rules, member, family).copy(financial = 1) else ImportResult()
+                    }
+                    isFinancialMessage(msg.sender, msg.body) -> importOne(msg, rules, null, family).copy(financial = 1)
+                    else -> ImportResult()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -191,11 +215,29 @@ class SmsImporter(
         return result
     }
 
-    private suspend fun importOne(msg: SmsMessage, rules: Map<String, String>): ImportResult =
+    /**
+     * A link message ("KOSH LINK 123456") from a family member's phone: the member waiting for that code now owns the
+     * number, and their forwarded bank SMS are read from here on. A code nobody waits for is ignored.
+     */
+    private suspend fun link(msg: SmsMessage, phone: String, family: Family): ImportResult {
+        val code = FamilyForward.linkCode(msg.body) ?: return ImportResult()
+        val member = family.all.firstOrNull { it.linkCode == code } ?: return ImportResult()
+        if (member.phone == phone) return ImportResult()
+        val dao = db.family()
+        dao.releasePhone(phone, member.id)
+        val linked = member.copy(phone = phone, linkedAt = msg.timestampMillis)
+        dao.update(linked)
+        family.byPhone.entries.removeAll { it.value.id == member.id }
+        family.byPhone[phone] = linked
+        family.all.replaceAll { if (it.id == member.id) linked else it }
+        return ImportResult(linkedMembers = listOf(member.name))
+    }
+
+    private suspend fun importOne(msg: SmsMessage, rules: Map<String, String>, owner: FamilyMemberEntity?, family: Family): ImportResult =
         when (val parsed = runCatching { SmsParser.parse(msg) }.getOrNull()) {
-            is SmsParseResult.Transaction -> importTransaction(parsed.txn, rules, msg).copy(parsedTransactions = 1)
-            is SmsParseResult.CardBill -> importBill(parsed.bill).copy(parsedBills = 1)
-            is SmsParseResult.BalanceUpdate -> importBalance(parsed.update)
+            is SmsParseResult.Transaction -> importTransaction(parsed.txn, rules, msg, owner, family).copy(parsedTransactions = 1)
+            is SmsParseResult.CardBill -> importBill(parsed.bill, owner).copy(parsedBills = 1)
+            is SmsParseResult.BalanceUpdate -> importBalance(parsed.update, owner)
             is SmsParseResult.Ignored, null -> {
                 val reason = (parsed as? SmsParseResult.Ignored)?.reason ?: "parse error"
                 val sample = if (looksTransactional(msg.body) && reason in UNPARSED_REASONS) listOf(ImportResult.mask(msg.sender, msg.body)) else emptyList()
@@ -203,7 +245,13 @@ class SmsImporter(
             }
         }
 
-    private suspend fun importTransaction(p: ParsedTransaction, rules: Map<String, String>, msg: SmsMessage? = null): ImportResult {
+    private suspend fun importTransaction(
+        p: ParsedTransaction,
+        rules: Map<String, String>,
+        msg: SmsMessage?,
+        owner: FamilyMemberEntity?,
+        family: Family,
+    ): ImportResult {
         val body = msg?.body.orEmpty()
         val txnDao = db.transactions()
         // Same SMS imported before 1.8, when inbox scans fingerprinted with the phone's storage time.
@@ -216,7 +264,7 @@ class SmsImporter(
 
         var created = 0
         val debitCard = !p.isCreditCard && SmsMapping.isDebitCardMessage(body)
-        val account = resolveAccount(p.bank, p.accountLast4, p.isCreditCard, debitCard) { created++ }
+        val account = resolveAccount(p.bank, p.accountLast4, p.isCreditCard, owner, debitCard) { created++ }
 
         // Without a reference number the fingerprint depends on the minute; the live receiver and an inbox
         // scan can see slightly different times for one message, so treat a near-identical import as the same.
@@ -229,16 +277,21 @@ class SmsImporter(
             return ImportResult(duplicates = 1, accountsCreated = created)
         }
 
-        // "self", "own account" or "to a/c ..1234" (another own account) is a transfer, not spending.
-        val ownLast4s = db.accounts().all().flatMap { it.allDigits }.toSet()
+        // "self", "own account" or "to a/c ..1234" (another own account) is a transfer, not spending. A family member
+        // whose money counts in the user's totals is part of "own"; one kept apart only has their own accounts.
+        val apart = family.apart
+        val ownLast4s = db.accounts().all()
+            .filter { if (owner != null && owner.id in apart) it.memberId == owner.id else it.memberId == null || it.memberId !in apart }
+            .flatMap { it.allDigits }.toSet()
         val selfTransfer = p.type == TxnType.EXPENSE && !p.isCreditCard &&
             com.amitjha.kosh.domain.TransferPairing.looksLikeSelfTransfer(body, ownLast4s, account.last4)
         val parsedBase = SmsMapping.toTransaction(p, account.id, SmsMapping.ruleFor(rules, p.merchant))
         val base = if (selfTransfer) parsedBase.copy(categoryKey = SmsMapping.TRANSFER_CATEGORY, excludeFromStats = true) else parsedBase
         val entity = base.copy(
             suspicious = SmsMapping.isSuspicious(base.amount, base.categoryKey, txnDao.recentAmounts(account.id)),
-            // Messages for an account the user ignored are kept but never counted.
-            excludeFromStats = base.excludeFromStats || account.archived,
+            // Messages for an account the user ignored are kept but never counted, as are those of a family member
+            // kept apart from the user's totals.
+            excludeFromStats = base.excludeFromStats || account.archived || (owner != null && owner.id in apart),
         )
         val id = txnDao.insertIgnore(entity)
         var balances = 0
@@ -264,17 +317,17 @@ class SmsImporter(
         }
     }
 
-    private suspend fun importBill(b: ParsedCardBill): ImportResult {
+    private suspend fun importBill(b: ParsedCardBill, owner: FamilyMemberEntity?): ImportResult {
         var created = 0
-        val card = resolveAccount(b.bank, b.cardLast4, isCard = true) { created++ }
+        val card = resolveAccount(b.bank, b.cardLast4, isCard = true, owner = owner) { created++ }
         if (db.bills().countSame(card.id, b.dueDateEpochDay, b.totalDue) > 0) return ImportResult(duplicates = 1, accountsCreated = created)
         val id = db.bills().insertIgnore(SmsMapping.toBill(b, card.id))
         return ImportResult(bills = if (id > 0) 1 else 0, duplicates = if (id > 0) 0 else 1, accountsCreated = created)
     }
 
-    private suspend fun importBalance(b: ParsedBalance): ImportResult {
+    private suspend fun importBalance(b: ParsedBalance, owner: FamilyMemberEntity?): ImportResult {
         val isCard = b.availableBalance == null && b.availableCreditLimit != null
-        val accounts = db.accounts().all()
+        val accounts = accountsOf(owner)
         val account = SmsMapping.matchAccount(accounts, b.bank, b.accountLast4, isCard) ?: return ImportResult(ignored = 1)
         val value = if (isCard) b.availableCreditLimit else b.availableBalance
         value ?: return ImportResult(ignored = 1)
@@ -282,12 +335,23 @@ class SmsImporter(
         return ImportResult(balancesUpdated = 1)
     }
 
-    private suspend fun resolveAccount(bank: Bank, last4: String?, isCard: Boolean, debitCard: Boolean = false, onCreate: () -> Unit): AccountEntity {
-        val accounts = db.accounts().all()
+    /** The user's own accounts, or a family member's: a message only ever matches its owner's. */
+    private suspend fun accountsOf(owner: FamilyMemberEntity?): List<AccountEntity> =
+        db.accounts().all().filter { it.memberId == owner?.id }
+
+    private suspend fun resolveAccount(
+        bank: Bank,
+        last4: String?,
+        isCard: Boolean,
+        owner: FamilyMemberEntity?,
+        debitCard: Boolean = false,
+        onCreate: () -> Unit,
+    ): AccountEntity {
+        val accounts = accountsOf(owner)
         SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return fillDigits(it, last4, debitCard) }
         // A debit card's number isn't the account's: file it under the user's account at that bank and remember it.
         if (debitCard && last4 != null) SmsMapping.debitCardAccount(accounts, bank)?.let { return fillDigits(it, last4, debitCard = true) }
-        val fresh = SmsMapping.newAccountFor(bank, last4, isCard, System.currentTimeMillis())
+        val fresh = SmsMapping.newAccountFor(bank, last4, isCard, System.currentTimeMillis(), owner)
         val id = db.accounts().insert(fresh)
         onCreate()
         return fresh.copy(id = id)
@@ -375,7 +439,7 @@ class SmsImporter(
      * appears within a day, mark it as a transfer so the payment isn't counted as spending twice.
      */
     private suspend fun pairBankDebitForCardPayment(card: AccountEntity, p: ParsedTransaction) {
-        val banks = db.accounts().all().filter { it.type == AccountType.BANK }
+        val banks = db.accounts().all().filter { it.type == AccountType.BANK && it.memberId == card.memberId }
         for (bank in banks) {
             val match = db.transactions().findAmountNear(bank.id, p.amount, p.timestampMillis - DAY_MILLIS, p.timestampMillis + DAY_MILLIS)
                 .firstOrNull {
@@ -416,7 +480,11 @@ class SmsImporter(
         if (!hasPermission()) return@withContext emptyList<CheckupItem>() to 0
         val (messages, _) = readAll(System.currentTimeMillis() - days * DAY_MILLIS)
         val accounts = db.accounts().all()
-        val items = messages.filter { isFinancialMessage(it.sender, it.body) }
+        val linked = db.family().all().mapNotNull { it.phone }.toSet()
+        val items = messages
+            // A linked family member's forward is checked as the bank message inside it.
+            .map { msg -> if (FamilyForward.phoneKey(msg.sender)?.let { it in linked } == true) FamilyForward.inner(msg) else msg }
+            .filter { isFinancialMessage(it.sender, it.body) }
             .sortedByDescending { it.timestampMillis }
             .map { msg -> runCatching { checkOne(msg, accounts) }.getOrElse { e ->
                 CheckupItem(msg.timestampMillis, CheckupItem.Verdict.SKIPPED, "Couldn't be checked", e.javaClass.simpleName,
@@ -467,6 +535,7 @@ class SmsImporter(
             counted -> null
             row.type == TxnType.TRANSFER || row.categoryKey == SmsMapping.TRANSFER_CATEGORY -> "a transfer between your own accounts"
             owner?.archived == true -> "you ignored its account"
+            owner?.memberId != null -> "a family member's, kept apart from your totals"
             row.suspicious -> "held for review: the amount looks unusual"
             else -> "excluded from totals"
         }
