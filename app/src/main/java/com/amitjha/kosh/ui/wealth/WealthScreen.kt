@@ -311,13 +311,13 @@ private fun HeroPart(label: String, value: Long, hidden: Boolean) {
 
 @Composable
 fun InvestmentRow(inv: InvestmentItem, hidden: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val payoutFd = (inv.spec as? com.amitjha.kosh.domain.InvestmentSpec.Fd)?.takeIf { it.paysOut }
     KoshCard(modifier, onClick = onClick, contentPadding = PaddingValues(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             InvestmentTypeBadge(inv.type)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(inv.entity.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val payoutFd = (inv.spec as? com.amitjha.kosh.domain.InvestmentSpec.Fd)?.takeIf { it.paysOut }
                 val next = payoutFd?.toFinance(inv.entity.institution, inv.entity.name)?.nextPayout(com.amitjha.kosh.util.Time.today())
                 val sub = when (inv.type) {
                     InvestmentType.FD -> if (next != null) {
