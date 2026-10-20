@@ -368,5 +368,15 @@ object Hindi {
         "Next" to "आगे",
         "Type their number instead" to "इसके बजाय उनका नंबर लिखें",
         "Stop reading their SMS" to "उनके SMS पढ़ना बंद करें",
+        "Not linked yet" to "अभी लिंक नहीं",
+        "Looking for their SMS…" to "उनके SMS खोजे जा रहे हैं…",
+        "SMS from numbers not linked yet" to "उन नंबरों के SMS जो अभी लिंक नहीं",
+        "Pick who sent them. Bank SMS they forwarded before move to their accounts." to "चुनें किसने भेजे। पहले फ़ॉरवर्ड किए बैंक SMS उनके खातों में चले जाएँगे।",
+        "No SMS from them yet" to "अभी उनका कोई SMS नहीं",
+        "Their link SMS hasn't arrived yet." to "उनका लिंक SMS अभी नहीं आया।",
+        "Look again" to "फिर से देखें",
+        "Paste an SMS" to "SMS पेस्ट करें",
+        "Paste a forwarded SMS" to "फ़ॉरवर्ड किया SMS पेस्ट करें",
+        "Add a forwarded bank SMS" to "फ़ॉरवर्ड किया बैंक SMS जोड़ें",
     )
 }

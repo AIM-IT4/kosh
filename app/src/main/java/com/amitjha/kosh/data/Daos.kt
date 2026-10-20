@@ -194,6 +194,10 @@ interface TransactionDao {
     @Query("SELECT fingerprint FROM transactions WHERE accountId = :accountId AND fingerprint IS NOT NULL")
     suspend fun fingerprintsOf(accountId: Long): List<String>
 
+    /** Transactions on either side of [accountId]. */
+    @Query("SELECT COUNT(*) FROM transactions WHERE accountId = :accountId OR toAccountId = :accountId")
+    suspend fun countFor(accountId: Long): Int
+
     /**
      * Counts an account's transactions again after the user stops ignoring it. Everything else Kosh leaves out of
      * totals is a transfer between own accounts, so those stay out.
@@ -288,6 +292,12 @@ interface CardBillDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(bill: CardBillEntity): Long
+
+    @Query("SELECT * FROM card_bills WHERE fingerprint = :fingerprint LIMIT 1")
+    suspend fun byFingerprint(fingerprint: String): CardBillEntity?
+
+    @Query("SELECT COUNT(*) FROM card_bills WHERE accountId = :accountId")
+    suspend fun countFor(accountId: Long): Int
 
     @Update
     suspend fun update(bill: CardBillEntity)
