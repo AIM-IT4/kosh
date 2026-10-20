@@ -202,7 +202,7 @@ fun SwipeActionsRow(
             }
         },
     )
-    // The row and the colour behind it share one shape, so the corners match while swiping.
+    // The row and the colour behind it share one shape while swiping, so the corners match.
     val shape = RoundedCornerShape(16.dp)
     val confirmLabel = tr("Confirm")
     val deleteLabel = tr("Delete")
@@ -245,8 +245,10 @@ fun SwipeActionsRow(
             }
         },
     ) {
+        // Rounded only while swiping, over the coloured background; at rest the row stays flush with the page.
+        val swiping = state.dismissDirection != SwipeToDismissBoxValue.Settled
         Row(
-            Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.background),
+            Modifier.fillMaxWidth().then(if (swiping) Modifier.clip(shape) else Modifier).background(MaterialTheme.colorScheme.background),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically,
             content = content,
