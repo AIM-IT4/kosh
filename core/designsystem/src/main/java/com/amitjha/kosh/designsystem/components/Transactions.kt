@@ -204,13 +204,15 @@ fun SwipeActionsRow(
     )
     // The row and the colour behind it share one shape, so the corners match while swiping.
     val shape = RoundedCornerShape(16.dp)
+    val confirmLabel = tr("Confirm")
+    val deleteLabel = tr("Delete")
     SwipeToDismissBox(
         state = state,
         // Screen readers can't swipe: the same actions are offered as accessibility actions.
         modifier = modifier.semantics {
             customActions = listOfNotNull(
-                onConfirm?.let { confirm -> CustomAccessibilityAction(tr("Confirm")) { confirm(); true } },
-                onDelete?.let { delete -> CustomAccessibilityAction(tr("Delete")) { delete(); true } },
+                onConfirm?.let { confirm -> CustomAccessibilityAction(confirmLabel) { confirm(); true } },
+                onDelete?.let { delete -> CustomAccessibilityAction(deleteLabel) { delete(); true } },
             )
         },
         enableDismissFromStartToEnd = onConfirm != null,
