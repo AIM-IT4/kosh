@@ -124,4 +124,32 @@ class GoalAccuracyTest {
         assertEquals(rupees(50_000), GoalSurplus.usual(listOf(good, PeriodMoney("Jul", 0, 0)), statedSalary = rupees(100_000)))
         assertEquals(null, GoalSurplus.usual(emptyList()))
     }
+
+    @Test
+    fun whatTheUserSavesCountsWhenKoshSeesLess() {
+        // ₹30K a month goes to an RD Kosh can't see, so it looks like spending: only ₹5K seems free.
+        val goal = GoalInput("Car", rupees(20_000 * 24), 0, today.plusMonths(24), id = 1)
+        assertEquals(GoalStanding.OFF_TRACK, GoalTracker.assess(listOf(goal), rupees(5_000), today).single().second.standing)
+        val withPlan = GoalTracker.assess(listOf(goal), rupees(5_000), today, plannedSaving = rupees(30_000)).single().second
+        assertEquals(GoalStanding.ON_TRACK, withPlan.standing)
+        assertEquals(rupees(30_000), withPlan.capacity)
+        // A plan smaller than what's really free doesn't hold the goal back.
+        assertEquals(rupees(40_000), GoalTracker.assess(listOf(goal), rupees(40_000), today, plannedSaving = rupees(10_000)).single().second.capacity)
+    }
+
+    @Test
+    fun aGoalAheadOfItsPlanIsOnTrackWhateverTheSurplus() {
+        // Set up 12 months ago for ₹2.4L over 24 months; ₹1.5L saved is past the ₹1.2L an even plan has by now.
+        val goal = GoalInput("Trip", rupees(240_000), rupees(150_000), today.plusMonths(12), createdAt = today.minusMonths(12), id = 1)
+        val a = GoalTracker.assess(listOf(goal), rupees(1_000), today).single().second
+        assertEquals(GoalStanding.ON_TRACK, a.standing)
+        assertEquals(rupees(120_000), a.scheduledByNow)
+        assertTrue(a.ahead)
+        // Behind the plan, the surplus decides as before.
+        val behind = goal.copy(saved = rupees(50_000))
+        assertEquals(GoalStanding.OFF_TRACK, GoalTracker.assess(listOf(behind), rupees(1_000), today).single().second.standing)
+        // A goal set up this month can't be ahead yet.
+        val fresh = goal.copy(createdAt = today.minusDays(10))
+        assertEquals(null, GoalTracker.assess(listOf(fresh), rupees(1_000), today).single().second.scheduledByNow)
+    }
 }

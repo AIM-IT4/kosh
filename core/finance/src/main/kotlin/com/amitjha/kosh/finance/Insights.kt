@@ -89,6 +89,8 @@ data class InsightInput(
      * runs from its real payday instead of a fixed day; null keeps the fixed [monthStartDay].
      */
     val payCycle: PayCycle? = null,
+    /** What the user says they save each month (Home › Left to spend); goals count it when it's more than the surplus. */
+    val monthlySavingPlan: Paise? = null,
 )
 
 /** Severity, from most to least urgent. */
@@ -414,9 +416,10 @@ object InsightEngine {
 
     private fun goalRules(c: Context): List<Insight> {
         val today = real(c.today)
-        val surplus = recentSurplus(c)
+        val plan = c.input.monthlySavingPlan?.takeIf { it > 0 }
+        val surplus = listOfNotNull(recentSurplus(c), plan).maxOrNull()
         return GoalTracker.assess(c.input.goals, surplus, today, deadlineOf = { real(it.deadline) })
-            .map { (g, a) -> goalInsight(c, g, a.plan, surplus, a.capacity, today, a.standing, a.freeNow) }
+            .map { (g, a) -> goalInsight(c, g, a.plan, surplus, a.capacity, today, a.standing, a.freeNow, a.scheduledByNow.takeIf { a.ahead }) }
     }
 
     private fun goalInsight(
@@ -428,6 +431,8 @@ object InsightEngine {
         today: LocalDate,
         standing: GoalStanding,
         freeNow: Paise?,
+        /** Set when the savings are at or past where an even plan has them by now. */
+        aheadOf: Paise? = null,
     ): Insight {
         // Unique per goal (names can repeat, and non-Latin names have no slug) and per standing, so dismissing
         // "on track" doesn't also hide a later "off track".
@@ -490,6 +495,12 @@ object InsightEngine {
                 Severity.GOOD, "${g.name} is on track",
                 "What you've saved should grow to ${fmt(toSave)} by $dateText$loanNote without adding more.",
                 "$basics At ${"%.1f".format(g.expectedReturnPct)}% a year your savings reach the target on their own.", 15,
+            )
+            standing == GoalStanding.ON_TRACK && aheadOf != null -> insight(
+                Severity.GOOD, "${g.name} is on track",
+                "You've saved ${fmt(g.saved)}, ahead of the ${fmt(aheadOf)} an even plan has by now. ${fmt(plan.requiredMonthly)} " +
+                    "a month from here reaches ${fmt(toSave)} by $dateText$loanNote.",
+                basics, 15,
             )
             surplus == null -> insight(
                 Severity.TIP, "${g.name}: save ${fmt(plan.requiredMonthly)} a month",

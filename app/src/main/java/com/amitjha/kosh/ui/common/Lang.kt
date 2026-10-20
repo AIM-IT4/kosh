@@ -384,6 +384,12 @@ object Hindi {
         "earned" to "कमाई",
         "spent" to "खर्च",
         "no data" to "डेटा नहीं",
+        "You save" to "आप बचाते हैं",
+        "goals use this" to "लक्ष्य इसी से आँके जाते हैं",
+        "Save a fixed amount each month? Tell Kosh." to "हर महीने तय रकम बचाते हैं? Kosh को बताएँ।",
+        "Change" to "बदलें",
+        "I save…" to "मैं बचाता हूँ…",
+        "How much do you save each month?" to "आप हर महीने कितना बचाते हैं?",
         "Is one of them theirs? Pick who sent it. Bank SMS they forwarded before move to their accounts." to "क्या इनमें से कोई उनका है? चुनें किसने भेजा। पहले फ़ॉरवर्ड किए बैंक SMS उनके खातों में चले जाएँगे।",
     )
 }

@@ -1,0 +1,2 @@
+- Goals: tell Kosh how much you save each month (Plan › Goals › I save…) and goals are judged on it when it's more than Kosh sees, as savings that go to an RD, PPF or another bank look like spending
+- A goal whose savings are already where its plan says they should be is on track
