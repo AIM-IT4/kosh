@@ -219,6 +219,10 @@ data class GoalStatus(
     val surplusPeriods: List<com.amitjha.kosh.finance.PeriodMoney> = emptyList(),
     /** The take-home salary the user entered, the least a period counts as earning. */
     val statedSalary: Paise? = null,
+    /** What the user says they save each month; goals count it when it's more than [usualSurplus]. */
+    val plannedSaving: Paise? = null,
+    /** Where the savings should be by now on an even plan; set when they are at or past it. */
+    val aheadOf: Paise? = null,
 ) {
     val deadline: LocalDate get() = LocalDate.ofEpochDay(goal.deadline)
 
@@ -274,6 +278,7 @@ private data class GoalInputs(
     val inflation: Map<Long, Double>,
     val cycle: com.amitjha.kosh.finance.PayCycle,
     val salary: Paise?,
+    val plannedSaving: Paise?,
 )
 
 class GoalRepository(
@@ -289,9 +294,9 @@ class GoalRepository(
         prefs.goalInflation,
         settings.settings.map { it.payCycle }.distinctUntilChanged(),
         db.transactions().observeChanges(),
-        featurePrefs.settings.map { it.salary }.distinctUntilChanged(),
-    ) { goals, inflation, cycle, _, salary -> GoalInputs(goals, inflation, cycle, salary) }
-        .mapLatest { (goals, inflation, cycle, salary) ->
+        featurePrefs.settings.map { it.salary to it.savingsTarget }.distinctUntilChanged(),
+    ) { goals, inflation, cycle, _, plan -> GoalInputs(goals, inflation, cycle, plan.first, plan.second) }
+        .mapLatest { (goals, inflation, cycle, salary, planned) ->
             val today = Time.today()
             val current = Period.containing(today, cycle)
             val periods = generateSequence(current.previous()) { it.previous() }.take(GOAL_SURPLUS_PERIODS).toList()
@@ -301,11 +306,15 @@ class GoalRepository(
             )
             val months = goalPeriods(txns, periods)
             val surplus = com.amitjha.kosh.finance.GoalSurplus.usual(months, salary)
-            val assessed = com.amitjha.kosh.finance.GoalTracker.assess(goals.map { it.toInput(inflation[it.id] ?: 0.0) }, surplus, today)
-                .associate { (g, a) -> g.id to a }
+            val assessed = com.amitjha.kosh.finance.GoalTracker.assess(
+                goals.map { it.toInput(inflation[it.id] ?: 0.0) }, surplus, today, plannedSaving = planned,
+            ).associate { (g, a) -> g.id to a }
             goals.map { g ->
                 val a = assessed.getValue(g.id)
-                GoalStatus(g, a.plan, a.standing, a.capacity, inflation[g.id] ?: 0.0, a.freeNow, surplus, months, salary)
+                GoalStatus(
+                    g, a.plan, a.standing, a.capacity, inflation[g.id] ?: 0.0, a.freeNow, surplus, months, salary,
+                    plannedSaving = planned?.takeIf { it > 0 }, aheadOf = a.scheduledByNow.takeIf { a.ahead },
+                )
             }
         }
         .flowOn(kotlinx.coroutines.Dispatchers.Default)

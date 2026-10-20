@@ -57,7 +57,7 @@ class InsightRepository(
             // What insights read from settings; scan times and other writes don't need a rebuild.
             settings.settings.map { Triple(it.payCycle, it.dismissedInsightIds, it.monthStartDay) }.distinctUntilChanged(),
             planningPrefs.goalInflation,
-            featurePrefs?.settings?.map { it.salary }?.distinctUntilChanged() ?: kotlinx.coroutines.flow.flowOf(null),
+            featurePrefs?.settings?.map { it.salary to it.savingsTarget }?.distinctUntilChanged() ?: kotlinx.coroutines.flow.flowOf(null),
             ),
         ) { values -> values.size }
             .debounce(300)
@@ -140,6 +140,7 @@ class InsightRepository(
             monthStartDay = monthStartDay,
             payCycle = s.payCycle,
             monthlyIncomeHint = featurePrefs?.settings?.first()?.salary,
+            monthlySavingPlan = featurePrefs?.settings?.first()?.savingsTarget,
         )
     }
 }

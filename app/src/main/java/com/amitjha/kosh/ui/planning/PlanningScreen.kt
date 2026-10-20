@@ -83,6 +83,7 @@ import com.amitjha.kosh.util.Time
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -120,6 +121,11 @@ class PlanningViewModel(private val c: AppContainer) : ViewModel() {
     fun contribute(id: Long, amount: Long) = launchGuarded(guard) { c.goals.contribute(id, amount) }
     fun deleteGoal(goal: GoalEntity) = viewModelScope.launch { c.goals.delete(goal) }
     fun setInflation(goalId: Long, pct: Double) = viewModelScope.launch { c.goalOutlooks.setInflation(goalId, pct) }
+
+    /** What the user saves each month (null clears it); the same figure as "Save each month" on Home. */
+    fun setMonthlySaving(amount: Long?) = viewModelScope.launch {
+        c.featurePrefs.setSalaryPlan(c.featurePrefs.settings.first().salary, amount)
+    }
 }
 
 /** Lets other screens (e.g. an insight's action) open Plan on a given tab: 0 = Budgets, 1 = Goals. */
@@ -155,6 +161,7 @@ fun PlanningScreen(@Suppress("UNUSED_PARAMETER") nav: NavController) {
         onOpenGoal = { editGoal = it },
         onContribute = vm::contribute,
         onInflation = vm::setInflation,
+        onSetSaving = vm::setMonthlySaving,
     )
 
     if (addBudget) {
@@ -205,6 +212,7 @@ fun PlanningContent(
     onOpenGoal: (GoalEntity) -> Unit = {},
     onContribute: (Long, Long) -> Unit = { _, _ -> },
     onInflation: (Long, Double) -> Unit = { _, _ -> },
+    onSetSaving: (Long?) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 8.dp)) {
@@ -221,7 +229,7 @@ fun PlanningContent(
         if (tab == 0) {
             BudgetsTab(state, onAdd = onAddBudget, onSet = onSetBudget, onDelete = onDeleteBudget, onEnvelopeMode = onEnvelopeMode)
         } else {
-            GoalsTab(state, onAdd = onNewGoal, onOpen = onOpenGoal, onContribute = onContribute, onInflation = onInflation)
+            GoalsTab(state, onAdd = onNewGoal, onOpen = onOpenGoal, onContribute = onContribute, onInflation = onInflation, onSetSaving = onSetSaving)
         }
     }
 }
@@ -416,8 +424,9 @@ private fun AddBudgetSheet(
  * less spending. Tap to see the periods.
  */
 @Composable
-private fun SurplusCard(g: GoalStatus, hidden: Boolean) {
+private fun SurplusCard(g: GoalStatus, hidden: Boolean, onSetSaving: (Long?) -> Unit) {
     var open by rememberSaveable { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
     val money = { p: Long -> if (hidden) "₹ ••••" else Money.format(p, showPaise = false) }
     KoshCard(Modifier.padding(bottom = 8.dp), onClick = { open = !open }) {
         val usual = g.usualSurplus
@@ -433,6 +442,20 @@ private fun SurplusCard(g: GoalStatus, hidden: Boolean) {
             style = MaterialTheme.typography.bodySmall,
             color = KoshTheme.colors.subtleText,
         )
+        // What the user says they save beats the estimate when it's higher: savings that leave the tracked accounts
+        // (an RD, PPF, another bank) look like spending to Kosh.
+        val planned = g.plannedSaving
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (planned != null) tr("You save") + " ${money(planned)} " + tr("a month") + if (planned > (usual ?: Long.MIN_VALUE)) " · " + tr("goals use this") else ""
+                else tr("Save a fixed amount each month? Tell Kosh."),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { editing = true }) {
+                Text(tr(if (planned != null) "Change" else "I save…"), color = KoshTheme.colors.accent, style = MaterialTheme.typography.labelLarge)
+            }
+        }
         if (open) {
             val counted = com.amitjha.kosh.finance.GoalSurplus.adjusted(g.surplusPeriods, g.statedSalary)
             counted.forEach { p ->
@@ -467,6 +490,12 @@ private fun SurplusCard(g: GoalStatus, hidden: Boolean) {
             )
         }
     }
+    if (editing) {
+        AmountSheet("How much do you save each month?", g.plannedSaving, onDismiss = { editing = false }, onConfirm = { amount ->
+            onSetSaving(amount.takeIf { it > 0 })
+            editing = false
+        })
+    }
 }
 
 @Composable
@@ -476,6 +505,7 @@ private fun GoalsTab(
     onOpen: (GoalEntity) -> Unit,
     onContribute: (Long, Long) -> Unit,
     onInflation: (Long, Double) -> Unit = { _, _ -> },
+    onSetSaving: (Long?) -> Unit = {},
 ) {
     val hidden = LocalHideAmounts.current
     var contributing by remember { mutableStateOf<GoalStatus?>(null) }
@@ -492,7 +522,7 @@ private fun GoalsTab(
     }
     LazyColumn(contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         state.goals.firstOrNull()?.let { first ->
-            item(key = "surplus") { SurplusCard(first, hidden) }
+            item(key = "surplus") { SurplusCard(first, hidden, onSetSaving) }
         }
         items(state.goals, key = { it.goal.id }) { g ->
             val plan = g.plan
@@ -508,6 +538,7 @@ private fun GoalsTab(
                     append(" · ${plan.monthsLeft} month${if (plan.monthsLeft == 1) "" else "s"} left")
                     val now = (g.freeNow ?: 0).coerceAtLeast(0)
                     val overall = (g.capacity ?: 0).coerceAtLeast(0)
+                    g.aheadOf?.let { if (g.standing == GoalStanding.ON_TRACK) append(" · ahead of plan (${money(it)} by now)") }
                     if (g.standing == GoalStanding.TIGHT) {
                         append(if (plan.requiredMonthly > now) " · tight: ${money(now)} free now, more once earlier goals finish" else " · tight: ${money(overall)} free a month")
                     }
