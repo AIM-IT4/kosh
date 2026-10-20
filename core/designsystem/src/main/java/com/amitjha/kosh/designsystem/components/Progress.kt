@@ -178,7 +178,7 @@ fun GoalCard(
                         hint,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (onTrack) KoshTheme.colors.good else KoshTheme.colors.warning,
-                        maxLines = 2,
+                        maxLines = 3,
                     )
                 }
             }

@@ -214,6 +214,11 @@ data class GoalStatus(
     val inflationPct: Double = 0.0,
     /** Free for it right now, while earlier goals are still being saved for. */
     val freeNow: Paise? = capacity,
+    /** What the user usually has free a month for all goals, and the pay periods it comes from (shown on the Goals tab). */
+    val usualSurplus: Paise? = null,
+    val surplusPeriods: List<com.amitjha.kosh.finance.PeriodMoney> = emptyList(),
+    /** The take-home salary the user entered, the least a period counts as earning. */
+    val statedSalary: Paise? = null,
 ) {
     val deadline: LocalDate get() = LocalDate.ofEpochDay(goal.deadline)
 
@@ -242,29 +247,40 @@ fun GoalEntity.toInput(inflationPct: Double = 0.0) = com.amitjha.kosh.finance.Go
 )
 
 /**
- * The usual monthly surplus goals can draw on, by the insights' rule: over the last [GOAL_SURPLUS_PERIODS] complete
- * pay periods with data, earned income less spending, with money put into investments counted as saved.
+ * Each of the last [GOAL_SURPLUS_PERIODS] complete pay periods as goals see it: earned income, spending, the part put
+ * into investments (saved, not spent) and refunds and cashback (which come off spending). [GoalSurplus.usual] turns
+ * them into the usual monthly surplus, by the insights' rule. Newest period first.
  */
-internal fun goalSurplus(txns: List<com.amitjha.kosh.data.TransactionEntity>, periods: List<Period>): Paise? {
+internal fun goalPeriods(txns: List<com.amitjha.kosh.data.TransactionEntity>, periods: List<Period>): List<com.amitjha.kosh.finance.PeriodMoney> {
     val counted = txns.filter(SmsMapping::countsInStats)
-    val months = periods.map { p ->
+    val day = java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH)
+    return periods.map { p ->
         val inP = counted.filter { it.timestamp in p.startMillis..p.endMillis }
-        val income = inP.filter(MoneyIn::isEarned).sumOf { it.amount }
         val expenses = inP.filter { it.type == com.amitjha.kosh.model.TxnType.EXPENSE }
-        val spent = expenses.sumOf { it.amount }
-        val invested = expenses.filter { it.categoryKey in com.amitjha.kosh.finance.InsightEngine.SAVED_CATEGORIES }.sumOf { it.amount }
-        Triple(income, spent, invested)
-    }.filter { (income, spent, _) -> income != 0L || spent != 0L }
-    if (months.isEmpty()) return null
-    return months.sumOf { (income, spent, invested) -> income - (spent - invested) } / months.size
+        com.amitjha.kosh.finance.PeriodMoney(
+            label = "${day.format(p.start)} – ${day.format(p.endExclusive.minusDays(1))}",
+            earned = inP.filter(MoneyIn::isEarned).sumOf { it.amount },
+            spent = expenses.sumOf { it.amount },
+            invested = expenses.filter { it.categoryKey in com.amitjha.kosh.finance.InsightEngine.SAVED_CATEGORIES }.sumOf { it.amount },
+            givenBack = inP.filter(MoneyIn::isGivenBack).sumOf { it.amount },
+        )
+    }
 }
 
 const val GOAL_SURPLUS_PERIODS = com.amitjha.kosh.finance.InsightEngine.GOAL_SURPLUS_MONTHS
+
+private data class GoalInputs(
+    val goals: List<GoalEntity>,
+    val inflation: Map<Long, Double>,
+    val cycle: com.amitjha.kosh.finance.PayCycle,
+    val salary: Paise?,
+)
 
 class GoalRepository(
     private val db: KoshDatabase,
     private val settings: SettingsStore,
     private val prefs: com.amitjha.kosh.data.prefs.PlanningPrefs,
+    private val featurePrefs: com.amitjha.kosh.data.prefs.FeaturePrefs,
 ) {
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -273,8 +289,9 @@ class GoalRepository(
         prefs.goalInflation,
         settings.settings.map { it.payCycle }.distinctUntilChanged(),
         db.transactions().observeChanges(),
-    ) { goals, inflation, cycle, _ -> Triple(goals, inflation, cycle) }
-        .mapLatest { (goals, inflation, cycle) ->
+        featurePrefs.settings.map { it.salary }.distinctUntilChanged(),
+    ) { goals, inflation, cycle, _, salary -> GoalInputs(goals, inflation, cycle, salary) }
+        .mapLatest { (goals, inflation, cycle, salary) ->
             val today = Time.today()
             val current = Period.containing(today, cycle)
             val periods = generateSequence(current.previous()) { it.previous() }.take(GOAL_SURPLUS_PERIODS).toList()
@@ -282,12 +299,13 @@ class GoalRepository(
                 db.transactions().between(periods.last().startMillis, current.startMillis - 1),
                 com.amitjha.kosh.domain.Splits.byTransaction(db.splits().all()),
             )
-            val surplus = goalSurplus(txns, periods)
+            val months = goalPeriods(txns, periods)
+            val surplus = com.amitjha.kosh.finance.GoalSurplus.usual(months, salary)
             val assessed = com.amitjha.kosh.finance.GoalTracker.assess(goals.map { it.toInput(inflation[it.id] ?: 0.0) }, surplus, today)
                 .associate { (g, a) -> g.id to a }
             goals.map { g ->
                 val a = assessed.getValue(g.id)
-                GoalStatus(g, a.plan, a.standing, a.capacity, inflation[g.id] ?: 0.0, a.freeNow)
+                GoalStatus(g, a.plan, a.standing, a.capacity, inflation[g.id] ?: 0.0, a.freeNow, surplus, months, salary)
             }
         }
         .flowOn(kotlinx.coroutines.Dispatchers.Default)

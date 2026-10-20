@@ -149,6 +149,9 @@ object InsightEngine {
 
     /** Expense categories that are money put aside rather than spent. */
     val SAVED_CATEGORIES = setOf("investment")
+
+    /** Credits that give money back: they come off spending, and aren't income. */
+    val GIVEN_BACK_CATEGORIES = setOf("refund", "cashback")
     /** Complete budgeting months averaged to estimate the monthly surplus available for goals. */
     const val GOAL_SURPLUS_MONTHS = 3
     const val SAVINGS_GREAT = 0.30
@@ -231,6 +234,10 @@ object InsightEngine {
 
         /** Money moved into investments (SIPs and the like) in [m]: saved, not spent. */
         fun invested(m: YearMonth): Paise = expensesIn(m).filter { it.category in SAVED_CATEGORIES }.sumOf { it.amount }
+
+        /** Refunds and cashback in [m]: they come off spending. */
+        fun givenBack(m: YearMonth): Paise =
+            incomes.filter { !it.earned && it.category in GIVEN_BACK_CATEGORIES && YearMonth.from(it.date) == m }.sumOf { it.amount }
 
         /** Average monthly expense over the three full months before this one (only months with data). */
         val avgMonthlyExpense: Paise by lazy {
@@ -395,14 +402,14 @@ object InsightEngine {
     }
 
     /**
-     * Monthly surplus averaged over the last complete budgeting months that have data: earned income less spending,
-     * where money put into investments counts as saved, not spent. The Goals screen uses the same rule.
+     * The usual monthly surplus over the last complete budgeting months ([GoalSurplus.usual]): earned income less
+     * spending, investments counted as saved and refunds taken off, with the take-home salary the user entered
+     * ([InsightInput.monthlyIncomeHint]) as the least a month earns. The Goals screen uses the same rule.
      */
     private fun recentSurplus(c: Context): Paise? {
         val months = (1..GOAL_SURPLUS_MONTHS).map { c.month.minusMonths(it.toLong()) }
-            .filter { c.income(it) != 0L || c.spent(it) != 0L }
-        if (months.isEmpty()) return null
-        return months.sumOf { c.income(it) - (c.spent(it) - c.invested(it)) } / months.size
+            .map { PeriodMoney(it.toString(), c.income(it), c.spent(it), c.invested(it), c.givenBack(it)) }
+        return GoalSurplus.usual(months, c.input.monthlyIncomeHint)
     }
 
     private fun goalRules(c: Context): List<Insight> {

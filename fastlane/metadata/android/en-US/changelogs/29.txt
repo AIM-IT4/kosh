@@ -1,0 +1,3 @@
+- Goals: a goal that fits what you usually have left after spending now says so. Kosh takes the middle of your last 3 pay periods instead of the average, so one big purchase or an early salary no longer makes goals look off track
+- Refunds and cashback come off spending, and your take-home salary (Home › Left to spend) counts as the least you earn
+- The Goals tab shows what you usually have free and how it's worked out
