@@ -28,7 +28,11 @@ data class InsightTxn(
     val earned: Boolean = true,
 )
 
-data class BudgetInput(val category: String?, val monthlyLimit: Paise)
+/**
+ * A budget and, from the Budgets screen, where it stands this budget period: net of refunds and cashback, over the pay
+ * cycle. Without [projection] the engine works it out from this calendar month's spending.
+ */
+data class BudgetInput(val category: String?, val monthlyLimit: Paise, val projection: BudgetProjection? = null)
 /**
  * A savings goal exactly as the user planned it. A purchase [loanAmount] reduces what has to be
  * saved, and savings grow at [expectedReturnPct].
@@ -311,9 +315,13 @@ object InsightEngine {
 
     // ------------------------------------------------------------------ rules
 
+    /** Where [b] stands: the Budgets screen's own figures when given, so an alert never disagrees with it. */
+    private fun projectionOf(c: Context, b: BudgetInput): BudgetProjection =
+        b.projection ?: Budgets.project(b.monthlyLimit, c.spent(c.month, b.category), c.today)
+
     private fun budgetRules(c: Context): List<Insight> = c.input.budgets.mapNotNull { b ->
-        val spent = c.spent(c.month, b.category)
-        val p = Budgets.project(b.monthlyLimit, spent, c.today)
+        val p = projectionOf(c, b)
+        val spent = p.spent
         val label = c.label(b.category)
         val id = "budget_${slug(label)}_${c.month}"
         when {
@@ -787,12 +795,13 @@ object InsightEngine {
         return when {
             id.startsWith("budget_") -> {
                 val b = c.input.budgets.firstOrNull { id == "budget_${slug(c.label(it.category))}_${c.month}" } ?: return i
-                val spent = c.spent(c.month, b.category)
-                val p = Budgets.project(b.monthlyLimit, spent, c.today)
+                val p = projectionOf(c, b)
+                val spent = p.spent
+                val daysLeft = (p.daysInMonth - p.daysElapsed).coerceAtLeast(0)
                 i.copy(
-                    detail = "${c.label(b.category)} spending is ${fmt(spent)} after ${c.today.dayOfMonth} days, " +
+                    detail = "${c.label(b.category)} spending is ${fmt(spent)} after ${p.daysElapsed} days, " +
                         "${pct(p.usedFraction)} of the ${fmt(b.monthlyLimit)} budget. At the current pace the month ends near " +
-                        "${fmt(p.projected)}. With ${c.daysLeft} days left, about ${fmt(maxOf(0, p.dailyAllowance))} a day keeps you within it.",
+                        "${fmt(p.projected)}. With $daysLeft days left, about ${fmt(maxOf(0, p.dailyAllowance))} a day keeps you within it.",
                     metrics = listOf(m("Spent", compact(spent)), m("Budget", compact(b.monthlyLimit)), m("Projected", compact(p.projected)),
                         m("Per day left", compact(maxOf(0, p.dailyAllowance)))),
                     chart = InsightChart(InsightChart.Kind.LINE, (1..c.today.dayOfMonth).map { "$it" }, c.cumulativeThisMonth(b.category),
@@ -900,7 +909,7 @@ object InsightEngine {
         if (income > 0) score += ((income - spent).toDouble() / income).coerceIn(-0.5, 0.5) * 80
         val budgets = c.input.budgets
         if (budgets.isNotEmpty()) {
-            val over = budgets.count { Budgets.project(it.monthlyLimit, c.spent(c.month, it.category), c.today).willExceed }
+            val over = budgets.count { projectionOf(c, it).willExceed }
             score += 10 - 20.0 * over / budgets.size
         }
         val overdue = c.input.upcomingBills.count { !it.paid && it.dueDate.isBefore(c.today) }

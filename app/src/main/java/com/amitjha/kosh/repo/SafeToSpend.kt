@@ -107,7 +107,8 @@ object SafeToSpend {
         val cashAccounts = accounts.filter { it.counted && it.account.type != AccountType.CREDIT_CARD }
         if (cashAccounts.isEmpty() || summary == null) return null
         val payday = cycle.nextPayday(today)
-        val cardDues = bills.filter { !it.bill.paid && it.bill.totalDue > 0 && it.dueDate?.isBefore(payday) == true }.sumOf { it.bill.totalDue }
+        val cards = accounts.filter { it.isCard && it.counted && !it.account.archived }.map { it.id }.toSet()
+        val cardDues = cardDues(bills, cards, payday)
         val repeats = runCatching { recurring.upcoming(today, payday) }.getOrDefault(emptyList())
         return plan(
             today = today,
@@ -123,6 +124,14 @@ object SafeToSpend {
             savingsTarget = savingsTarget,
         )
     }
+
+    /**
+     * Card bills to pay before [payday], on the cards in [counted] only: an ignored card or a family member's kept
+     * apart isn't paid from the user's money. [bills] are the owed ones, one per card (see [BillRepository.owed]).
+     */
+    fun cardDues(bills: List<BillItem>, counted: Set<Long>, payday: LocalDate): Paise =
+        bills.filter { !it.bill.paid && it.bill.totalDue > 0 && it.bill.accountId in counted && it.dueDate?.isBefore(payday) == true }
+            .sumOf { it.bill.totalDue }
 
     const val SALARY_CATEGORY = "salary"
 }

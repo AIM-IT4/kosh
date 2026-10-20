@@ -203,21 +203,86 @@ object SmsMapping {
             .filter { if (debitSide) it.accountId == accountId && it.fingerprint == null else it.toAccountId == accountId && it.referenceNo == null }
             .minByOrNull { kotlin.math.abs(it.timestamp - at) }
 
+    /** Fingerprint prefixes of the rows Kosh adds by itself: scheduled payments and bank-statement (CSV) rows. */
+    const val SCHEDULED_PREFIX = "rec:"
+    const val STATEMENT_PREFIX = "csv:"
+
+    /** How far a scheduled payment's SMS can be from its scheduled day. */
+    const val SCHEDULED_WINDOW_MILLIS = 3 * 86_400_000L
+
+    /** How far a statement row (dated noon of its day) can be from the SMS for the same payment. */
+    const val STATEMENT_WINDOW_MILLIS = 36 * 3_600_000L
+
     /**
-     * Whether an imported row in [nearby] is the same reference-less message seen with a slightly different
-     * timestamp (live receiver vs inbox scan): same account, type, amount and merchant, different fingerprint.
+     * A row Kosh added by itself that an imported SMS ([type], [reference], at [at]) confirms, so the money isn't
+     * counted twice: a scheduled payment (within 3 days) or a bank-statement row (within a day) for the same amount on
+     * the same side of [accountId], not yet matched to a message. A debit can also confirm a scheduled transfer out of
+     * the account, a credit one into it. A statement row with a different reference number is another payment.
+     * Closest in time wins. [candidates] are the rows of that amount around [at].
      */
-    fun isNearDuplicate(
-        nearby: List<TransactionEntity>,
-        accountId: Long,
-        type: TxnType,
-        amount: Paise,
-        merchant: String?,
-        fingerprint: String,
-    ): Boolean = nearby.any {
-        it.accountId == accountId && it.type == type && it.amount == amount && it.source != TxnSource.MANUAL &&
-            it.referenceNo == null && it.merchant == merchant && it.fingerprint != fingerprint
+    fun autoRowFor(candidates: List<TransactionEntity>, accountId: Long, type: TxnType, reference: String?, at: Long): TransactionEntity? =
+        candidates.filter { row ->
+            if (row.source != TxnSource.AUTO) return@filter false
+            val fp = row.fingerprint.orEmpty()
+            val scheduled = fp.startsWith(SCHEDULED_PREFIX)
+            val statement = fp.startsWith(STATEMENT_PREFIX)
+            val sameSide = when {
+                // Matched transfers keep no "rec:" fingerprint (the debit's is stored instead), so a credit can still claim them.
+                row.type == TxnType.TRANSFER && type == TxnType.EXPENSE -> scheduled && row.accountId == accountId
+                row.type == TxnType.TRANSFER && type == TxnType.INCOME -> row.toAccountId == accountId && row.referenceNo == null
+                else -> row.accountId == accountId && row.type == type && row.referenceNo?.startsWith(SMS_MARKER) != true &&
+                    (scheduled || statement)
+            }
+            val refs = row.referenceNo?.takeIf { statement }
+            val sameReference = reference == null || refs == null || refs.contains(reference) || reference.contains(refs)
+            val window = if (statement) STATEMENT_WINDOW_MILLIS else SCHEDULED_WINDOW_MILLIS
+            sameSide && sameReference && kotlin.math.abs(row.timestamp - at) <= window
+        }.minByOrNull { kotlin.math.abs(it.timestamp - at) }
+
+    /**
+     * [row] (from [autoRowFor]) once [p]'s message on [accountId] is matched to it. A statement row becomes the SMS
+     * transaction, keeping what the user set; a scheduled one keeps its schedule fingerprint and records the message
+     * as `referenceNo = "sms:<fingerprint>"`; a scheduled transfer stores the debit's fingerprint and the credit's
+     * marker, like a transfer entered by hand.
+     */
+    fun claim(row: TransactionEntity, p: ParsedTransaction, accountId: Long): TransactionEntity {
+        val marker = SMS_MARKER + p.fingerprint
+        return when {
+            row.type == TxnType.TRANSFER && row.toAccountId == accountId && p.type == TxnType.INCOME -> row.copy(referenceNo = marker)
+            row.type == TxnType.TRANSFER -> row.copy(fingerprint = p.fingerprint, timestamp = p.timestampMillis)
+            row.fingerprint.orEmpty().startsWith(SCHEDULED_PREFIX) -> row.copy(referenceNo = marker, timestamp = p.timestampMillis)
+            else -> row.copy(
+                fingerprint = p.fingerprint,
+                timestamp = p.timestampMillis,
+                source = TxnSource.SMS,
+                referenceNo = row.referenceNo ?: p.referenceNo,
+                merchant = p.merchant ?: row.merchant,
+                channel = if (row.channel == com.amitjha.kosh.model.TxnChannel.OTHER) p.channel else row.channel,
+            )
+        }
     }
+
+    /**
+     * Whether a payment already in Kosh stands for a scheduled occurrence on [day] (millis): an SMS that came before
+     * the schedule was recorded, a statement row or one entered by hand, for the same amount on the same side of
+     * [accountId] within 3 days. Another schedule's rows don't count.
+     */
+    fun scheduledAlreadyIn(candidates: List<TransactionEntity>, accountId: Long, type: TxnType, transfer: Boolean, amount: Paise, day: Long): Boolean =
+        candidates.any { t ->
+            t.amount == amount && t.accountId == accountId && kotlin.math.abs(t.timestamp - day) <= SCHEDULED_WINDOW_MILLIS &&
+                !t.fingerprint.orEmpty().startsWith(SCHEDULED_PREFIX) &&
+                (if (transfer) t.type == TxnType.TRANSFER || t.type == TxnType.EXPENSE else t.type == type)
+        }
+
+    /**
+     * When the balance in a transaction SMS held: the message's own time when it arrived after the transaction's date
+     * (a delayed "debited on 03-Oct ... Avl Bal" message reports the balance when it was sent, including everything
+     * since). Anchoring at the transaction's date would count the transactions in between a second time.
+     */
+    fun balanceAnchor(p: ParsedTransaction, messageMillis: Long?): Long = maxOf(p.timestampMillis, messageMillis ?: p.timestampMillis)
+
+    /** Marks a row an SMS was matched to without being stored itself: `referenceNo = "sms:<fingerprint>"`. */
+    const val SMS_MARKER = "sms:"
 
     /** Whether [txn] counts as income or expense in summaries. */
     fun countsInStats(txn: TransactionEntity): Boolean =

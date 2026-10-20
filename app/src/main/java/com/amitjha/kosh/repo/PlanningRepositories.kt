@@ -43,6 +43,21 @@ class BillRepository(private val db: KoshDatabase, private val transactions: Tra
 
     suspend fun unpaid(): List<BillItem> = items(db.bills().unpaid(), db.accounts().all())
 
+    /**
+     * What is actually owed: each active card's newest unpaid bill (it already includes what was left of the one
+     * before), leaving out bills long past due and those of cards the user ignored.
+     */
+    fun observeOwed(): Flow<List<BillItem>> =
+        combine(db.bills().observeUnpaid(), db.accounts().observeActive()) { bills, accounts -> owedItems(bills, accounts) }
+
+    suspend fun owed(): List<BillItem> = owedItems(db.bills().unpaid(), db.accounts().all())
+
+    private fun owedItems(bills: List<CardBillEntity>, accounts: List<AccountEntity>): List<BillItem> {
+        val active = accounts.filter { !it.archived }.map { it.id }.toSet()
+        val owed = com.amitjha.kosh.domain.BillSettling.owedAll(bills.filter { it.accountId in active }, Time.today().toEpochDay())
+        return items(owed, accounts)
+    }
+
     /** Adds a bill entered by hand. */
     suspend fun addManual(cardId: Long, totalDue: Paise, minimumDue: Paise?, dueDate: LocalDate, statementDate: LocalDate? = null): Long =
         db.bills().insertIgnore(

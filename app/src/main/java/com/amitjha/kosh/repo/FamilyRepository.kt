@@ -69,8 +69,16 @@ class FamilyRepository(private val db: KoshDatabase) {
         if (member.countInTotals == count) return
         db.withTransaction {
             dao.update(member.copy(countInTotals = count))
-            db.accounts().ofMember(id).forEach { a ->
+            val theirs = db.accounts().ofMember(id)
+            theirs.forEach { a ->
                 if (count && !a.archived) db.transactions().includeAccountInStats(a.id) else db.transactions().excludeAccountFromStats(a.id)
+            }
+            // Kept apart again: what the user sent them is spending once more, not a transfer within the family.
+            if (!count && theirs.isNotEmpty()) {
+                val undone = com.amitjha.kosh.domain.TransferPairing.unpairFromMember(
+                    db.transactions().all(), theirs.map { it.id }.toSet(), db.accounts().all(),
+                )
+                undone.forEach { db.transactions().update(it) }
             }
         }
         // Money between the user and a member who now counts can be a transfer within the family.

@@ -75,7 +75,7 @@ class StatementImporter(private val db: KoshDatabase) {
         private const val NOON_MILLIS = 12L * 60 * 60 * 1000
 
         fun fingerprint(accountId: Long, row: StatementCsv.Row): String =
-            "csv:$accountId:${row.date}:${row.type.name}:${row.amount}:${row.description.trim().lowercase().hashCode()}"
+            "${com.amitjha.kosh.domain.SmsMapping.STATEMENT_PREFIX}$accountId:${row.date}:${row.type.name}:${row.amount}:${row.description.trim().lowercase().hashCode()}"
 
         private fun word(vararg w: String) = Regex(w.joinToString("|") { "\\b$it\\b" })
         private val CHANNELS = listOf(

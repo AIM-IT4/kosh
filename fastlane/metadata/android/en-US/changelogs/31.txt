@@ -1,0 +1,8 @@
+- Two same-amount payments minutes apart are both kept
+- A card bill paid in parts is marked paid once the parts add up
+- Scheduled payments and statement rows match their bank SMS, not counted twice
+- Budget alerts match the Budgets screen, refunds taken off
+- Card dues count each card's latest bill, never an ignored card's
+- Transfers between your accounts need the same reference or a few hours
+- Late SMS set balances without double counting
+- Payment reminders show even with insights off

@@ -40,6 +40,19 @@ class InsightEngineTest {
     }
 
     @Test
+    fun budgetAlertsUseTheBudgetScreensNetFigures() {
+        // ₹25,000 on food, ₹8,000 of it refunded: the Budgets screen shows ₹17,000 against ₹20,000, so no alert.
+        val base = InsightInput(today, transactions = listOf(exp(today.withDayOfMonth(2), 25_000.0, "Food")))
+        val net = BudgetProjection(rs(20_000.0), rs(17_000.0), daysElapsed = 20, daysInMonth = 30)
+        val insights = run(base.copy(budgets = listOf(BudgetInput("Food", rs(20_000.0), net))))
+        assertFalse(insights.any { it.id.startsWith("budget_food") && it.severity == Severity.ALERT })
+        val over = BudgetProjection(rs(20_000.0), rs(21_000.0), daysElapsed = 20, daysInMonth = 30)
+        val alert = run(base.copy(budgets = listOf(BudgetInput("Food", rs(20_000.0), over)))).get("budget_food")
+        assertEquals(Severity.ALERT, alert.severity)
+        assertTrue(alert.message.contains(Money.format(rs(21_000.0), showPaise = false)))
+    }
+
+    @Test
     fun categorySpike() {
         val txns = history(10_000.0, cat = "Travel") + exp(today.withDayOfMonth(3), 20_000.0, "Travel")
         assertTrue(run(InsightInput(today, txns)).has("spike_travel"))

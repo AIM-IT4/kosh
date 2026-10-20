@@ -44,19 +44,25 @@ class RecurringRepository(private val db: KoshDatabase, private val features: Fe
             var n = 0
             while (!day.isAfter(today) && n < MAX_CATCH_UP) {
                 val transfer = rule.type == TxnType.TRANSFER && rule.toAccountId != null
-                val id = db.transactions().insertIgnore(
+                val type = if (rule.type == TxnType.TRANSFER && !transfer) TxnType.EXPENSE else rule.type
+                val at = Time.startOfDay(day) + RECORD_HOUR_MILLIS
+                val window = SmsMapping.SCHEDULED_WINDOW_MILLIS
+                val nearby = db.transactions().findAmountNear(rule.accountId, rule.amount, at - window, at + window)
+                // The bank's SMS (or a statement row, or the user) got there first: recording it again would count it twice.
+                val already = SmsMapping.scheduledAlreadyIn(nearby, rule.accountId, type, transfer, rule.amount, at)
+                val id = if (already) 0L else db.transactions().insertIgnore(
                     TransactionEntity(
                         accountId = rule.accountId,
                         toAccountId = if (transfer) rule.toAccountId else null,
-                        type = if (rule.type == TxnType.TRANSFER && !transfer) TxnType.EXPENSE else rule.type,
+                        type = type,
                         amount = rule.amount,
                         categoryKey = if (transfer) SmsMapping.TRANSFER_CATEGORY else rule.categoryKey,
                         merchant = rule.name,
                         note = rule.note,
-                        timestamp = Time.startOfDay(day) + RECORD_HOUR_MILLIS,
+                        timestamp = at,
                         channel = TxnChannel.OTHER,
                         source = TxnSource.AUTO,
-                        fingerprint = "rec:${rule.id}:${day.toEpochDay()}",
+                        fingerprint = "${SmsMapping.SCHEDULED_PREFIX}${rule.id}:${day.toEpochDay()}",
                         reviewed = true,
                         excludeFromStats = transfer,
                     ),
@@ -138,12 +144,22 @@ class RecurringRepository(private val db: KoshDatabase, private val features: Fe
         )
 
     /** Occurrences Kosh recorded from a schedule are already known; they aren't "detected" again. */
-    private fun isScheduled(t: TransactionEntity) = t.fingerprint?.startsWith("rec:") == true
+    private fun isScheduled(t: TransactionEntity) = t.fingerprint?.startsWith(SmsMapping.SCHEDULED_PREFIX) == true
 
     private fun cadenceOf(rule: RecurringRuleEntity): Recurring.Cadence? =
         runCatching { Recurring.Cadence.valueOf(rule.cadence) }.getOrNull()
 
     companion object {
+        /** The notification title for a reminder due on [due]: today's, or one missed in the last week; else none. */
+        fun reminderTitle(name: String, due: LocalDate, today: LocalDate): String? = when {
+            due == today -> "$name is due today"
+            due.isBefore(today) && !due.isBefore(today.minusDays(MISSED_REMINDER_DAYS)) ->
+                "$name was due on ${due.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH))}"
+            else -> null
+        }
+
+        private const val MISSED_REMINDER_DAYS = 7L
+
         const val MAX_CATCH_UP = 60
         const val LOOKBACK_DAYS = 400L
         private const val DETECTED_TTL_MILLIS = 60_000L

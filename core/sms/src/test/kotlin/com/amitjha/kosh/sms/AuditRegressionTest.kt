@@ -71,4 +71,35 @@ class AuditRegressionTest {
         val other = SmsParser.parse(SmsMessage("AD-HDFCBK", body, SMS_TIME + 61_000)) as SmsParseResult.Transaction
         assertTrue("a different send minute changes the reference-less fingerprint", other.txn.fingerprint != sent.txn.fingerprint)
     }
+
+    @Test
+    fun theSameMessageAMinuteOffIsRecognisedButARepeatPaymentIsNot() {
+        val body = "Rs.500.00 debited from A/c XX4521 at SWIGGY on 05-01-25. Avl Bal Rs.12,000.00"
+        val live = SmsMessage("AD-HDFCBK", body, SMS_TIME + 59_000)
+        val first = txn("AD-HDFCBK", body, live.timestampMillis)
+        // The inbox scan dates the same message two seconds later, in the next minute.
+        val scanned = SmsMessage("AD-HDFCBK", body, SMS_TIME + 61_000)
+        val again = txn("AD-HDFCBK", body, scanned.timestampMillis)
+        assertTrue(again.fingerprint != first.fingerprint)
+        assertTrue(first.fingerprint in SmsParser.nearbyFingerprints(again, scanned))
+
+        // A second ₹500 to Swiggy a minute later is a new payment: its text (balance) differs.
+        val repeatBody = "Rs.500.00 debited from A/c XX4521 at SWIGGY on 05-01-25. Avl Bal Rs.11,500.00"
+        val repeatMsg = SmsMessage("AD-HDFCBK", repeatBody, SMS_TIME + 61_000)
+        val repeat = txn("AD-HDFCBK", repeatBody, repeatMsg.timestampMillis)
+        assertFalse(first.fingerprint in SmsParser.nearbyFingerprints(repeat, repeatMsg))
+        assertFalse(first.fingerprint == repeat.fingerprint)
+
+        // Four minutes apart is beyond any clock disagreement.
+        val late = SmsMessage("AD-HDFCBK", body, SMS_TIME + 59_000 + 4 * 60_000)
+        assertFalse(first.fingerprint in SmsParser.nearbyFingerprints(txn("AD-HDFCBK", body, late.timestampMillis), late))
+    }
+
+    @Test
+    fun aMessageWithAReferenceHasNoNearbyFingerprints() {
+        val msg = SmsMessage("VM-ICICIB", "ICICI Bank Acct XX123 debited for Rs 1,000.00 on 05-Jan-25; ABC credited. UPI:123456789012", SMS_TIME)
+        val t = txn(msg.sender, msg.body, msg.timestampMillis)
+        assertTrue(t.referenceNo != null)
+        assertTrue(SmsParser.nearbyFingerprints(t, msg).isEmpty())
+    }
 }
