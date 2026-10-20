@@ -39,6 +39,20 @@ class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : Corout
             }
         }
 
+        runCatching {
+            // Reminders the user scheduled: always shown, whatever the insight setting, including one that fell due
+            // while the phone was off (up to a week back).
+            for (rule in c.recurring.remindersDue(today)) {
+                val key = "r-${rule.id}-${rule.nextDay}"
+                val title = com.amitjha.kosh.repo.RecurringRepository.reminderTitle(rule.name, java.time.LocalDate.ofEpochDay(rule.nextDay), today)
+                if (title != null && key in c.featurePrefs.claimWarrantyNotifications(listOf(key))) {
+                    val amount = if (settings.hideAmounts) "" else " · ${Money.format(rule.amount, showPaise = false)}"
+                    c.notifications.reminder((rule.id.toInt() and 0xFFFF) + 1, title, "Scheduled payment$amount")
+                }
+                c.recurring.advance(rule, today)
+            }
+        }
+
         if (settings.notifyInsights) {
             runCatching {
                 // Card bills have their own reminders (and their own on/off switch), so bill insights aren't
@@ -80,17 +94,6 @@ class DailyRefreshWorker(appContext: Context, params: WorkerParameters) : Corout
                 }
             }
             runCatching {
-                // Reminder-only schedules due today.
-                for (rule in c.recurring.remindersDue(today)) {
-                    val key = "r-${rule.id}-${rule.nextDay}"
-                    if (key in c.featurePrefs.claimWarrantyNotifications(listOf(key)) && rule.nextDay == today.toEpochDay()) {
-                        val amount = if (settings.hideAmounts) "" else " · ${Money.format(rule.amount, showPaise = false)}"
-                        c.notifications.reminder((rule.id.toInt() and 0xFFFF) + 1, "${rule.name} is due today", "Scheduled payment$amount")
-                    }
-                    c.recurring.advance(rule, today)
-                }
-            }
-            runCatching {
                 val maturing = c.investments.items().filter { it.type == InvestmentType.FD && it.daysToMaturity(today) in 0L..7L }
                 val fresh = c.settings.claimNewInsightNotifications(maturing.map { "fd-maturity-${it.id}-${it.entity.maturityDate}" })
                 maturing.filter { "fd-maturity-${it.id}-${it.entity.maturityDate}" in fresh }.forEach { fd ->
@@ -121,7 +124,7 @@ class BillReminderWorker(appContext: Context, params: WorkerParameters) : Corout
         val c = (applicationContext as KoshApp).container
         val settings = c.settings.current()
         if (!settings.notifyBills) return Result.success()
-        val due = c.bills.unpaid().filter { it.daysLeft != null && (it.daysLeft in REMIND_DAYS || it.daysLeft < 0) }
+        val due = c.bills.owed().filter { it.daysLeft != null && (it.daysLeft in REMIND_DAYS || it.daysLeft < 0) }
         val keys = due.associateBy { "bill-${it.bill.id}-${if (it.daysLeft!! < 0) "overdue" else it.daysLeft}" }
         val fresh = c.settings.claimNewBillNotifications(keys.keys)
         for ((key, item) in keys) {

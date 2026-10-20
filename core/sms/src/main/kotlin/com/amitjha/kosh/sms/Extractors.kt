@@ -175,6 +175,19 @@ internal object Dates {
     }
 
     /**
+     * When a balance in the SMS held: a balance "as on" an earlier day ([found], the latest date in the text) held at
+     * that time, or at the end of that day; otherwise at the message's own time. Anchoring a "balance as on 30 Sep"
+     * at its 5 October arrival would leave out everything spent in between.
+     */
+    fun balanceTime(found: Found?, smsMillis: Long): Long {
+        if (found == null) return smsMillis
+        val smsDate = LocalDateTime.ofInstant(Instant.ofEpochMilli(smsMillis), IST).toLocalDate()
+        if (!found.date.isBefore(smsDate) || found.date.isBefore(smsDate.minusDays(400))) return smsMillis
+        val at = found.time?.let { found.date.atTime(it).atZone(IST) } ?: found.date.plusDays(1).atStartOfDay(IST).minusNanos(1_000_000)
+        return at.toInstant().toEpochMilli()
+    }
+
+    /**
      * Transaction time: the date in the SMS (with its time if given), falling back to the SMS
      * timestamp when the SMS has no plausible date or the date is the same day as the SMS.
      */

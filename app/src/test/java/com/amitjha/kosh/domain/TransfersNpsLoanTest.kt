@@ -53,14 +53,33 @@ class TransfersNpsLoanTest {
     }
 
     @Test
-    fun respectsTwoDayWindowAndPicksClosest() {
+    fun bankToBankPairsWithinHoursAndPicksClosest() {
         val debit = txn(1, hdfc.id, TxnType.EXPENSE, 2_500_00, t0)
         val far = txn(2, icici.id, TxnType.INCOME, 2_500_00, t0 + 3 * day)
         assertTrue(TransferPairing.findPairs(listOf(debit, far), accounts).isEmpty())
         val near = txn(3, icici.id, TxnType.INCOME, 2_500_00, t0 + 30 * 60 * 1000L)
-        val alsoNear = txn(4, icici.id, TxnType.INCOME, 2_500_00, t0 + day)
-        val pairs = TransferPairing.findPairs(listOf(debit, far, near, alsoNear), accounts)
+        val laterSameDay = txn(4, icici.id, TxnType.INCOME, 2_500_00, t0 + 2 * hour)
+        val pairs = TransferPairing.findPairs(listOf(debit, far, near, laterSameDay), accounts)
         assertEquals(3L, pairs.single().credit.id)
+    }
+
+    @Test
+    fun paidAFriendTodayAndPaidBackTomorrowIsNotATransfer() {
+        // ₹500 to a friend from HDFC, ₹500 from someone else into ICICI the next day: both are real.
+        val paid = txn(1, hdfc.id, TxnType.EXPENSE, 500_00, t0, "people")
+        val received = txn(2, icici.id, TxnType.INCOME, 500_00, t0 + day, "other_income")
+        assertTrue(TransferPairing.findPairs(listOf(paid, received), accounts).isEmpty())
+        // The same reference number on both sides is one transfer, even a day apart (an NEFT that took its time).
+        val pairs = TransferPairing.findPairs(listOf(paid.copy(referenceNo = "N123456789"), received.copy(referenceNo = "N123456789")), accounts)
+        assertEquals(1, pairs.size)
+        assertTrue(TransferPairing.findPairs(listOf(paid.copy(referenceNo = "N1"), received.copy(referenceNo = "N2")), accounts).isEmpty())
+    }
+
+    @Test
+    fun aCardPaymentPostedTheNextDayStillPairs() {
+        val debit = txn(1, hdfc.id, TxnType.EXPENSE, 12_000_00, t0, "bills")
+        val payment = txn(2, card.id, TxnType.INCOME, 12_000_00, t0 + day, SmsMapping.TRANSFER_CATEGORY)
+        assertEquals(1, TransferPairing.findPairs(listOf(debit, payment), accounts).size)
     }
 
     @Test
@@ -81,6 +100,31 @@ class TransfersNpsLoanTest {
         // Once the debit is a transfer, the payment is consumed and nothing pairs again.
         val (d, c) = TransferPairing.asTransfer(pairs.single(), accounts)
         assertTrue(TransferPairing.findPairs(listOf(c, d), accounts).isEmpty())
+    }
+
+    @Test
+    fun keepingAFamilyMemberApartTurnsWhatWasSentToThemBackIntoSpending() {
+        val mom = AccountEntity(id = 9, name = "Mom SBI", type = AccountType.BANK, bank = "SBI", last4 = "5555", memberId = 1)
+        val all = accounts + mom
+        val sent = txn(1, hdfc.id, TxnType.EXPENSE, 10_000_00, t0, "people")
+        val got = txn(2, mom.id, TxnType.INCOME, 10_000_00, t0 + hour, "other_income")
+        val (d, c) = TransferPairing.asTransfer(TransferPairing.findPairs(listOf(sent, got), all).single(), all)
+        assertEquals("Transfer to Mom SBI", d.note)
+        // A transfer between the user's own accounts is not touched.
+        val own = TransferPairing.asTransfer(
+            TransferPairing.findPairs(listOf(txn(3, hdfc.id, TxnType.EXPENSE, 2_000_00, t0), txn(4, icici.id, TxnType.INCOME, 2_000_00, t0)), all).single(),
+            all,
+        )
+        val undone = TransferPairing.unpairFromMember(listOf(d, c, own.first, own.second), setOf(mom.id), all).associateBy { it.id }
+        assertEquals(setOf(1L, 2L), undone.keys)
+        assertEquals("people", undone.getValue(1).categoryKey)
+        assertTrue(SmsMapping.countsInStats(undone.getValue(1)))
+        assertFalse("hers stays out of the user's totals", SmsMapping.countsInStats(undone.getValue(2)))
+        // Counting her again finds the transfer again.
+        val again = undone.getValue(2).copy(excludeFromStats = false)
+        assertEquals(1, TransferPairing.findPairs(listOf(undone.getValue(1), again), all).size)
+        // A transfer the user confirmed stays.
+        assertTrue(TransferPairing.unpairFromMember(listOf(d.copy(reviewed = true), c), setOf(mom.id), all).isEmpty())
     }
 
     @Test

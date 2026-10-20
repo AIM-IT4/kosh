@@ -155,7 +155,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
     private val lists = combine(
         c.transactions.observeUnreviewed(),
-        c.bills.observeUnpaid(),
+        c.bills.observeOwed(),
         c.insights.observeInsights(),
         c.transactions.observeRecent(8),
         c.accounts.observeAccounts(),
@@ -190,7 +190,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     private val counts = combine(uncategorised, ignoredSms) { other, ignored -> other to ignored }
 
     private val safeToSpend = combine(
-        combine(c.accounts.observeAccounts(), c.bills.observeUnpaid()) { a, b -> a to b },
+        combine(c.accounts.observeAccounts(), c.bills.observeOwed()) { a, b -> a to b },
         c.settings.settings,
         summary,
         combine(c.budgets.observeStatuses(), c.featurePrefs.settings) { b, f -> b to f },

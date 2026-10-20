@@ -141,7 +141,7 @@ fun MoreScreen(nav: NavController) {
     var backupUri by remember { mutableStateOf<Uri?>(null) }
     var restoreUri by remember { mutableStateOf<Uri?>(null) }
     var lastScan by remember { mutableStateOf<ImportResult?>(null) }
-    val unpaidBills by c.bills.observeUnpaid().collectAsState(initial = emptyList())
+    val unpaidBills by c.bills.observeOwed().collectAsState(initial = emptyList())
 
     fun show(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
     var sampleLoaded by remember { mutableStateOf(false) }

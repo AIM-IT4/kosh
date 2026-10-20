@@ -75,7 +75,7 @@ object SmsParser {
             val lim = Extract.creditLimit(body)
             if (bal != null || lim != null) {
                 return SmsParseResult.BalanceUpdate(
-                    ParsedBalance(bank, Extract.last4(body), bal, lim, msg.timestampMillis),
+                    ParsedBalance(bank, Extract.last4(body), bal, lim, Dates.balanceTime(Dates.findAll(body).maxByOrNull { it.date }, msg.timestampMillis)),
                 )
             }
             return SmsParseResult.Ignored("no transaction found")
@@ -89,6 +89,22 @@ object SmsParser {
         val isCc = creditCard || isCardSpend(lower)
         return SmsParseResult.Transaction(buildTxn(msg, body, lower, bank, type, amount, isCc, false))
     }
+
+    /**
+     * The fingerprints [txn], parsed from [msg], would have had if the phone had dated the message up to [minutes]
+     * minutes either way: the live receiver and an inbox scan can disagree by a minute or two. Only the same text
+     * matches, so a genuine second payment of the same amount (its own balance or time in the text) never does.
+     * Empty when the message has a reference number, which makes its fingerprint independent of the time.
+     */
+    fun nearbyFingerprints(txn: ParsedTransaction, msg: SmsMessage, minutes: Int = 3): List<String> =
+        if (txn.referenceNo != null) {
+            emptyList()
+        } else {
+            (-minutes..minutes).filter { it != 0 }.map { shift ->
+                val moved = msg.copy(timestampMillis = msg.timestampMillis + shift * 60_000L)
+                Fingerprint.transaction(txn.bank, txn.accountLast4, txn.amount, txn.type, null, moved)
+            }
+        }
 
     /** Spends phrased like "Spent Rs.X On HDFC Bank Card 5678 At ..." (no "debit card", no account). */
     private fun isCardSpend(lower: String): Boolean =

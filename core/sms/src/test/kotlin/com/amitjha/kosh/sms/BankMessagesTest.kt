@@ -508,4 +508,19 @@ class OtherBanksTest {
         assertEquals(2034567L, u.availableBalance)
         assertEquals("1234", u.accountLast4)
     }
+
+    @Test
+    fun aBalanceAsOnAnEarlierDayHoldsAtTheEndOfThatDay() {
+        // SMS_TIME is 5 Jan 2025 18:30 IST; the balance is as on 2 Jan.
+        val u = (SmsParser.parse(
+            sms("AD-HDFCBK", "Available balance in your HDFC Bank A/c XX1234 as on 02-01-25 is Rs.20,345.67. Thank you."),
+        ) as SmsParseResult.BalanceUpdate).update
+        val endOfJan2 = java.time.LocalDate.of(2025, 1, 3).atStartOfDay(ZONE).toInstant().toEpochMilli() - 1
+        assertEquals(endOfJan2, u.timestampMillis)
+        // As on today: the message's own time.
+        val today = (SmsParser.parse(
+            sms("AD-HDFCBK", "Available balance in your HDFC Bank A/c XX1234 as on 05-01-25 is Rs.20,345.67. Thank you."),
+        ) as SmsParseResult.BalanceUpdate).update
+        assertEquals(SMS_TIME, today.timestampMillis)
+    }
 }

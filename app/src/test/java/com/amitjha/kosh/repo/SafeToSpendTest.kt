@@ -105,4 +105,21 @@ class SafeToSpendTest {
         assertEquals(8, r.days)
         assertEquals(rupees(5_000), r.perDay)
     }
+
+    @Test
+    fun onlyCountedCardsBillsDueBeforePaydayAreSetAside() {
+        fun item(id: Long, card: Long, due: LocalDate, total: Long) = BillItem(
+            com.amitjha.kosh.data.CardBillEntity(id = id, accountId = card, totalDue = total, dueDate = due.toEpochDay(),
+                source = com.amitjha.kosh.model.TxnSource.SMS, fingerprint = "b$id"),
+            null, null,
+        )
+        val payday = LocalDate.of(2026, 10, 25)
+        val bills = listOf(
+            item(1, card = 7, due = LocalDate.of(2026, 10, 20), total = rupees(8_000)),
+            item(2, card = 8, due = LocalDate.of(2026, 10, 18), total = rupees(5_000)), // an ignored or family card
+            item(3, card = 7, due = LocalDate.of(2026, 11, 20), total = rupees(9_000)), // after payday
+        )
+        assertEquals(rupees(8_000), SafeToSpend.cardDues(bills, counted = setOf(7L), payday = payday))
+        assertEquals(rupees(13_000), SafeToSpend.cardDues(bills, counted = setOf(7L, 8L), payday = payday))
+    }
 }

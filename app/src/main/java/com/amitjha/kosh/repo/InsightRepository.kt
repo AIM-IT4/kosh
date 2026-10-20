@@ -110,7 +110,7 @@ class InsightRepository(
             today = today,
             transactions = txns,
             // Limits include what rolled over, matching the Budgets screen.
-            budgets = budgetRepo.observeStatuses().first().map { BudgetInput(it.budget.categoryKey, it.limit) },
+            budgets = budgetRepo.observeStatuses().first().map { BudgetInput(it.budget.categoryKey, it.limit, it.projection) },
             goals = planningPrefs.goalInflation.first().let { inflation -> db.goals().all().map { it.toInput(inflation[it.id] ?: 0.0) } },
             // Accounts the user hasn't confirmed have no trustworthy balance, so balance rules ignore them.
             accounts = accountList.filter { it.counted }.map { a ->
@@ -123,7 +123,11 @@ class InsightRepository(
                     creditLimit = a.account.creditLimit,
                 )
             },
-            upcomingBills = db.bills().unpaid().mapNotNull { b ->
+            // Each card's newest bill only (an older statement is already part of the newer one), and only of active
+            // cards that count: an ignored card or a family member's kept apart isn't the user's to pay.
+            upcomingBills = com.amitjha.kosh.domain.BillSettling.owedAll(
+                db.bills().unpaid().filter { b -> byId[b.accountId]?.let { it.member?.countInTotals != false } == true }, today.toEpochDay(),
+            ).mapNotNull { b ->
                 val due = b.dueDate ?: return@mapNotNull null
                 BillInput(
                     byId[b.accountId]?.account?.name ?: "Card", b.totalDue, LocalDate.ofEpochDay(due), b.paid,

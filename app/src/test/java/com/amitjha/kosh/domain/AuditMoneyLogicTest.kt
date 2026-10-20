@@ -81,19 +81,6 @@ class AuditMoneyLogicTest {
         assertNull(SmsMapping.manualTransferFor(listOf(transfer.copy(referenceNo = "sms:abc")), sbi.id, false, t0))
     }
 
-    // ---- item 2: same reference-less message seen with two timestamps is one import
-    @Test
-    fun nearDuplicateReferenceLessImport() {
-        val stored = imported(1, hdfcA.id, TxnType.EXPENSE, 500_00, t0).copy(merchant = "Amazon", fingerprint = "fp-old")
-        assertTrue(SmsMapping.isNearDuplicate(listOf(stored), hdfcA.id, TxnType.EXPENSE, 500_00, "Amazon", "fp-new"))
-        assertFalse("different merchant is a different spend",
-            SmsMapping.isNearDuplicate(listOf(stored), hdfcA.id, TxnType.EXPENSE, 500_00, "Flipkart", "fp-new"))
-        assertFalse("a row with a reference number is matched by fingerprint, not by time",
-            SmsMapping.isNearDuplicate(listOf(stored.copy(referenceNo = "123456")), hdfcA.id, TxnType.EXPENSE, 500_00, "Amazon", "fp-new"))
-        assertFalse("manual entries are not imports",
-            SmsMapping.isNearDuplicate(listOf(stored.copy(source = TxnSource.MANUAL)), hdfcA.id, TxnType.EXPENSE, 500_00, "Amazon", "fp-new"))
-    }
-
     // ---- minor: one month-label rule, consecutive and distinct, shared with the insights engine
     @Test
     fun periodLabelsAreConsecutiveForEveryStartDay() {
