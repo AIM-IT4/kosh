@@ -354,27 +354,33 @@ class SmsImporter(
     }
 
     /**
-     * Personal numbers in the last [days] days of SMS that sent a link code or bank alerts (forwards, it seems) and
-     * aren't linked to anyone: who a waiting family member might be, when their link message didn't do it.
+     * Personal numbers in the last [days] days of SMS that aren't linked to anyone and sent a link code, bank alerts
+     * (forwards, it seems), or anything at all in the last [RECENT_DAYS] days: who a waiting family member might be
+     * when their link message didn't do it (a QR scan can fill in the number but drop the text).
      */
-    suspend fun familyCandidates(days: Long = CANDIDATE_DAYS): List<FamilyCandidate> = withContext(Dispatchers.IO) {
-        if (!hasPermission()) return@withContext emptyList()
+    suspend fun familyScan(days: Long = CANDIDATE_DAYS, now: Long = System.currentTimeMillis()): FamilyScan = withContext(Dispatchers.IO) {
+        if (!hasPermission()) return@withContext FamilyScan(emptyList(), 0, null)
         val linked = db.family().all().mapNotNull { it.phone }.toSet()
-        val (messages, _) = readAll(System.currentTimeMillis() - days * DAY_MILLIS)
-        messages
+        val (messages, _) = readAll(now - days * DAY_MILLIS)
+        val recent = now - RECENT_DAYS * DAY_MILLIS
+        val candidates = messages
             .mapNotNull { m -> FamilyForward.phoneKey(m.sender)?.takeIf { it !in linked }?.let { it to m } }
             .groupBy({ it.first }, { it.second })
             .mapNotNull { (phone, msgs) ->
                 val code = msgs.firstNotNullOfOrNull { FamilyForward.linkCode(it.body) }
                 val forwards = msgs.count { m -> FamilyForward.linkCode(m.body) == null && looksTransactional(FamilyForward.unwrap(m.body).body) }
-                if (code == null && forwards == 0) {
+                val latest = msgs.maxBy { it.timestampMillis }
+                if (code == null && forwards == 0 && latest.timestampMillis < recent) {
                     null
                 } else {
-                    val latest = msgs.maxBy { it.timestampMillis }
-                    FamilyCandidate(phone, latest.sender, forwards, latest.timestampMillis, code)
+                    val snippet = latest.body.replace(Regex("\\s+"), " ").trim().take(SNIPPET_CHARS)
+                    FamilyCandidate(phone, latest.sender, forwards, latest.timestampMillis, code, snippet)
                 }
             }
-            .sortedByDescending { it.lastAt }
+            // Link codes first, then bank forwards, then whoever texted most recently.
+            .sortedWith(compareByDescending<FamilyCandidate> { it.linkCode != null }.thenByDescending { it.forwards > 0 }.thenByDescending { it.lastAt })
+            .take(MAX_CANDIDATES)
+        FamilyScan(candidates, messages.size, messages.maxOfOrNull { it.timestampMillis })
     }
 
     private suspend fun importOne(msg: SmsMessage, rules: Map<String, String>, owner: FamilyMemberEntity?, family: Family): ImportResult =
@@ -767,6 +773,10 @@ class SmsImporter(
         const val CHECKUP_DAYS = 7L
         /** Days of messages searched for family members' numbers. */
         const val CANDIDATE_DAYS = 60L
+        /** Anyone who texted in this many days is offered, whatever the text. */
+        const val RECENT_DAYS = 3L
+        private const val MAX_CANDIDATES = 8
+        private const val SNIPPET_CHARS = 48
         private const val DAY_MILLIS = 86_400_000L
         /** Re-read a little before the last scan so messages delivered late are not missed. */
         private const val OVERLAP_MILLIS = 2 * DAY_MILLIS
