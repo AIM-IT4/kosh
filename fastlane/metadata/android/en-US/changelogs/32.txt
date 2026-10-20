@@ -1,0 +1,8 @@
+- Material You: turn on Wallpaper colours in More (Android 12+)
+- Follows your phone's light or dark mode, opens without a wait
+- Material 3 bottom bar, bigger tap targets, clearer text
+- Amounts never cut off: long ones switch to ₹1.2L
+- Pull down on Home or Activity to read new SMS
+- Review: Undo after confirm or delete
+- Add a time to a transaction; the category is guessed from the name
+- Budget bars coloured by pace; Add savings on each goal
