@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -393,7 +394,7 @@ fun KoshBottomBar(current: String?, onSelect: (String) -> Unit) {
         ) {
             Tabs.forEach { tab ->
                 val selected = current == tab.route
-                androidx.compose.material3.NavigationBarItem(
+                NavigationBarItem(
                     selected = selected,
                     onClick = { if (!selected) onSelect(tab.route) },
                     icon = { Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = null) },
