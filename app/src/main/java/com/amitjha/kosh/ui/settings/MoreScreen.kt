@@ -11,6 +11,9 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
@@ -130,8 +133,56 @@ private fun Context.versionName(): String = runCatching {
     packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
 }.getOrDefault("1.0")
 
+/** The More tab: features, card bills and the way into Settings. */
 @Composable
-fun MoreScreen(nav: NavController) {
+fun MoreScreen(nav: NavController) = MoreBody(nav, MORE_HUB, PaddingValues(0.dp), bottomInset = 110.dp)
+
+/** Settings, one page per group. */
+@Composable
+fun SettingsScreen(nav: NavController) {
+    KoshScreen(title = "Settings", onBack = { nav.popBackSafely() }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp)) {
+            item(key = "pages") {
+                KoshCard(contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)) {
+                    SETTINGS_PAGES.forEach { page ->
+                        if (page.key != "updates" || com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) {
+                            ActionRow(page.title, page.subtitle, page.icon) { nav.navigate(Routes.settings(page.key)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One group of settings on its own page. */
+@Composable
+fun SettingsPageScreen(nav: NavController, key: String) {
+    val page = SETTINGS_PAGES.firstOrNull { it.key == key } ?: SETTINGS_PAGES.first()
+    KoshScreen(title = page.title, onBack = { nav.popBackSafely() }) { padding ->
+        MoreBody(nav, setOf(page.key), padding, bottomInset = 24.dp)
+    }
+}
+
+/** A page of Settings: its route key, title, a line about it and its icon. */
+data class SettingsPage(val key: String, val title: String, val subtitle: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
+
+private val SETTINGS_PAGES = listOf(
+    SettingsPage("appearance", "Appearance & privacy", "Theme, colours, language, app lock", Icons.Outlined.Palette),
+    SettingsPage("sms", "Bank SMS", "Automatic import, inbox scan, check-up", Icons.Outlined.Sms),
+    SettingsPage("notif", "Notifications", "New transactions, bills, insights", Icons.Outlined.Notifications),
+    SettingsPage("period", "Budget month", "When your month starts, payday", Icons.Outlined.CalendarMonth),
+    SettingsPage("tools", "Export, widgets & PIN", "Spreadsheets, home-screen widget, a second PIN", Icons.Outlined.Build),
+    SettingsPage("data", "Your data", "Backups, restore, statements, sample data", Icons.Outlined.Backup),
+    SettingsPage("updates", "Updates", "New versions of Kosh", Icons.Outlined.SystemUpdate),
+)
+
+/** What the More tab shows; the rest lives in Settings. */
+private val MORE_HUB = setOf("head", "bills", "shortcuts", "money", "settings", "about")
+
+/** The More tab and every Settings page share one body (its dialogs, file pickers and snackbar); [sections] picks what shows. */
+@Composable
+private fun MoreBody(nav: NavController, sections: Set<String>, padding: PaddingValues, bottomInset: androidx.compose.ui.unit.Dp) {
     val c = LocalContainer.current
     val s = LocalSettings.current
     val context = LocalContext.current
@@ -170,240 +221,271 @@ fun MoreScreen(nav: NavController) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp)) {
-            item(key = "head") {
-                Row(Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    KoshLogo(size = 44.dp)
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text("Kosh", style = KoshText.screenTitle)
-                        Text("Your money, on your phone", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
-                    }
-                }
-            }
-            item(key = "bills") {
-                val due = unpaidBills.size
-                Section("Credit cards") {
-                    ActionRow(
-                        if (due > 0) "Card bills · $due due" else "Card bills",
-                        if (due > 0) "From your card SMS — tap to see amounts and due dates" else "Bills from your card SMS appear here",
-                        Icons.Outlined.CreditCard,
-                    ) { nav.navigate(Routes.BILLS) }
-                }
-            }
-            item(key = "shortcuts") {
-                Section("Manage") {
-                    ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Outlined.AccountBalance) { nav.navigate(Routes.ACCOUNTS) }
-                    ActionRow("Review imports", "Confirm transactions imported from SMS", Icons.Outlined.Inbox) { nav.navigate(Routes.REVIEW) }
-                    ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Outlined.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
-                    ActionRow("Tax planner", "Old vs new regime, 80C, 80D, HRA and more", Icons.Outlined.Calculate) { nav.navigate(Routes.TAX) }
-                    ActionRow("Categories", null, Icons.Outlined.Category) { nav.navigate(Routes.CATEGORIES) }
-                    ActionRow("Family members", "Track their bank SMS here, no app on their phone", Icons.Outlined.FamilyRestroom) {
-                        nav.navigate(Routes.FAMILY)
-                    }
-                    if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) {
-                        ActionRow("Household sync", "Share with your partner's phone over Wi-Fi, encrypted", Icons.Outlined.Groups) {
-                            nav.navigate(Routes.HOUSEHOLD)
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = bottomInset)) {
+            if ("head" in sections) {
+                item(key = "head") {
+                    Row(Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        KoshLogo(size = 44.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Kosh", style = KoshText.screenTitle)
+                            Text("Your money, on your phone", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
                         }
                     }
                 }
             }
-            item(key = "money") {
-                Section("Money tools") {
-                    ActionRow("Recurring & subscriptions", "Upcoming payments, AutoPay mandates, price changes", Icons.Outlined.Autorenew) {
-                        nav.navigate(Routes.RECURRING)
+            if ("bills" in sections) {
+                item(key = "bills") {
+                    val due = unpaidBills.size
+                    Section("Credit cards") {
+                        ActionRow(
+                            if (due > 0) "Card bills · $due due" else "Card bills",
+                            if (due > 0) "From your card SMS — tap to see amounts and due dates" else "Bills from your card SMS appear here",
+                            Icons.Outlined.CreditCard,
+                        ) { nav.navigate(Routes.BILLS) }
                     }
-                    ActionRow("Loans & EMIs", "What's left, prepayment savings, tax split", Icons.Outlined.RealEstateAgent) { nav.navigate(Routes.LOANS) }
-                    ActionRow("Lent & borrowed", "Money between you and friends or family", Icons.Outlined.Handshake) { nav.navigate(Routes.DEBTS) }
-                    ActionRow("Reports", "Monthly and yearly PDF, year in review, calendar", Icons.Outlined.Assessment) { nav.navigate(Routes.REPORTS) }
-                    ActionRow("Warranties", "Receipts with a warranty end date", Icons.Outlined.VerifiedUser) { nav.navigate(Routes.WARRANTIES) }
                 }
             }
-            item(key = "appearance") {
-                Section("Appearance & privacy") {
-                    var editingName by remember { mutableStateOf(false) }
-                    ActionRow("Your name", s.userName.ifBlank { "Home greets you by name" }, Icons.Outlined.Person) { editingName = true }
-                    if (editingName) {
-                        com.amitjha.kosh.ui.common.NameDialog(
-                            s.userName,
-                            onSave = { name -> scope.launch { c.settings.setUserName(name) }; editingName = false },
-                            onDismiss = { editingName = false },
-                        )
+            if ("shortcuts" in sections) {
+                item(key = "shortcuts") {
+                    Section("Manage") {
+                        ActionRow("Accounts & cards", "Balances, limits and reconciliation", Icons.Outlined.AccountBalance) { nav.navigate(Routes.ACCOUNTS) }
+                        ActionRow("Review imports", "Confirm transactions imported from SMS", Icons.Outlined.Inbox) { nav.navigate(Routes.REVIEW) }
+                        ActionRow("Insights", "Offline suggestions for your budget and goals", Icons.Outlined.AutoAwesome) { nav.navigate(Routes.INSIGHTS) }
+                        ActionRow("Tax planner", "Old vs new regime, 80C, 80D, HRA and more", Icons.Outlined.Calculate) { nav.navigate(Routes.TAX) }
+                        ActionRow("Categories", null, Icons.Outlined.Category) { nav.navigate(Routes.CATEGORIES) }
+                        ActionRow("Family members", "Track their bank SMS here, no app on their phone", Icons.Outlined.FamilyRestroom) {
+                            nav.navigate(Routes.FAMILY)
+                        }
+                        if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) {
+                            ActionRow("Household sync", "Share with your partner's phone over Wi-Fi, encrypted", Icons.Outlined.Groups) {
+                                nav.navigate(Routes.HOUSEHOLD)
+                            }
+                        }
                     }
-                    SegmentedTabs(
-                        listOf("System", "Light", "Dark"),
-                        ThemeMode.entries.indexOf(s.themeMode),
-                        onSelect = { scope.launch { c.settings.setThemeMode(ThemeMode.entries[it]) } },
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                }
+            }
+            if ("money" in sections) {
+                item(key = "money") {
+                    Section("Money tools") {
+                        ActionRow("Recurring & subscriptions", "Upcoming payments, AutoPay mandates, price changes", Icons.Outlined.Autorenew) {
+                            nav.navigate(Routes.RECURRING)
+                        }
+                        ActionRow("Loans & EMIs", "What's left, prepayment savings, tax split", Icons.Outlined.RealEstateAgent) { nav.navigate(Routes.LOANS) }
+                        ActionRow("Lent & borrowed", "Money between you and friends or family", Icons.Outlined.Handshake) { nav.navigate(Routes.DEBTS) }
+                        ActionRow("Reports", "Monthly and yearly PDF, year in review, calendar", Icons.Outlined.Assessment) { nav.navigate(Routes.REPORTS) }
+                        ActionRow("Warranties", "Receipts with a warranty end date", Icons.Outlined.VerifiedUser) { nav.navigate(Routes.WARRANTIES) }
+                    }
+                }
+            }
+            if ("appearance" in sections) {
+                item(key = "appearance") {
+                    Section("Appearance & privacy") {
+                        var editingName by remember { mutableStateOf(false) }
+                        ActionRow("Your name", s.userName.ifBlank { "Home greets you by name" }, Icons.Outlined.Person) { editingName = true }
+                        if (editingName) {
+                            com.amitjha.kosh.ui.common.NameDialog(
+                                s.userName,
+                                onSave = { name -> scope.launch { c.settings.setUserName(name) }; editingName = false },
+                                onDismiss = { editingName = false },
+                            )
+                        }
+                        SegmentedTabs(
+                            listOf("System", "Light", "Dark"),
+                            ThemeMode.entries.indexOf(s.themeMode),
+                            onSelect = { scope.launch { c.settings.setThemeMode(ThemeMode.entries[it]) } },
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            SwitchRow(
+                                "Wallpaper colours", "Material You: buttons and surfaces take your wallpaper's colours",
+                                s.dynamicColor, { v -> scope.launch { c.settings.setDynamicColor(v) } }, Icons.Outlined.Palette,
+                            )
+                        }
+                        val lang = c.featurePrefs.settings.collectAsState(initial = null).value?.language
+                        SegmentedTabs(
+                            com.amitjha.kosh.ui.common.AppLanguage.entries.map { it.title },
+                            com.amitjha.kosh.ui.common.AppLanguage.entries.indexOf(com.amitjha.kosh.ui.common.AppLanguage.of(lang)),
+                            onSelect = { i -> scope.launch { c.featurePrefs.setLanguage(com.amitjha.kosh.ui.common.AppLanguage.entries[i].code) } },
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        SwitchRow("Hide amounts", "Show ₹ •••• until you tap the eye", s.hideAmounts, { v -> scope.launch { c.settings.setHideAmounts(v) } },
+                            Icons.Outlined.VisibilityOff)
+                        val canLock = remember { BiometricGate.isAvailable(context) }
                         SwitchRow(
-                            "Wallpaper colours", "Material You: buttons and surfaces take your wallpaper's colours",
-                            s.dynamicColor, { v -> scope.launch { c.settings.setDynamicColor(v) } }, Icons.Outlined.Palette,
-                        )
-                    }
-                    val lang = c.featurePrefs.settings.collectAsState(initial = null).value?.language
-                    SegmentedTabs(
-                        com.amitjha.kosh.ui.common.AppLanguage.entries.map { it.title },
-                        com.amitjha.kosh.ui.common.AppLanguage.entries.indexOf(com.amitjha.kosh.ui.common.AppLanguage.of(lang)),
-                        onSelect = { i -> scope.launch { c.featurePrefs.setLanguage(com.amitjha.kosh.ui.common.AppLanguage.entries[i].code) } },
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                    SwitchRow("Hide amounts", "Show ₹ •••• until you tap the eye", s.hideAmounts, { v -> scope.launch { c.settings.setHideAmounts(v) } },
-                        Icons.Outlined.VisibilityOff)
-                    val canLock = remember { BiometricGate.isAvailable(context) }
-                    SwitchRow(
-                        "App lock",
-                        if (canLock) "Fingerprint, face or screen lock when opening Kosh" else "Set a screen lock on your phone to use this",
-                        s.biometricLockEnabled,
-                        { v ->
-                            val activity = context as? FragmentActivity
-                            if (!v) {
-                                scope.launch { c.settings.setBiometricLock(false) }
-                            } else if (activity != null) {
-                                scope.launch {
-                                    if (BiometricGate.authenticate(activity, title = "Turn on app lock") == UnlockResult.Success) {
-                                        // The user just proved it's them: keep this session unlocked.
-                                        com.amitjha.kosh.ui.AppLock.markUnlocked()
-                                        c.settings.setBiometricLock(true)
+                            "App lock",
+                            if (canLock) "Fingerprint, face or screen lock when opening Kosh" else "Set a screen lock on your phone to use this",
+                            s.biometricLockEnabled,
+                            { v ->
+                                val activity = context as? FragmentActivity
+                                if (!v) {
+                                    scope.launch { c.settings.setBiometricLock(false) }
+                                } else if (activity != null) {
+                                    scope.launch {
+                                        if (BiometricGate.authenticate(activity, title = "Turn on app lock") == UnlockResult.Success) {
+                                            // The user just proved it's them: keep this session unlocked.
+                                            com.amitjha.kosh.ui.AppLock.markUnlocked()
+                                            c.settings.setBiometricLock(true)
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        Icons.Outlined.Fingerprint,
-                        enabled = canLock,
-                    )
-                    SwitchRow(
-                        "Block screenshots",
-                        "Hide Kosh in the recent-apps preview and block screenshots. On by default with app lock or hidden amounts",
-                        s.blockScreenshots,
-                        { v -> scope.launch { c.settings.setBlockScreenshots(v) } },
-                        Icons.Outlined.VisibilityOff,
-                    )
-                    val encrypted = com.amitjha.kosh.data.DatabaseEncryption.status ==
-                        com.amitjha.kosh.data.DatabaseEncryption.Status.ENCRYPTED
-                    ActionRow(
-                        if (encrypted) "Database encrypted ✓" else "Database not encrypted yet",
-                        if (encrypted) {
-                            "AES-256 (SQLCipher), key kept in the phone's secure hardware keystore"
-                        } else {
-                            "Kosh will encrypt it on the next launch"
-                        },
-                        Icons.Outlined.Lock,
-                        enabled = false,
-                    ) {}
-                }
-            }
-            item(key = "sms") {
-                Section("Bank SMS") {
-                    SwitchRow("Import bank SMS automatically", "New bank messages are added as they arrive. SMS never leave your phone.",
-                        s.smsAutoImport, { v -> scope.launch { c.settings.setSmsAutoImport(v) } }, Icons.Outlined.Sms)
-                    ActionRow("Scan inbox now", "Last scan ${Fmt.ago(s.smsLastScanMillis)}", Icons.Outlined.Sync, enabled = busy == null) {
-                        requestSms()
+                            },
+                            Icons.Outlined.Fingerprint,
+                            enabled = canLock,
+                        )
+                        SwitchRow(
+                            "Block screenshots",
+                            "Hide Kosh in the recent-apps preview and block screenshots. On by default with app lock or hidden amounts",
+                            s.blockScreenshots,
+                            { v -> scope.launch { c.settings.setBlockScreenshots(v) } },
+                            Icons.Outlined.VisibilityOff,
+                        )
+                        val encrypted = com.amitjha.kosh.data.DatabaseEncryption.status ==
+                            com.amitjha.kosh.data.DatabaseEncryption.Status.ENCRYPTED
+                        ActionRow(
+                            if (encrypted) "Database encrypted ✓" else "Database not encrypted yet",
+                            if (encrypted) {
+                                "AES-256 (SQLCipher), key kept in the phone's secure hardware keystore"
+                            } else {
+                                "Kosh will encrypt it on the next launch"
+                            },
+                            Icons.Outlined.Lock,
+                            enabled = false,
+                        ) {}
                     }
-                    lastScan?.let { ScanDetails(it) }
-                    ActionRow(
-                        "SMS check-up",
-                        s.smsProblem?.let { "$it · see what was missed" } ?: "See which bank SMS from this week were counted",
-                        Icons.Outlined.FactCheck,
-                    ) { nav.navigate(Routes.SMS_CHECKUP) }
                 }
             }
-            item(key = "notif") {
-                Section("Notifications") {
-                    val ensurePermission: () -> Unit = {
-                        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-                            PackageManager.PERMISSION_GRANTED
-                        ) {
-                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            if ("sms" in sections) {
+                item(key = "sms") {
+                    Section("Bank SMS") {
+                        SwitchRow("Import bank SMS automatically", "New bank messages are added as they arrive. SMS never leave your phone.",
+                            s.smsAutoImport, { v -> scope.launch { c.settings.setSmsAutoImport(v) } }, Icons.Outlined.Sms)
+                        ActionRow("Scan inbox now", "Last scan ${Fmt.ago(s.smsLastScanMillis)}", Icons.Outlined.Sync, enabled = busy == null) {
+                            requestSms()
                         }
+                        lastScan?.let { ScanDetails(it) }
+                        ActionRow(
+                            "SMS check-up",
+                            s.smsProblem?.let { "$it · see what was missed" } ?: "See which bank SMS from this week were counted",
+                            Icons.Outlined.FactCheck,
+                        ) { nav.navigate(Routes.SMS_CHECKUP) }
                     }
-                    SwitchRow("New transactions", "When a bank SMS is imported", s.notifyTransactions, { v ->
-                        if (v) ensurePermission()
-                        scope.launch { c.settings.setNotifyTransactions(v) }
-                    }, Icons.Outlined.Notifications)
-                    SwitchRow("Bill reminders", "3 days and 1 day before the due date", s.notifyBills, { v ->
-                        if (v) ensurePermission()
-                        scope.launch { c.settings.setNotifyBills(v) }
-                    })
-                    SwitchRow("Important insights", "Overspending and maturing FDs", s.notifyInsights, { v ->
-                        if (v) ensurePermission()
-                        scope.launch { c.settings.setNotifyInsights(v) }
-                    })
                 }
             }
-            item(key = "period") {
-                Section("Budget month") {
-                    ChoiceField(
-                        "Month starts on",
-                        (1..28).toList(),
-                        s.monthStartDay,
-                        { if (it == 1) "1st (calendar month)" else com.amitjha.kosh.ui.accounts.ordinal(it) + " (e.g. salary day)" },
-                        { d -> scope.launch { c.settings.setMonthStartDay(d) } },
-                        leading = null,
-                    )
-                    PaydaySettings(s)
-                }
-            }
-            item(key = "tools") { com.amitjha.kosh.ui.tools.ToolsSection(onMessage = { show(it) }) }
-            item(key = "data") {
-                Section("Your data") {
-                    ActionRow("Back up", "Encrypted file protected by a password", Icons.Outlined.Backup, enabled = busy == null) {
-                        if (!createBackup.launchOrFalse("kosh-backup-${LocalDate.now()}.kosh")) show(NO_FILE_PICKER)
-                    }
-                    ActionRow("Automatic backups", "Daily or weekly, to a folder you choose", Icons.Outlined.Sync) { nav.navigate(Routes.AUTO_BACKUP) }
-                    ActionRow("Restore from backup", "Replaces everything on this phone", Icons.Outlined.Restore, enabled = busy == null) {
-                        if (!openBackup.launchOrFalse(arrayOf("*/*"))) show(NO_FILE_PICKER)
-                    }
-                    ActionRow("Import bank statement", "CSV from net banking, for history SMS missed", Icons.Outlined.Inbox) {
-                        nav.navigate(Routes.STATEMENT_IMPORT)
-                    }
-                    if (sampleLoaded) {
-                        ActionRow("Remove sample data", "Deletes only the demo accounts, transactions and investments", Icons.Outlined.Science, enabled = busy == null) {
-                            busy = "Removing sample data…"
-                            scope.launch {
-                                runCatching { c.demoData.removeSample() }
-                                sampleLoaded = c.demoData.isLoaded()
-                                busy = null
-                                show("Sample data removed")
+            if ("notif" in sections) {
+                item(key = "notif") {
+                    Section("Notifications") {
+                        val ensurePermission: () -> Unit = {
+                            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                                PackageManager.PERMISSION_GRANTED
+                            ) {
+                                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
                         }
-                    } else {
-                        ActionRow("Load sample data", "Explore Kosh with demo accounts and transactions", Icons.Outlined.Science, enabled = busy == null) {
-                            busy = "Loading sample data…"
-                            scope.launch {
-                                val loaded = runCatching { c.demoData.load() }.getOrDefault(false)
-                                if (loaded) {
-                                    c.investments.revalueAll(fetchNavs = false)
-                                    c.netWorth.snapshot()
+                        SwitchRow("New transactions", "When a bank SMS is imported", s.notifyTransactions, { v ->
+                            if (v) ensurePermission()
+                            scope.launch { c.settings.setNotifyTransactions(v) }
+                        }, Icons.Outlined.Notifications)
+                        SwitchRow("Bill reminders", "3 days and 1 day before the due date", s.notifyBills, { v ->
+                            if (v) ensurePermission()
+                            scope.launch { c.settings.setNotifyBills(v) }
+                        })
+                        SwitchRow("Important insights", "Overspending and maturing FDs", s.notifyInsights, { v ->
+                            if (v) ensurePermission()
+                            scope.launch { c.settings.setNotifyInsights(v) }
+                        })
+                    }
+                }
+            }
+            if ("period" in sections) {
+                item(key = "period") {
+                    Section("Budget month") {
+                        ChoiceField(
+                            "Month starts on",
+                            (1..28).toList(),
+                            s.monthStartDay,
+                            { if (it == 1) "1st (calendar month)" else com.amitjha.kosh.ui.accounts.ordinal(it) + " (e.g. salary day)" },
+                            { d -> scope.launch { c.settings.setMonthStartDay(d) } },
+                            leading = null,
+                        )
+                        PaydaySettings(s)
+                    }
+                }
+            }
+            if ("tools" in sections) {
+                item(key = "tools") { com.amitjha.kosh.ui.tools.ToolsSection(onMessage = { show(it) }) }
+            }
+            if ("data" in sections) {
+                item(key = "data") {
+                    Section("Your data") {
+                        ActionRow("Back up", "Encrypted file protected by a password", Icons.Outlined.Backup, enabled = busy == null) {
+                            if (!createBackup.launchOrFalse("kosh-backup-${LocalDate.now()}.kosh")) show(NO_FILE_PICKER)
+                        }
+                        ActionRow("Automatic backups", "Daily or weekly, to a folder you choose", Icons.Outlined.Sync) { nav.navigate(Routes.AUTO_BACKUP) }
+                        ActionRow("Restore from backup", "Replaces everything on this phone", Icons.Outlined.Restore, enabled = busy == null) {
+                            if (!openBackup.launchOrFalse(arrayOf("*/*"))) show(NO_FILE_PICKER)
+                        }
+                        ActionRow("Import bank statement", "CSV from net banking, for history SMS missed", Icons.Outlined.Inbox) {
+                            nav.navigate(Routes.STATEMENT_IMPORT)
+                        }
+                        if (sampleLoaded) {
+                            ActionRow("Remove sample data", "Deletes only the demo accounts, transactions and investments", Icons.Outlined.Science, enabled = busy == null) {
+                                busy = "Removing sample data…"
+                                scope.launch {
+                                    runCatching { c.demoData.removeSample() }
+                                    sampleLoaded = c.demoData.isLoaded()
+                                    busy = null
+                                    show("Sample data removed")
                                 }
-                                sampleLoaded = c.demoData.isLoaded()
-                                busy = null
-                                show(if (loaded) "Sample data loaded" else "Sample data is already loaded")
+                            }
+                        } else {
+                            ActionRow("Load sample data", "Explore Kosh with demo accounts and transactions", Icons.Outlined.Science, enabled = busy == null) {
+                                busy = "Loading sample data…"
+                                scope.launch {
+                                    val loaded = runCatching { c.demoData.load() }.getOrDefault(false)
+                                    if (loaded) {
+                                        c.investments.revalueAll(fetchNavs = false)
+                                        c.netWorth.snapshot()
+                                    }
+                                    sampleLoaded = c.demoData.isLoaded()
+                                    busy = null
+                                    show(if (loaded) "Sample data loaded" else "Sample data is already loaded")
+                                }
                             }
                         }
+                        ActionRow("Erase all data", "Deletes accounts, transactions and investments", Icons.Outlined.DeleteForever) { confirmErase = true }
                     }
-                    ActionRow("Erase all data", "Deletes accounts, transactions and investments", Icons.Outlined.DeleteForever) { confirmErase = true }
                 }
             }
-            if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) {
+            if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED && "updates" in sections) {
                 item(key = "updates") { UpdatesSection(onMessage = { show(it) }) }
             }
-            item(key = "about") {
-                Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Kosh ${context.versionName()}", style = MaterialTheme.typography.labelLarge, color = KoshTheme.colors.subtleText)
-                    Text(
-                        if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) "Everything stays on this device."
-                        else "Offline edition · no internet access at all",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = KoshTheme.colors.subtleText,
-                    )
-                    Text("Free & open source · GPL-3.0", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.subtleText)
+            if ("settings" in sections) {
+                item(key = "settings") {
+                    Section("Settings") {
+                        ActionRow("Settings", "Theme, SMS, notifications, budget month, backups", Icons.Outlined.Settings) {
+                            nav.navigate(Routes.SETTINGS)
+                        }
+                    }
+                }
+            }
+            if ("about" in sections) {
+                item(key = "about") {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Kosh ${context.versionName()}", style = MaterialTheme.typography.labelLarge, color = KoshTheme.colors.subtleText)
+                        Text(
+                            if (com.amitjha.kosh.BuildConfig.NETWORK_ENABLED) "Everything stays on this device."
+                            else "Offline edition · no internet access at all",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = KoshTheme.colors.subtleText,
+                        )
+                        Text("Free & open source · GPL-3.0", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.subtleText)
+                    }
                 }
             }
         }
         busy?.let {
-            KoshCard(Modifier.align(Alignment.BottomCenter).padding(bottom = 110.dp, start = 20.dp, end = 20.dp)) {
+            KoshCard(Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset, start = 20.dp, end = 20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(12.dp))
@@ -411,7 +493,7 @@ fun MoreScreen(nav: NavController) {
                 }
             }
         }
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp))
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset))
     }
 
     if (confirmErase) {

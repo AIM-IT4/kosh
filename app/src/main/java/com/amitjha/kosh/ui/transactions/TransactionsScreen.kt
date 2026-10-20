@@ -2,6 +2,7 @@ package com.amitjha.kosh.ui.transactions
 
 import com.amitjha.kosh.designsystem.components.KoshCard
 import com.amitjha.kosh.designsystem.theme.KoshText
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -282,7 +283,7 @@ fun TransactionsScreen(nav: NavController) {
 }
 
 /** Stateless Activity screen; used by the app and by screenshot tests. */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun TransactionsContent(
     state: TxnListState,
@@ -302,18 +303,39 @@ fun TransactionsContent(
     onRefresh: () -> Unit = {},
 ) {
     val canGoNext = !state.period.endExclusive.isAfter(Time.today())
-    androidx.compose.material3.pulltorefresh.PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+    // Pinned above the list: the title with its month, and the search box, so a search is always a tap away.
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Activity", style = KoshText.screenTitle, modifier = Modifier.weight(1f))
+            MonthSwitcher(
+                label = Fmt.periodLabel(state.period),
+                onPrevious = onPrevious,
+                onNext = onNext,
+                canGoNext = canGoNext,
+            )
+        }
+        KoshTextField(
+            value = state.query,
+            onValue = onQuery,
+            label = "Search merchant, note, category or #tag",
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            leading = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            trailing = if (state.query.isEmpty()) null else {
+                {
+                    androidx.compose.material3.IconButton(onClick = { onQuery("") }) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                    }
+                }
+            },
+        )
+    }
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.weight(1f).fillMaxWidth(),
+    ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
             item(key = "head") {
-                Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp)) {
-                    Text("Activity", style = KoshText.screenTitle)
-                    MonthSwitcher(
-                        label = Fmt.periodLabel(state.period),
-                        onPrevious = onPrevious,
-                        onNext = onNext,
-                        canGoNext = canGoNext,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
+                Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp)) {
                     KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
                         if (state.narrowed) {
                             Text(
@@ -329,20 +351,6 @@ fun TransactionsContent(
                             StatChip("Net", state.income - state.expense, Modifier.weight(1f), hidden = hidden)
                         }
                     }
-                    KoshTextField(
-                        value = state.query,
-                        onValue = onQuery,
-                        label = "Search merchant, note, category or #tag",
-                        modifier = Modifier.padding(top = 12.dp),
-                        leading = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                        trailing = if (state.query.isEmpty()) null else {
-                            {
-                                androidx.compose.material3.IconButton(onClick = { onQuery("") }) {
-                                    Icon(Icons.Outlined.Close, contentDescription = "Clear search")
-                                }
-                            }
-                        },
-                    )
                 }
             }
             item(key = "filters") {
@@ -376,8 +384,14 @@ fun TransactionsContent(
                 }
             }
             state.groups.forEach { g ->
-                item(key = "d" + g.date) {
-                    DateHeader(Fmt.dayLabel(g.date), Modifier.padding(horizontal = 20.dp), netPaise = g.net, hidden = hidden)
+                // Each day's header stays at the top while its transactions scroll under it.
+                stickyHeader(key = "d" + g.date) {
+                    DateHeader(
+                        Fmt.dayLabel(g.date),
+                        Modifier.background(MaterialTheme.colorScheme.background).padding(horizontal = 20.dp),
+                        netPaise = g.net,
+                        hidden = hidden,
+                    )
                 }
                 items(g.items, key = { it.txn.id }) { t ->
                     SwipeActionsRow(
@@ -401,6 +415,7 @@ fun TransactionsContent(
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp))
+    }
     }
 }
 

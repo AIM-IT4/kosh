@@ -1,9 +1,14 @@
 package com.amitjha.kosh.ui.home
 
 import com.amitjha.kosh.designsystem.components.tr
+import com.amitjha.kosh.ui.common.sharedTxnIcon
 import com.amitjha.kosh.ui.common.NameDialog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Edit
@@ -315,11 +320,25 @@ fun HomeScreen(nav: NavController) {
         NameDialog(settings.userName, onSave = { scope.launch { container.settings.setUserName(it) }; editingName = false }, onDismiss = { editingName = false })
     }
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
+    val features by container.featurePrefs.settings.collectAsStateWithLifecycle(initialValue = null)
+    var customising by remember { mutableStateOf(false) }
+    val homeOrder = HomeLayout.order(features?.homeOrder.orEmpty())
+    val homeHidden = features?.homeHidden.orEmpty()
+    if (customising) {
+        CustomiseHomeSheet(
+            order = homeOrder,
+            hidden = homeHidden,
+            onChange = { order, hiddenCards -> scope.launch { container.featurePrefs.setHomeLayout(order.map { it.name }, hiddenCards) } },
+            onDismiss = { customising = false },
+        )
+    }
     HomeContent(
         state = state,
         hidden = hidden,
         refreshing = refreshing,
         onRefresh = { vm.refresh() },
+        layout = homeOrder.filter { it.name !in homeHidden },
+        onCustomise = { customising = true },
         userName = settings.userName,
         onEditName = { editingName = true },
         loadingDemo = loadingDemo,
@@ -357,6 +376,49 @@ fun HomeScreen(nav: NavController) {
             }
         },
     )
+}
+
+/** Show, hide and reorder Home's cards. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun CustomiseHomeSheet(
+    order: List<HomeCard>,
+    hidden: Set<String>,
+    onChange: (List<HomeCard>, Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding()) {
+            Text("Customise Home", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Turn cards off or move them up and down.",
+                style = MaterialTheme.typography.bodySmall,
+                color = KoshTheme.colors.subtleText,
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+            )
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                order.forEachIndexed { i, card ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Switch(
+                            checked = card.name !in hidden,
+                            onCheckedChange = { on -> onChange(order, if (on) hidden - card.name else hidden + card.name) },
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(tr(card.title), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { onChange(HomeLayout.move(order, card, -1), hidden) }, enabled = i > 0) {
+                            Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Move ${card.title} up")
+                        }
+                        IconButton(onClick = { onChange(HomeLayout.move(order, card, 1), hidden) }, enabled = i < order.lastIndex) {
+                            Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Move ${card.title} down")
+                        }
+                    }
+                }
+            }
+            androidx.compose.material3.TextButton(onClick = { onChange(HomeLayout.DEFAULT, emptySet()) }, modifier = Modifier.align(Alignment.End)) {
+                Text("Reset")
+            }
+        }
+    }
 }
 
 /** Shown when more imported expenses than this are in "Other" this month. */
@@ -398,6 +460,9 @@ fun HomeContent(
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     refreshing: Boolean = false,
     onRefresh: () -> Unit = {},
+    /** The cards to show, in the user's order (see [HomeLayout]). */
+    layout: List<HomeCard> = HomeLayout.DEFAULT,
+    onCustomise: () -> Unit = {},
 ) {
     val pad = Modifier.padding(horizontal = 20.dp)
     // Pull down to read new bank SMS now.
@@ -469,72 +534,26 @@ fun HomeContent(
             }
         }
 
-        state.safeToSpend?.let { safe ->
-            item(key = "safe") {
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SafeToSpendCard(safe, hidden, onSafeToSpend)
-                }
-            }
-        }
-
-        item(key = "stats") {
-            val s = state.summary
-            Column(pad.padding(top = KoshTheme.spacing.section)) {
-                SectionHeader("This month")
-                KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
-                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                        StatChip("Income", s?.income ?: 0, Modifier.weight(1f), type = TxnType.INCOME, hidden = hidden)
-                        VerticalHairline()
-                        StatChip("Spent", s?.expense ?: 0, Modifier.weight(1f).padding(start = 14.dp), type = TxnType.EXPENSE, hidden = hidden)
-                        VerticalHairline()
-                        StatChip("Saved", s?.savings ?: 0, Modifier.weight(1f).padding(start = 14.dp), hidden = hidden)
+        // Everything waiting on the user, in one place.
+        val todo = state.ignoredSms > 0 || state.pendingAccounts > 0 || state.unreviewed > 0 ||
+            state.uncategorised > UNCATEGORISED_BANNER_MIN
+        if (todo) {
+            item(key = "todo") {
+                Column(pad.padding(top = KoshTheme.spacing.section), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionHeader("To do")
+                    if (state.unreviewed > 0) {
+                        ReviewBanner(state.unreviewed, Modifier, onReview, state.reviewFromSms, state.reviewFromEmail)
                     }
-                    moneyInNote(s?.givenBack ?: 0, s?.received ?: 0, hidden)?.let {
-                        Spacer(Modifier.height(10.dp))
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                    if (state.pendingAccounts > 0) {
+                        com.amitjha.kosh.ui.accounts.PendingAccountsBanner(state.pendingAccounts, onPendingAccounts, Modifier)
+                    }
+                    if (state.ignoredSms > 0) {
+                        com.amitjha.kosh.ui.accounts.IgnoredSmsBanner(state.ignoredSms, onIgnoredSms, onDismissIgnoredSms, Modifier)
+                    }
+                    if (state.uncategorised > UNCATEGORISED_BANNER_MIN) {
+                        com.amitjha.kosh.ui.transactions.UncategorisedBanner(state.uncategorised, onUncategorised, Modifier)
                     }
                 }
-            }
-        }
-
-        if (state.charts.hasPace) {
-            item(key = "pace") {
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Spending pace", actionLabel = "Details", onAction = onActivity)
-                    KoshCard {
-                        SpendPaceChart(
-                            current = state.charts.paceCurrent,
-                            previous = state.charts.pacePrevious,
-                            daysInMonth = state.charts.periodDays,
-                            projected = state.charts.projected,
-                            hidden = hidden,
-                        )
-                    }
-                }
-            }
-        }
-
-        if (state.ignoredSms > 0) {
-            item(key = "ignored-sms") {
-                com.amitjha.kosh.ui.accounts.IgnoredSmsBanner(state.ignoredSms, onIgnoredSms, onDismissIgnoredSms, pad.padding(top = 16.dp))
-            }
-        }
-
-        if (state.pendingAccounts > 0) {
-            item(key = "pending-accounts") {
-                com.amitjha.kosh.ui.accounts.PendingAccountsBanner(state.pendingAccounts, onPendingAccounts, pad.padding(top = 16.dp))
-            }
-        }
-
-        if (state.unreviewed > 0) {
-            item(key = "review") {
-                ReviewBanner(state.unreviewed, pad.padding(top = 16.dp), onReview, state.reviewFromSms, state.reviewFromEmail)
-            }
-        }
-
-        if (state.uncategorised > UNCATEGORISED_BANNER_MIN) {
-            item(key = "uncategorised") {
-                com.amitjha.kosh.ui.transactions.UncategorisedBanner(state.uncategorised, onUncategorised, pad.padding(top = 12.dp))
             }
         }
 
@@ -563,112 +582,200 @@ fun HomeContent(
             }
         }
 
-        if (state.bills.isNotEmpty()) {
-            item(key = "bills") {
+        val spend = state.summary?.byCategory.orEmpty()
+        // The user's own order; hidden cards are left out.
+        layout.forEach { card ->
+            when (card) {
+                HomeCard.THIS_MONTH -> item(key = "stats") {
+                val s = state.summary
                 Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Upcoming bills", actionLabel = "See all", onAction = onBills)
-                    KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-                        state.bills.take(3).forEachIndexed { i, b ->
-                            if (i > 0) ListHairline()
-                            BillListRow(b, hidden, onBills)
+                    SectionHeader("This month")
+                    KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+                        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                            StatChip("Income", s?.income ?: 0, Modifier.weight(1f), type = TxnType.INCOME, hidden = hidden)
+                            VerticalHairline()
+                            StatChip("Spent", s?.expense ?: 0, Modifier.weight(1f).padding(start = 14.dp), type = TxnType.EXPENSE, hidden = hidden)
+                            VerticalHairline()
+                            StatChip("Saved", s?.savings ?: 0, Modifier.weight(1f).padding(start = 14.dp), hidden = hidden)
+                        }
+                        moneyInNote(s?.givenBack ?: 0, s?.received ?: 0, hidden)?.let {
+                            Spacer(Modifier.height(10.dp))
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
                         }
                     }
                 }
-            }
         }
-
-        state.insights.firstOrNull()?.let { top ->
-            item(key = "insight") {
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Insight", actionLabel = if (state.insights.size > 1) "All ${state.insights.size}" else null, onAction = onInsights)
-                    InsightCard(
-                        severity = top.severity.toUi(),
-                        title = top.title,
-                        message = top.message,
-                        compact = true,
-                        onClick = onInsights,
-                    )
-                }
-            }
-        }
-
-        val spend = state.summary?.byCategory.orEmpty()
-        if (spend.isNotEmpty()) {
-            item(key = "spend") {
-                val slices = remember(spend) {
-                    spend.take(6).map { ChartSlice(it.category?.name ?: it.categoryKey, it.total, it.category.color()) }
-                }
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Where it went", actionLabel = "Details", onAction = onActivity)
-                    KoshCard {
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            DonutChart(
-                                slices = slices,
-                                size = 188.dp,
-                                thickness = 12.dp,
-                                centerLabel = "Spent",
-                                centerValue = state.summary?.expense,
-                                hidden = hidden,
-                            )
+                HomeCard.SAFE_TO_SPEND -> state.safeToSpend?.let { safe ->
+                    item(key = "safe") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SafeToSpendCard(safe, hidden, onSafeToSpend)
                         }
-                        Spacer(Modifier.height(16.dp))
-                        spend.take(6).forEachIndexed { i, c ->
-                            if (i > 0) ListHairline(start = 18.dp)
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { onCategory(c.categoryKey) }
-                                    .padding(vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(c.category.color()))
-                                Spacer(Modifier.width(10.dp))
-                                Text(c.category?.name ?: c.categoryKey, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1)
-                                Text(Fmt.pct(c.share * 100, 0), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.tertiaryText)
-                                Spacer(Modifier.width(12.dp))
-                                AmountText(c.total, style = AmountStyles.small, hidden = hidden, compact = true)
-                                Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = KoshTheme.colors.tertiaryText, modifier = Modifier.size(16.dp))
+            }
+                }
+                HomeCard.BILLS -> if (state.bills.isNotEmpty()) {
+                    item(key = "bills") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Upcoming bills", actionLabel = "See all", onAction = onBills)
+                            KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                                state.bills.take(3).forEachIndexed { i, b ->
+                                    if (i > 0) ListHairline()
+                                    BillListRow(b, hidden, onBills)
+                                }
                             }
                         }
-                    }
-                }
             }
-        }
-
-        if (state.charts.hasSixMonths) {
-            item(key = "six") {
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Income vs spending")
-                    KoshCard {
-                        BarChart(groups = state.charts.sixMonths, height = 170.dp, hidden = hidden)
-                        Spacer(Modifier.height(10.dp))
-                        Text("SAVINGS RATE", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.tertiaryText)
-                        Spacer(Modifier.height(4.dp))
-                        Row(Modifier.fillMaxWidth()) {
-                            state.charts.savingsRates.forEach { r ->
-                                Text(
-                                    r,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (r.startsWith("-")) KoshTheme.colors.alert else KoshTheme.colors.ink,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.weight(1f),
+                }
+                HomeCard.INSIGHT -> state.insights.firstOrNull()?.let { top ->
+                    item(key = "insight") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Insight", actionLabel = if (state.insights.size > 1) "All ${state.insights.size}" else null, onAction = onInsights)
+                            InsightCard(
+                                severity = top.severity.toUi(),
+                                title = top.title,
+                                message = top.message,
+                                compact = true,
+                                onClick = onInsights,
+                            )
+                        }
+            }
+                }
+                HomeCard.RECENT -> if (state.recent.isNotEmpty()) {
+                    item(key = "recent") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Recent", actionLabel = "See all", onAction = onActivity)
+                            KoshCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)) {
+                                state.recent.forEachIndexed { i, t ->
+                                    if (i > 0) ListHairline(start = 48.dp)
+                                    TxnRow(t, hidden) { onTransaction(t.txn.id) }
+                                }
+                            }
+                        }
+            }
+                }
+                HomeCard.WHERE_IT_WENT -> if (spend.isNotEmpty()) {
+                    item(key = "spend") {
+                        val slices = remember(spend) {
+                            spend.take(6).map { ChartSlice(it.category?.name ?: it.categoryKey, it.total, it.category.color()) }
+                        }
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Where it went", actionLabel = "Details", onAction = onActivity)
+                            KoshCard {
+                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    DonutChart(
+                                        slices = slices,
+                                        size = 188.dp,
+                                        thickness = 12.dp,
+                                        centerLabel = "Spent",
+                                        centerValue = state.summary?.expense,
+                                        hidden = hidden,
+                                    )
+                                }
+                                Spacer(Modifier.height(16.dp))
+                                spend.take(6).forEachIndexed { i, c ->
+                                    if (i > 0) ListHairline(start = 18.dp)
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { onCategory(c.categoryKey) }
+                                            .padding(vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Box(Modifier.size(8.dp).clip(CircleShape).background(c.category.color()))
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(c.category?.name ?: c.categoryKey, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                                        Text(Fmt.pct(c.share * 100, 0), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.tertiaryText)
+                                        Spacer(Modifier.width(12.dp))
+                                        AmountText(c.total, style = AmountStyles.small, hidden = hidden, compact = true)
+                                        Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = KoshTheme.colors.tertiaryText, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+            }
+                }
+                HomeCard.PACE -> if (state.charts.hasPace) {
+                    item(key = "pace") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Spending pace", actionLabel = "Details", onAction = onActivity)
+                            KoshCard {
+                                SpendPaceChart(
+                                    current = state.charts.paceCurrent,
+                                    previous = state.charts.pacePrevious,
+                                    daysInMonth = state.charts.periodDays,
+                                    projected = state.charts.projected,
+                                    hidden = hidden,
                                 )
                             }
                         }
-                    }
-                }
             }
-        }
-
-        if (state.charts.hasHeat) {
-            item(key = "heat") {
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Daily spending")
-                    KoshCard {
-                        SpendHeatmap(weeks = state.charts.heatWeeks, dayLabels = state.charts.heatLabels, hidden = hidden)
-                    }
+                }
+                HomeCard.NET_WORTH -> if (state.charts.netWorth.size >= 2) {
+                    item(key = "networth") {
+                        var range by remember { mutableStateOf(1) }
+                        val ranges = listOf(30, 90, 180, 365)
+                        val points = remember(state.charts.netWorth, range) { state.charts.netWorthPoints(ranges[range]) }
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Net worth trend", actionLabel = "Wealth", onAction = onWealth)
+                            KoshCard {
+                                SegmentedTabs(listOf("1M", "3M", "6M", "1Y"), range, { range = it })
+                                Spacer(Modifier.height(14.dp))
+                                if (points.size >= 2) {
+                                    LineAreaChart(points = points, height = 150.dp, hidden = hidden)
+                                } else {
+                                    Text("Not enough history for this range yet.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                                }
+                            }
+                        }
+            }
+                }
+                HomeCard.SIX_MONTHS -> if (state.charts.hasSixMonths) {
+                    item(key = "six") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Income vs spending")
+                            KoshCard {
+                                BarChart(groups = state.charts.sixMonths, height = 170.dp, hidden = hidden)
+                                Spacer(Modifier.height(10.dp))
+                                Text("SAVINGS RATE", style = MaterialTheme.typography.labelSmall, color = KoshTheme.colors.tertiaryText)
+                                Spacer(Modifier.height(4.dp))
+                                Row(Modifier.fillMaxWidth()) {
+                                    state.charts.savingsRates.forEach { r ->
+                                        Text(
+                                            r,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (r.startsWith("-")) KoshTheme.colors.alert else KoshTheme.colors.ink,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+            }
+                }
+                HomeCard.HEATMAP -> if (state.charts.hasHeat) {
+                    item(key = "heat") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Daily spending")
+                            KoshCard {
+                                SpendHeatmap(weeks = state.charts.heatWeeks, dayLabels = state.charts.heatLabels, hidden = hidden)
+                            }
+                        }
+            }
+                }
+                HomeCard.ACCOUNTS -> if (state.accounts.isNotEmpty()) {
+                    item(key = "accounts") {
+                        Column(pad.padding(top = KoshTheme.spacing.section)) {
+                            SectionHeader("Accounts", actionLabel = "Manage", onAction = onAccounts)
+                            KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                                state.accounts.forEachIndexed { i, a ->
+                                    if (i > 0) ListHairline(start = 48.dp)
+                                    AccountListRow(a, hidden) { onAccount(a.id) }
+                                }
+                            }
+                        }
+            }
                 }
             }
         }
@@ -677,50 +784,12 @@ fun HomeContent(
             item(key = "household") { householdCard(pad.padding(top = KoshTheme.spacing.section)) }
         }
 
-        if (state.charts.netWorth.size >= 2) {
-            item(key = "networth") {
-                var range by remember { mutableStateOf(1) }
-                val ranges = listOf(30, 90, 180, 365)
-                val points = remember(state.charts.netWorth, range) { state.charts.netWorthPoints(ranges[range]) }
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Net worth trend", actionLabel = "Wealth", onAction = onWealth)
-                    KoshCard {
-                        SegmentedTabs(listOf("1M", "3M", "6M", "1Y"), range, { range = it })
-                        Spacer(Modifier.height(14.dp))
-                        if (points.size >= 2) {
-                            LineAreaChart(points = points, height = 150.dp, hidden = hidden)
-                        } else {
-                            Text("Not enough history for this range yet.", style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
-                        }
-                    }
-                }
-            }
-        }
-
-        if (state.recent.isNotEmpty()) {
-            item(key = "recent") {
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Recent", actionLabel = "See all", onAction = onActivity)
-                    KoshCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)) {
-                        state.recent.forEachIndexed { i, t ->
-                            if (i > 0) ListHairline(start = 48.dp)
-                            TxnRow(t, hidden) { onTransaction(t.txn.id) }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (state.accounts.isNotEmpty()) {
-            item(key = "accounts") {
-                Column(pad.padding(top = KoshTheme.spacing.section)) {
-                    SectionHeader("Accounts", actionLabel = "Manage", onAction = onAccounts)
-                    KoshCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-                        state.accounts.forEachIndexed { i, a ->
-                            if (i > 0) ListHairline(start = 48.dp)
-                            AccountListRow(a, hidden) { onAccount(a.id) }
-                        }
-                    }
+        item(key = "customise") {
+            Box(Modifier.fillMaxWidth().padding(top = KoshTheme.spacing.section), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.TextButton(onClick = onCustomise) {
+                    Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Customise Home")
                 }
             }
         }
@@ -854,6 +923,7 @@ fun TxnRow(t: TransactionItem, hidden: Boolean, modifier: Modifier = Modifier, o
         unreviewed = !t.txn.reviewed,
         hidden = hidden,
         onClick = onClick,
+        iconModifier = Modifier.sharedTxnIcon(t.txn.id),
     )
 }
 
@@ -966,7 +1036,7 @@ private fun SalaryPlanSheet(
                 Text(
                     (info.paydayNote?.takeIf { payDay == info.payDay }?.let { "$it. " } ?: "") +
                         "On a weekend or holiday, Kosh expects salary the working day before, and follows the day it actually " +
-                        "arrives. Weekends and holidays are in More › Budget month.",
+                        "arrives. Weekends and holidays are in Settings › Budget month.",
                     style = MaterialTheme.typography.bodySmall,
                     color = KoshTheme.colors.subtleText,
                 )

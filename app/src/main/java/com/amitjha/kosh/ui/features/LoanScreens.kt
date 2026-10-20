@@ -336,6 +336,7 @@ fun LoanEditScreen(nav: NavController, id: Long?) {
 
     KoshScreen(
         title = if (id == null) "Add loan" else "Edit loan",
+        largeTitle = false,
         onBack = { nav.popBackSafely() },
         actions = { if (existing != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, "Delete") } },
     ) { pad ->

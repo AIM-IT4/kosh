@@ -1,0 +1,7 @@
+- Home: a To do list first, then this month, bills and recent; charts after
+- Customise Home: hide any card or change the order
+- Settings has its own screen, one page per group, under More
+- Large titles that shrink as you scroll
+- Activity keeps search at the top and each day's header in view
+- Predictive back, and a smoother open from a transaction to its details
+- Setup starts with your bank SMS and fills in only what's missing
