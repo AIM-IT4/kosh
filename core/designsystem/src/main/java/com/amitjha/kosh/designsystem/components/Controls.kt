@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -146,7 +147,7 @@ fun MonthSwitcher(
             .background(KoshTheme.colors.cardSurfaceHigh),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onPrevious, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = onPrevious) {
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous period")
         }
         Text(
@@ -155,7 +156,7 @@ fun MonthSwitcher(
             modifier = Modifier.widthIn(min = 84.dp),
             textAlign = TextAlign.Center,
         )
-        IconButton(onClick = onNext, enabled = canGoNext, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = onNext, enabled = canGoNext) {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = "Next period",
@@ -186,7 +187,7 @@ fun FilterChipsRow(
             FilterChip(
                 selected = isSelected,
                 onClick = { onToggle(option) },
-                label = { Text(option, maxLines = 1) },
+                label = { Text(tr(option), maxLines = 1) },
                 shape = RoundedCornerShape(50),
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = MaterialTheme.colorScheme.primary,
@@ -380,10 +381,12 @@ fun SectionHeader(
                 tr(actionLabel),
                 style = MaterialTheme.typography.labelMedium,
                 color = KoshTheme.colors.accent,
+                // A 48dp touch target around the small label.
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(8.dp))
                     .clickable(role = Role.Button, onClick = onAction)
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }
     }

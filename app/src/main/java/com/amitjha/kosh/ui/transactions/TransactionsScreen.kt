@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.SearchOff
@@ -77,7 +80,7 @@ internal const val F_SMS = "From SMS"
 private const val F_MANUAL = "Manual"
 
 /** Opens the fix-uncategorised screen rather than filtering the list. */
-internal const val F_OTHER = "Other"
+internal const val F_OTHER = "Uncategorised"
 /** Transactions marked as household (shown only when household sync exists in this edition). */
 private const val F_HOUSEHOLD = "Household"
 private val FILTERS = listOf(F_SMS, F_OTHER, F_EXPENSE, F_INCOME, F_TRANSFER, F_MANUAL) +
@@ -204,6 +207,30 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     }
     fun only(f: String) { filters.value = setOf(f) }
 
+    /** Back to everything this period: no search, type, source or category. */
+    fun clearFilters() {
+        query.value = ""
+        filters.value = emptySet()
+        category.value = null
+    }
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing
+
+    /** Pull to refresh: reads new bank SMS now instead of waiting for the next background scan. */
+    fun refresh() = viewModelScope.launch {
+        _refreshing.value = true
+        try {
+            if (c.smsImporter.hasPermission()) c.smsImporter.importInbox()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The list shows what's stored either way; the SMS check-up explains failed scans.
+        } finally {
+            _refreshing.value = false
+        }
+    }
+
     /** Deletes the transaction (remembering an imported one so a rescan doesn't bring it back) and returns it for Undo. */
     suspend fun delete(id: Long): TransactionEntity? = c.tombstones.deleteTransaction(id)
 
@@ -221,6 +248,7 @@ fun TransactionsScreen(nav: NavController) {
         ActivityFilterRequest.consumeCategory()?.let(vm::filterCategory)
     }
     val hidden = LocalHideAmounts.current
+    val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
@@ -246,10 +274,15 @@ fun TransactionsScreen(nav: NavController) {
             vm.markReviewed(t.txn.id)
         },
         onOpen = { t -> nav.navigate(Routes.txn(t.txn.id)) },
+        onClearFilters = vm::clearFilters,
+        onAdd = { nav.navigate(Routes.addTxn()) },
+        refreshing = refreshing,
+        onRefresh = { vm.refresh() },
     )
 }
 
 /** Stateless Activity screen; used by the app and by screenshot tests. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsContent(
     state: TxnListState,
@@ -263,9 +296,13 @@ fun TransactionsContent(
     onReviewed: (TransactionItem) -> Unit = {},
     onOpen: (TransactionItem) -> Unit = {},
     onFixUncategorised: () -> Unit = {},
+    onClearFilters: () -> Unit = {},
+    onAdd: () -> Unit = {},
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
 ) {
     val canGoNext = !state.period.endExclusive.isAfter(Time.today())
-    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
             item(key = "head") {
                 Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp)) {
@@ -297,6 +334,14 @@ fun TransactionsContent(
                         onValue = onQuery,
                         label = "Search merchant, note, category or #tag",
                         modifier = Modifier.padding(top = 12.dp),
+                        leading = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                        trailing = if (state.query.isEmpty()) null else {
+                            {
+                                androidx.compose.material3.IconButton(onClick = { onQuery("") }) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -317,14 +362,16 @@ fun TransactionsContent(
             if (state.loaded && state.groups.isEmpty()) {
                 item(key = "empty") {
                     EmptyState(
-                        title = if (state.query.isNotBlank() || state.filters.isNotEmpty()) "No matches" else "Nothing here yet",
-                        message = if (state.query.isNotBlank() || state.filters.isNotEmpty()) {
+                        title = if (state.narrowed) "No matches" else "Nothing here yet",
+                        message = if (state.narrowed) {
                             "Try a different search or clear the filters."
                         } else {
-                            "Transactions for ${Fmt.month(state.period.label)} will show up here. Tap + to add one."
+                            "Transactions for ${Fmt.month(state.period.label)} will show up here."
                         },
                         icon = if (state.query.isNotBlank()) Icons.Outlined.SearchOff else Icons.AutoMirrored.Outlined.ReceiptLong,
                         modifier = Modifier.padding(top = 40.dp),
+                        actionLabel = if (state.narrowed) "Clear filters" else "Add transaction",
+                        onAction = if (state.narrowed) onClearFilters else onAdd,
                     )
                 }
             }

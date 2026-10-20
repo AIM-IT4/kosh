@@ -234,6 +234,23 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
     fun dismissIgnoredNotice() = viewModelScope.launch { c.settings.dismissIgnoredNotice() }
 
+    private val _refreshing = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val refreshing: kotlinx.coroutines.flow.StateFlow<Boolean> = _refreshing
+
+    /** Pull to refresh: reads new bank SMS now instead of waiting for the next background scan. */
+    fun refresh() = viewModelScope.launch {
+        _refreshing.value = true
+        try {
+            if (c.smsImporter.hasPermission()) c.smsImporter.importInbox()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Home shows what's stored either way; the SMS check-up explains failed scans.
+        } finally {
+            _refreshing.value = false
+        }
+    }
+
     fun saveSalaryPlan(salary: Long?, savingsTarget: Long?, payDay: Int) = viewModelScope.launch {
         c.featurePrefs.setSalaryPlan(salary, savingsTarget)
         c.settings.setMonthStartDay(payDay)
@@ -297,9 +314,12 @@ fun HomeScreen(nav: NavController) {
     if (editingName) {
         NameDialog(settings.userName, onSave = { scope.launch { container.settings.setUserName(it) }; editingName = false }, onDismiss = { editingName = false })
     }
+    val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     HomeContent(
         state = state,
         hidden = hidden,
+        refreshing = refreshing,
+        onRefresh = { vm.refresh() },
         userName = settings.userName,
         onEditName = { editingName = true },
         loadingDemo = loadingDemo,
@@ -346,6 +366,7 @@ const val UNCATEGORISED_BANNER_MIN = 5
 const val IGNORED_NOTICE_DAYS = 7L
 
 /** Stateless Home screen, rendered from [HomeState]; used by the app and by screenshot tests. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun HomeContent(
     state: HomeState,
@@ -375,8 +396,12 @@ fun HomeContent(
     userName: String = "",
     onEditName: () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
 ) {
     val pad = Modifier.padding(horizontal = 20.dp)
+    // Pull down to read new bank SMS now.
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         state = listState,
@@ -699,6 +724,7 @@ fun HomeContent(
                 }
             }
         }
+    }
     }
 }
 

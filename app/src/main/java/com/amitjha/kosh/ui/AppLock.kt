@@ -18,9 +18,6 @@ object AppLock {
     private val _unlocked = MutableStateFlow(false)
     val unlocked: StateFlow<Boolean> = _unlocked.asStateFlow()
 
-    /** Whether the launch splash already played in this process. */
-    @Volatile var splashShown: Boolean = false
-
     @Volatile private var backgroundedAt: Long = 0L
 
     fun markUnlocked() {

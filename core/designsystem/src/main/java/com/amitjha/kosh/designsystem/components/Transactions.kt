@@ -1,5 +1,7 @@
 package com.amitjha.kosh.designsystem.components
 
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -200,9 +202,19 @@ fun SwipeActionsRow(
             }
         },
     )
+    // The row and the colour behind it share one shape while swiping, so the corners match.
+    val shape = RoundedCornerShape(16.dp)
+    val confirmLabel = tr("Confirm")
+    val deleteLabel = tr("Delete")
     SwipeToDismissBox(
         state = state,
-        modifier = modifier,
+        // Screen readers can't swipe: the same actions are offered as accessibility actions.
+        modifier = modifier.semantics {
+            customActions = listOfNotNull(
+                onConfirm?.let { confirm -> CustomAccessibilityAction(confirmLabel) { confirm(); true } },
+                onDelete?.let { delete -> CustomAccessibilityAction(deleteLabel) { delete(); true } },
+            )
+        },
         enableDismissFromStartToEnd = onConfirm != null,
         enableDismissFromEndToStart = onDelete != null,
         backgroundContent = {
@@ -218,7 +230,7 @@ fun SwipeActionsRow(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(shape)
                     .background(color.copy(alpha = 0.9f))
                     .padding(horizontal = 22.dp),
                 contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd,
@@ -233,8 +245,10 @@ fun SwipeActionsRow(
             }
         },
     ) {
+        // Rounded only while swiping, over the coloured background; at rest the row stays flush with the page.
+        val swiping = state.dismissDirection != SwipeToDismissBoxValue.Settled
         Row(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background),
+            Modifier.fillMaxWidth().then(if (swiping) Modifier.clip(shape) else Modifier).background(MaterialTheme.colorScheme.background),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically,
             content = content,

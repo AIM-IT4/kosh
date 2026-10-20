@@ -167,6 +167,10 @@ interface TransactionDao {
     @Query("UPDATE transactions SET reviewed = 1 WHERE reviewed = 0 AND suspicious = 0")
     suspend fun markAllReviewed()
 
+    /** Undo of a "Confirm all": puts [ids] back in the review list. */
+    @Query("UPDATE transactions SET reviewed = 0 WHERE id IN (:ids)")
+    suspend fun markUnreviewed(ids: List<Long>)
+
     @Query("UPDATE transactions SET suspicious = :suspicious WHERE id = :id")
     suspend fun setSuspicious(id: Long, suspicious: Boolean)
 

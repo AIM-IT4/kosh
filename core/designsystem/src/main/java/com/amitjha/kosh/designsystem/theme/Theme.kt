@@ -149,7 +149,8 @@ fun KoshTheme(
         darkTheme -> DarkScheme
         else -> LightScheme
     }
-    val kosh = if (darkTheme) DarkKoshColors else LightKoshColors
+    val brand = if (darkTheme) DarkKoshColors else LightKoshColors
+    val kosh = if (scheme === DarkScheme || scheme === LightScheme) brand else brand.fromScheme(scheme)
     CompositionLocalProvider(
         LocalKoshColors provides kosh,
         LocalSpacing provides Spacing(),
@@ -164,6 +165,34 @@ fun KoshTheme(
         }
     }
 }
+
+/**
+ * Kosh's semantic colours over a Material You [scheme]: surfaces, text and the accent follow the wallpaper; money
+ * colours keep their meaning (income green, alerts red, warnings amber).
+ */
+internal fun KoshColors.fromScheme(scheme: ColorScheme): KoshColors = copy(
+    expense = scheme.onSurface,
+    transfer = scheme.onSurfaceVariant,
+    gold = scheme.primary,
+    cardSurface = scheme.surfaceContainerLow,
+    cardSurfaceHigh = scheme.surfaceContainerHigh,
+    glass = scheme.surfaceContainerLow,
+    glassBorder = scheme.outlineVariant,
+    subtleText = scheme.onSurfaceVariant,
+    divider = scheme.outlineVariant,
+    shimmerBase = scheme.surfaceContainer,
+    shimmerHighlight = scheme.surfaceContainerHighest,
+    ink = scheme.primary,
+    onInk = scheme.onPrimary,
+    tertiaryText = scheme.outline,
+    hairline = scheme.outlineVariant,
+    accent = scheme.primary,
+    accentTint = scheme.primaryContainer,
+    tipTint = scheme.secondaryContainer,
+    fill = scheme.surfaceContainerHighest,
+    // White content sits on it: a deep primary by day, a lifted surface at night.
+    emphasis = if (isDark) scheme.surfaceContainerHighest else scheme.primary,
+)
 
 /** Accessors for the Kosh-specific theme values. */
 object KoshTheme {

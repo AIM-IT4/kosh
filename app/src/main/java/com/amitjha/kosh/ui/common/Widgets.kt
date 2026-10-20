@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.AlertDialog
@@ -232,6 +233,39 @@ fun DateField(
     }
 }
 
+/** A time-of-day field: opens the Material clock picker. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TimeField(
+    label: String,
+    time: java.time.LocalTime,
+    onTime: (java.time.LocalTime) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    FieldBox(label = label, modifier = modifier, onClick = { open = true }, trailing = Icons.Outlined.Schedule) {
+        Text(
+            time.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH)),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+    if (open) {
+        val state = androidx.compose.material3.rememberTimePickerState(time.hour, time.minute, is24Hour = false)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    onTime(java.time.LocalTime.of(state.hour, state.minute))
+                    open = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
+            text = { androidx.compose.material3.TimePicker(state = state) },
+        )
+    }
+}
+
 /** A single-choice picker shown as a bottom sheet list. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -297,6 +331,8 @@ fun KoshTextField(
     supporting: String? = null,
     prefix: String? = null,
     suffix: String? = null,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     OutlinedTextField(
         value = value,
@@ -308,6 +344,8 @@ fun KoshTextField(
         supportingText = supporting?.let { { Text(tr(it)) } },
         prefix = prefix?.let { { Text(it) } },
         suffix = suffix?.let { { Text(it) } },
+        leadingIcon = leading,
+        trailingIcon = trailing,
         shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = KoshTheme.colors.cardSurface,

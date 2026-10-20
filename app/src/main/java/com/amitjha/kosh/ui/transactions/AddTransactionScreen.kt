@@ -1,5 +1,7 @@
 package com.amitjha.kosh.ui.transactions
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,8 +28,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -55,6 +60,7 @@ import com.amitjha.kosh.ui.common.DateField
 import com.amitjha.kosh.ui.common.FieldBox
 import com.amitjha.kosh.ui.common.KoshScreen
 import com.amitjha.kosh.ui.common.KoshTextField
+import com.amitjha.kosh.ui.common.TimeField
 import com.amitjha.kosh.ui.common.bankEnum
 import com.amitjha.kosh.ui.common.color
 import com.amitjha.kosh.data.tombstones
@@ -162,24 +168,35 @@ fun AddTransactionContent(
 ) {
     val haptic = rememberHaptic()
 
+    // Everything typed survives rotation and the app being sent to the background.
     var existing by remember { mutableStateOf<TransactionEntity?>(null) }
-    var type by remember { mutableStateOf(initialType) }
-    val expr = remember { KeypadExpression().apply { initialAmount.forEach { press(it.toString()) } } }
-    var exprText by remember { mutableStateOf(expr.text) }
-    var categoryKey by remember { mutableStateOf(initialCategoryKey) }
-    var accountId by remember { mutableStateOf(initialAccountId) }
-    var toAccountId by remember { mutableStateOf<Long?>(null) }
-    var date by remember { mutableStateOf(Time.today()) }
-    var timeOfDay by remember { mutableStateOf(java.time.LocalTime.now()) }
-    var merchant by remember { mutableStateOf(initialMerchant) }
-    var note by remember { mutableStateOf("") }
+    var loadedEdit by rememberSaveable { mutableStateOf(false) }
+    var type by rememberSaveable { mutableStateOf(initialType) }
+    var exprText by rememberSaveable { mutableStateOf(KeypadExpression().apply { initialAmount.forEach { press(it.toString()) } }.text) }
+    val expr = remember { KeypadExpression(exprText) }
+    var categoryKey by rememberSaveable { mutableStateOf(initialCategoryKey) }
+    var categoryPicked by rememberSaveable { mutableStateOf(initialCategoryKey != null) }
+    var accountId by rememberSaveable { mutableStateOf(initialAccountId) }
+    var toAccountId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var date by rememberSaveable { mutableStateOf(Time.today()) }
+    var timeOfDay by rememberSaveable { mutableStateOf(java.time.LocalTime.now().withSecond(0).withNano(0)) }
+    var merchant by rememberSaveable { mutableStateOf(initialMerchant) }
+    var note by rememberSaveable { mutableStateOf("") }
     var pickCategory by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // The app's keypad gives way to the phone's keyboard while a text field has focus.
+    var merchantFocused by remember { mutableStateOf(false) }
+    var noteFocused by remember { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
 
     LaunchedEffect(editId) {
         if (editId != null) {
             val t = load(editId) ?: return@LaunchedEffect
             existing = t
+            // After a rotation the fields already hold the user's edits.
+            if (loadedEdit) return@LaunchedEffect
+            loadedEdit = true
+            categoryPicked = true
             type = t.type
             exprText = expr.apply { press("C"); t.amount.toRupeeInput().forEach { ch -> press(ch.toString()) } }.text
             categoryKey = t.categoryKey
@@ -203,6 +220,16 @@ fun AddTransactionContent(
     val account = refs.accounts.firstOrNull { it.id == accountId }
     val toAccount = refs.accounts.firstOrNull { it.id == toAccountId }
     val value = remember(exprText) { expr.valuePaise() }
+    // A category guessed from the merchant ("Swiggy" → Food), offered until the user picks one.
+    val suggested = remember(merchant, type, catsForType) {
+        if (type == TxnType.TRANSFER || merchant.isBlank()) null
+        else runCatching { com.amitjha.kosh.sms.CategoryGuesser.guess(merchant.trim(), "", type) }.getOrNull()
+            ?.takeIf { it != "other" && it != "other_income" }
+            ?.let { key -> catsForType.firstOrNull { it.key == key } }
+    }
+    LaunchedEffect(suggested) {
+        if (!categoryPicked && suggested != null) categoryKey = suggested.key
+    }
     val canSave = value != null && value > 0 && account != null &&
         (if (type == TxnType.TRANSFER) toAccount != null && toAccount.id != account.id else category != null)
 
@@ -236,11 +263,21 @@ fun AddTransactionContent(
                         val newType = TxnType.entries[it]
                         if (newType != type) {
                             type = newType
-                            if (category?.type != newType) categoryKey = null
+                            if (category?.type != newType) {
+                                categoryKey = null
+                                categoryPicked = false
+                            }
                         }
                     },
                 )
-                AmountInputDisplay(expression = exprText, valuePaise = value, type = type, showResult = expr.hasOperator)
+                AmountInputDisplay(
+                    expression = exprText, valuePaise = value, type = type, showResult = expr.hasOperator,
+                    // Tapping the amount brings the keypad back.
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                    ) { focus.clearFocus() },
+                )
                 if (type == TxnType.TRANSFER) {
                     AccountChoice("From", refs.accounts, account) { accountId = it.id }
                     AccountChoice("To", refs.accounts.filter { it.id != accountId }, toAccount) { toAccountId = it.id }
@@ -257,10 +294,17 @@ fun AddTransactionContent(
                         }
                         AccountChoice("Account", refs.accounts, account, Modifier.weight(1f)) { accountId = it.id }
                     }
-                    KoshTextField(merchant, { merchant = it }, if (type == TxnType.INCOME) "From (payer)" else "Paid to (merchant)")
+                    KoshTextField(
+                        merchant, { merchant = it }, if (type == TxnType.INCOME) "From (payer)" else "Paid to (merchant)",
+                        modifier = Modifier.onFocusChanged { merchantFocused = it.isFocused },
+                        supporting = suggested?.takeIf { !categoryPicked }?.let { "Category guessed from the name; tap Category to change it" },
+                    )
                 }
-                DateField("Date", date, { date = it })
-                KoshTextField(note, { note = it }, "Note (optional)")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    DateField("Date", date, { date = it }, Modifier.weight(1.4f))
+                    TimeField("Time", timeOfDay, { timeOfDay = it }, Modifier.weight(1f))
+                }
+                KoshTextField(note, { note = it }, "Note (optional)", modifier = Modifier.onFocusChanged { noteFocused = it.isFocused })
                 if (existing != null) {
                     Text(
                         existing!!.source.label(),
@@ -270,7 +314,9 @@ fun AddTransactionContent(
                 }
                 Spacer(Modifier.height(4.dp))
             }
-            NumberKeypad(onKey = { exprText = expr.press(it) }, modifier = Modifier.padding(horizontal = 12.dp))
+            AnimatedVisibility(!merchantFocused && !noteFocused) {
+                NumberKeypad(onKey = { exprText = expr.press(it) }, modifier = Modifier.padding(horizontal = 12.dp))
+            }
             PrimaryButton(
                 text = if (existing == null) "Save" else "Update",
                 icon = Icons.Outlined.Check,
@@ -305,6 +351,7 @@ fun AddTransactionContent(
                 Spacer(Modifier.height(12.dp))
                 CategoryGrid(catsForType, categoryKey, onSelect = {
                     categoryKey = it.key
+                    categoryPicked = true
                     pickCategory = false
                 })
                 Spacer(Modifier.height(16.dp))

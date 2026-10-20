@@ -33,7 +33,9 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 data class Settings(
     val onboardingDone: Boolean = false,
     val biometricLockEnabled: Boolean = false,
-    val themeMode: ThemeMode = ThemeMode.LIGHT,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** Material You: colours from the wallpaper (Android 12+). */
+    val dynamicColor: Boolean = false,
     val smsAutoImport: Boolean = true,
     val smsLastScanMillis: Long = 0L,
     /** What went wrong in the last inbox scan (see `ImportResult.problem`), and when; null after a clean scan. */
@@ -95,6 +97,7 @@ class SettingsStore(
         val onboardingDone = booleanPreferencesKey("onboarding_done")
         val biometricLock = booleanPreferencesKey("biometric_lock")
         val themeMode = stringPreferencesKey("theme_mode")
+        val dynamicColor = booleanPreferencesKey("dynamic_color")
         val smsAutoImport = booleanPreferencesKey("sms_auto_import")
         val smsLastScan = longPreferencesKey("sms_last_scan")
         val smsProblem = stringPreferencesKey("sms_problem")
@@ -131,7 +134,8 @@ class SettingsStore(
         Settings(
             onboardingDone = p[Keys.onboardingDone] ?: false,
             biometricLockEnabled = p[Keys.biometricLock] ?: false,
-            themeMode = p[Keys.themeMode]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.LIGHT,
+            themeMode = p[Keys.themeMode]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
+            dynamicColor = p[Keys.dynamicColor] ?: false,
             smsAutoImport = p[Keys.smsAutoImport] ?: true,
             smsLastScanMillis = p[Keys.smsLastScan] ?: 0L,
             smsProblem = p[Keys.smsProblem],
@@ -161,6 +165,7 @@ class SettingsStore(
     suspend fun setOnboardingDone(done: Boolean = true) = edit { it[Keys.onboardingDone] = done }
     suspend fun setBiometricLock(enabled: Boolean) = edit { it[Keys.biometricLock] = enabled }
     suspend fun setThemeMode(mode: ThemeMode) = edit { it[Keys.themeMode] = mode.name }
+    suspend fun setDynamicColor(enabled: Boolean) = edit { it[Keys.dynamicColor] = enabled }
     suspend fun setSmsAutoImport(enabled: Boolean) = edit { it[Keys.smsAutoImport] = enabled }
     suspend fun setSmsLastScan(millis: Long) = edit { it[Keys.smsLastScan] = millis }
     suspend fun dismissIgnoredNotice(at: Long = System.currentTimeMillis()) = edit { it[Keys.ignoredNoticeAt] = at }

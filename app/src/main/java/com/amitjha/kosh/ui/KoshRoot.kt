@@ -6,8 +6,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.outlined.Add
@@ -15,9 +13,7 @@ import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.sp
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
@@ -45,8 +41,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -71,7 +67,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -123,7 +118,6 @@ import com.amitjha.kosh.ui.transactions.TransactionsScreen
 import com.amitjha.kosh.ui.wealth.InvestmentDetailScreen
 import com.amitjha.kosh.ui.wealth.InvestmentEditScreen
 import com.amitjha.kosh.ui.wealth.WealthScreen
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.amitjha.kosh.ui.nav.navigateToTab
 
@@ -132,7 +126,7 @@ import com.amitjha.kosh.ui.nav.navigateToTab
 fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: () -> Unit) {
     val settingsState by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
     val settings = settingsState
-    val dark = when (settings?.themeMode ?: ThemeMode.LIGHT) {
+    val dark = when (settings?.themeMode ?: ThemeMode.SYSTEM) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
@@ -158,21 +152,13 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
     val language by remember(container) {
         container.featurePrefs.settings.map { com.amitjha.kosh.ui.common.AppLanguage.of(it.language) }
     }.collectAsState(initial = com.amitjha.kosh.ui.common.AppLanguage.ENGLISH)
-    KoshTheme(darkTheme = dark) {
+    KoshTheme(darkTheme = dark, dynamicColor = settings?.dynamicColor == true) {
         CompositionLocalProvider(
             com.amitjha.kosh.designsystem.components.LocalTranslator provides remember(language) { language.translator() },
             LocalContainer provides container,
             LocalSettings provides (settings ?: Settings()),
             LocalHideAmounts provides (settings?.hideAmounts ?: false),
         ) {
-            var splashDone by remember { mutableStateOf(AppLock.splashShown) }
-            LaunchedEffect(Unit) {
-                if (!AppLock.splashShown) {
-                    delay(700)
-                    AppLock.splashShown = true
-                }
-                splashDone = true
-            }
             val lockEnabled = settings?.biometricLockEnabled == true
             val unlocked by AppLock.unlocked.collectAsStateWithLifecycle()
 
@@ -190,7 +176,8 @@ fun KoshRoot(container: AppContainer, initialRoute: String?, onRouteConsumed: ()
             }
 
             val stage = when {
-                settings == null || !splashDone -> Stage.Splash
+                // Only while the settings load (a few frames): no artificial wait before the app.
+                settings == null -> Stage.Splash
                 !settings.onboardingDone -> Stage.Onboarding
                 else -> Stage.Main
             }
@@ -381,17 +368,13 @@ private fun MainShell(initialRoute: String?, onRouteConsumed: () -> Unit) {
 
 @Composable
 private fun AddFab(onClick: () -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
-    Box(
-        Modifier
-            .size(56.dp)
-            .clip(shape)
-            .background(KoshTheme.colors.ink)
-            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Add transaction" },
-        contentAlignment = Alignment.Center,
+    androidx.compose.material3.FloatingActionButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        containerColor = KoshTheme.colors.ink,
+        contentColor = KoshTheme.colors.onInk,
     ) {
-        Icon(Icons.Outlined.Add, contentDescription = null, tint = KoshTheme.colors.onInk, modifier = Modifier.size(24.dp))
+        Icon(Icons.Outlined.Add, contentDescription = "Add transaction")
     }
 }
 
@@ -400,47 +383,30 @@ private fun BottomBar(nav: NavHostController, current: String?) {
     KoshBottomBar(current) { route -> nav.navigateToTab(route) }
 }
 
-/** Five evenly spaced tabs on a white bar with a top hairline; the selected tab is ink with an emerald dot. */
+/** The Material 3 navigation bar: five tabs, the selected one in a tinted pill, over a top hairline. */
 @Composable
 fun KoshBottomBar(current: String?, onSelect: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(KoshTheme.colors.cardSurface)) {
+    Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(KoshTheme.colors.hairline))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(60.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        androidx.compose.material3.NavigationBar(
+            containerColor = KoshTheme.colors.cardSurface,
+            tonalElevation = 0.dp,
         ) {
             Tabs.forEach { tab ->
                 val selected = current == tab.route
-                val tint = if (selected) KoshTheme.colors.ink else KoshTheme.colors.tertiaryText
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            role = androidx.compose.ui.semantics.Role.Tab,
-                        ) {
-                            if (!selected) onSelect(tab.route)
-                        }
-                        .semantics { this.selected = selected },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.height(3.dp))
-                    Text(tr(tab.label), fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = tint)
-                    Spacer(Modifier.height(3.dp))
-                    Box(
-                        Modifier
-                            .size(4.dp)
-                            .clip(CircleShape)
-                            .background(if (selected) KoshTheme.colors.accent else Color.Transparent),
-                    )
-                }
+                NavigationBarItem(
+                    selected = selected,
+                    onClick = { if (!selected) onSelect(tab.route) },
+                    icon = { Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = null) },
+                    label = { Text(tr(tab.label), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium) },
+                    colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                        selectedIconColor = KoshTheme.colors.ink,
+                        selectedTextColor = KoshTheme.colors.ink,
+                        indicatorColor = KoshTheme.colors.accentTint,
+                        unselectedIconColor = KoshTheme.colors.tertiaryText,
+                        unselectedTextColor = KoshTheme.colors.tertiaryText,
+                    ),
+                )
             }
         }
     }
