@@ -1,0 +1,3 @@
+- Family members: anyone who texted you in the last 3 days is listed too, with the start of their message, so a QR scan that sent the number but not the code still links in one tap
+- When nothing from them is an SMS, Kosh shows it can read your SMS and explains RCS chats, which Android keeps from other apps
+- "Type their number" is right on the card
