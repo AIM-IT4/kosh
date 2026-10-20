@@ -357,7 +357,6 @@ object Hindi {
         "Show QR code" to "QR कोड दिखाएँ",
         "Link again" to "फिर से लिंक करें",
         "How to forward" to "फ़ॉरवर्ड कैसे करें",
-        "Spent this month" to "इस महीने खर्च",
         "transactions" to "लेन-देन",
         "to confirm" to "पुष्टि बाकी",
         "Waiting for their link SMS" to "उनके लिंक SMS का इंतज़ार",
@@ -378,6 +377,13 @@ object Hindi {
         "Paste an SMS" to "SMS पेस्ट करें",
         "Paste a forwarded SMS" to "फ़ॉरवर्ड किया SMS पेस्ट करें",
         "Add a forwarded bank SMS" to "फ़ॉरवर्ड किया बैंक SMS जोड़ें",
+        "Usually free for goals" to "लक्ष्यों के लिए आमतौर पर बचता है",
+        "Not enough history yet" to "अभी पर्याप्त इतिहास नहीं",
+        "a month" to "हर महीने",
+        "How Kosh works this out ›" to "Kosh इसे कैसे निकालता है ›",
+        "earned" to "कमाई",
+        "spent" to "खर्च",
+        "no data" to "डेटा नहीं",
         "Is one of them theirs? Pick who sent it. Bank SMS they forwarded before move to their accounts." to "क्या इनमें से कोई उनका है? चुनें किसने भेजा। पहले फ़ॉरवर्ड किए बैंक SMS उनके खातों में चले जाएँगे।",
     )
 }

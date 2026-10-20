@@ -150,6 +150,46 @@ fun Goals.monthsToReach(target: Paise, saved: Paise, monthly: Paise, annualRetur
     return null
 }
 
+/**
+ * One pay period's money, as goals see it: [earned] income, everything [spent], the part of that [invested] (SIPs and
+ * the like, which is saved, not spent) and refunds and cashback [givenBack].
+ */
+data class PeriodMoney(
+    val label: String,
+    val earned: Paise,
+    val spent: Paise,
+    val invested: Paise = 0,
+    val givenBack: Paise = 0,
+) {
+    /** Income less real spending: what was left to save. */
+    val free: Paise get() = earned - (spent - invested - givenBack).coerceAtLeast(0)
+
+    val hasData: Boolean get() = earned != 0L || spent != 0L
+}
+
+/** How much the user usually has free each month for goals. */
+object GoalSurplus {
+    /**
+     * The usual monthly surplus: the median of the periods' free money, so one unusual period (a big purchase, a salary
+     * credited a day early into the period before) doesn't decide it the way an average would. When the user entered
+     * their take-home [statedSalary], a period counts at least that much income: salary is what they plan with, and an
+     * SMS Kosh didn't read as salary shouldn't make every goal look out of reach. Periods with no data are skipped;
+     * null when none has any.
+     */
+    fun usual(periods: List<PeriodMoney>, statedSalary: Paise? = null): Paise? {
+        val free = adjusted(periods, statedSalary).filter { it.hasData }.map { it.free }.sorted()
+        if (free.isEmpty()) return null
+        val mid = free.size / 2
+        return if (free.size % 2 == 1) free[mid] else (free[mid - 1] + free[mid]) / 2
+    }
+
+    /** The periods as [usual] counts them: income raised to [statedSalary] where it was less. */
+    fun adjusted(periods: List<PeriodMoney>, statedSalary: Paise?): List<PeriodMoney> {
+        val salary = statedSalary?.takeIf { it > 0 } ?: return periods
+        return periods.map { if (it.hasData && it.earned < salary) it.copy(earned = salary) else it }
+    }
+}
+
 /** Where a goal stands against what the user usually has left over each month. */
 enum class GoalStanding {
     REACHED, OVERDUE,

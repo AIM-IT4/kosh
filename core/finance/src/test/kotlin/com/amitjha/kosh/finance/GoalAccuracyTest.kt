@@ -96,4 +96,32 @@ class GoalAccuracyTest {
         assertEquals("goal_7_on_track", insight.id)
         assertTrue(insight.metrics.any { it.label == "Your surplus/month" && it.value.contains("50") })
     }
+
+    @Test
+    fun oneUnusualMonthDoesntDecideWhatIsUsuallyFree() {
+        val months = listOf(
+            PeriodMoney("Aug", rupees(100_000), rupees(60_000)),
+            // A ₹1L laptop: the average would say ₹6K a month is free; the usual month leaves ₹38K.
+            PeriodMoney("Sep", rupees(100_000), rupees(160_000)),
+            PeriodMoney("Oct", rupees(100_000), rupees(62_000)),
+        )
+        assertEquals(rupees(38_000), GoalSurplus.usual(months))
+        // So a goal needing about ₹30K a month fits, where the average made it look out of reach.
+        val goal = GoalInput("Bike", rupees(30_000 * 12), 0, today.plusMonths(12), id = 1)
+        val standing = GoalTracker.assess(listOf(goal), GoalSurplus.usual(months), today).single().second.standing
+        assertTrue(standing == GoalStanding.ON_TRACK || standing == GoalStanding.TIGHT)
+        assertEquals(GoalStanding.OFF_TRACK, GoalTracker.assess(listOf(goal), rupees(6_000), today).single().second.standing)
+    }
+
+    @Test
+    fun refundsComeOffSpendingAndTheTakeHomeSalaryIsTheLeastAMonthEarns() {
+        // The salary SMS wasn't read as salary this month; ₹10K went into a SIP and ₹5K came back as a refund.
+        val month = PeriodMoney("Oct", 0, rupees(60_000), invested = rupees(10_000), givenBack = rupees(5_000))
+        assertEquals(rupees(-45_000), GoalSurplus.usual(listOf(month)))
+        assertEquals(rupees(55_000), GoalSurplus.usual(listOf(month), statedSalary = rupees(100_000)))
+        // A month that earned more than the stated salary keeps what it earned; empty months don't count.
+        val good = PeriodMoney("Sep", rupees(120_000), rupees(70_000))
+        assertEquals(rupees(50_000), GoalSurplus.usual(listOf(good, PeriodMoney("Jul", 0, 0)), statedSalary = rupees(100_000)))
+        assertEquals(null, GoalSurplus.usual(emptyList()))
+    }
 }

@@ -56,6 +56,7 @@ import com.amitjha.kosh.designsystem.components.PrimaryButton
 import com.amitjha.kosh.designsystem.components.ProgressRing
 import com.amitjha.kosh.designsystem.components.SegmentedTabs
 import com.amitjha.kosh.designsystem.components.staggeredEntrance
+import com.amitjha.kosh.designsystem.components.tr
 import com.amitjha.kosh.designsystem.theme.AmountStyles
 import com.amitjha.kosh.designsystem.theme.KoshTheme
 import com.amitjha.kosh.di.AppContainer
@@ -410,6 +411,64 @@ private fun AddBudgetSheet(
     }
 }
 
+/**
+ * What the user usually has free a month for goals, and where it comes from: each recent pay period's earned income
+ * less spending. Tap to see the periods.
+ */
+@Composable
+private fun SurplusCard(g: GoalStatus, hidden: Boolean) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    val money = { p: Long -> if (hidden) "₹ ••••" else Money.format(p, showPaise = false) }
+    KoshCard(Modifier.padding(bottom = 8.dp), onClick = { open = !open }) {
+        val usual = g.usualSurplus
+        Text(tr("Usually free for goals"), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+        Text(
+            if (usual == null) tr("Not enough history yet") else money(usual) + " " + tr("a month"),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if ((usual ?: 0) > 0) MaterialTheme.colorScheme.onSurface else KoshTheme.colors.warning,
+        )
+        Text(
+            tr(if (open) "The middle of your last 3 pay periods: income earned less what you spent (SIPs count as saved, refunds come off)." else "How Kosh works this out ›"),
+            style = MaterialTheme.typography.bodySmall,
+            color = KoshTheme.colors.subtleText,
+        )
+        if (open) {
+            val counted = com.amitjha.kosh.finance.GoalSurplus.adjusted(g.surplusPeriods, g.statedSalary)
+            counted.forEach { p ->
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text(p.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        if (p.hasData) money(p.free) else tr("no data"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (p.free >= 0) KoshTheme.colors.income else KoshTheme.colors.expense,
+                    )
+                }
+                if (p.hasData) {
+                    val spent = (p.spent - p.invested - p.givenBack).coerceAtLeast(0)
+                    Text(
+                        "${money(p.earned)} " + tr("earned") + " − ${money(spent)} " + tr("spent") +
+                            (if (p.invested > 0) " (${money(p.invested)} " + tr("invested, counted as saved") + ")" else ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = KoshTheme.colors.subtleText,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                tr(
+                    if (g.statedSalary != null) "A period counts at least your take-home salary as income (Home › Left to spend)."
+                    else "Salary missing in a period? Set your take-home salary on Home › Left to spend, and Kosh counts at least that.",
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = KoshTheme.colors.subtleText,
+            )
+        }
+    }
+}
+
 @Composable
 private fun GoalsTab(
     state: PlanningState,
@@ -432,6 +491,9 @@ private fun GoalsTab(
         return
     }
     LazyColumn(contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 110.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        state.goals.firstOrNull()?.let { first ->
+            item(key = "surplus") { SurplusCard(first, hidden) }
+        }
         items(state.goals, key = { it.goal.id }) { g ->
             val plan = g.plan
             val money = { p: Long -> if (hidden) "₹ ••••" else Money.format(p, showPaise = false) }
@@ -449,7 +511,10 @@ private fun GoalsTab(
                     if (g.standing == GoalStanding.TIGHT) {
                         append(if (plan.requiredMonthly > now) " · tight: ${money(now)} free now, more once earlier goals finish" else " · tight: ${money(overall)} free a month")
                     }
-                    if (g.standing == GoalStanding.OFF_TRACK) append(" · more than the ${money(overall)} you usually have free")
+                    if (g.standing == GoalStanding.OFF_TRACK) {
+                        val earlier = (g.usualSurplus ?: 0) > (g.capacity ?: 0)
+                        append(" · more than the ${money(overall)} you usually have free" + if (earlier) " after earlier goals" else "")
+                    }
                 }
             }
             Column {

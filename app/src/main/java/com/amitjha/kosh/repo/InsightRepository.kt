@@ -38,6 +38,8 @@ class InsightRepository(
     private val settings: SettingsStore,
     private val budgetRepo: BudgetRepository,
     private val planningPrefs: com.amitjha.kosh.data.prefs.PlanningPrefs,
+    /** The take-home salary the user entered, which goals count on as income. */
+    private val featurePrefs: com.amitjha.kosh.data.prefs.FeaturePrefs? = null,
 ) {
 
     /** Insights the user has not dismissed, most important first. */
@@ -55,6 +57,7 @@ class InsightRepository(
             // What insights read from settings; scan times and other writes don't need a rebuild.
             settings.settings.map { Triple(it.payCycle, it.dismissedInsightIds, it.monthStartDay) }.distinctUntilChanged(),
             planningPrefs.goalInflation,
+            featurePrefs?.settings?.map { it.salary }?.distinctUntilChanged() ?: kotlinx.coroutines.flow.flowOf(null),
             ),
         ) { values -> values.size }
             .debounce(300)
@@ -136,6 +139,7 @@ class InsightRepository(
             categoryNames = db.categories().all().associate { it.key to it.name },
             monthStartDay = monthStartDay,
             payCycle = s.payCycle,
+            monthlyIncomeHint = featurePrefs?.settings?.first()?.salary,
         )
     }
 }
