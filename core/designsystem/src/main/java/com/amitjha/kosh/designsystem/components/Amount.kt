@@ -7,7 +7,11 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
@@ -15,6 +19,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.isSpecified
 import com.amitjha.kosh.designsystem.theme.AmountStyles
 import com.amitjha.kosh.designsystem.theme.KoshTheme
 import com.amitjha.kosh.designsystem.theme.TabularFigures
@@ -61,22 +66,38 @@ fun AmountText(
         else -> LocalContentColor.current
     }
     val shown: Paise = if (animate) animatedPaise(paise) else paise
+    // An amount is never cut to "₹1,23,4…": when the full figure doesn't fit it switches to ₹1.23L, and if even that
+    // doesn't fit, the text shrinks a little.
+    var fallback by remember(paise, compact, showPaise) { mutableStateOf(false) }
+    var scale by remember(paise, compact, showPaise) { mutableFloatStateOf(1f) }
     val text = when {
         hidden -> HiddenAmount
-        else -> formatAmount(shown, type, compact, showPaise)
+        else -> formatAmount(shown, type, compact || fallback, showPaise)
     }
+    val base = style.copy(fontFeatureSettings = TabularFigures)
     Text(
         text = text,
         modifier = modifier.semantics {
             contentDescription = if (hidden) "Amount hidden" else formatAmount(paise, type, false, true)
         },
-        style = style.copy(fontFeatureSettings = TabularFigures),
+        style = if (scale < 1f && base.fontSize.isSpecified) base.copy(fontSize = base.fontSize * scale) else base,
         color = resolvedColor,
         maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
         textAlign = textAlign,
+        onTextLayout = { layout ->
+            if (layout.hasVisualOverflow) {
+                when {
+                    !compact && !fallback && !hidden -> fallback = true
+                    scale > MIN_AMOUNT_SCALE -> scale -= 0.1f
+                }
+            }
+        },
     )
 }
+
+private const val MIN_AMOUNT_SCALE = 0.65f
 
 /** Formats an amount the way [AmountText] shows it. */
 fun formatAmount(paise: Paise, type: TxnType? = null, compact: Boolean = false, showPaise: Boolean = false): String {

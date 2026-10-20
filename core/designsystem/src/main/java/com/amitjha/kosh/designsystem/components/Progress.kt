@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -111,11 +112,12 @@ fun BudgetProgressBar(
     val colors = KoshTheme.colors
     val fraction = if (limit > 0) spent.toFloat() / limit else 0f
     val f = animatedFraction(fraction.coerceIn(0f, 1f))
-    // A budget on course to overshoot is a warning even while little has been spent yet.
+    // Coloured by pace, not by how much is used: 85% spent on the 28th is fine, 40% spent on the 5th isn't.
     val willExceed = projected != null && limit > 0 && projected > limit
     val color = when {
         fraction >= 1f -> colors.alert
-        fraction >= 0.8f || willExceed -> colors.warning
+        willExceed -> colors.warning
+        projected == null && fraction >= 0.8f -> colors.warning
         else -> colors.income
     }
     val track = colors.cardSurfaceHigh
@@ -153,6 +155,8 @@ fun GoalCard(
     onTrack: Boolean = true,
     hidden: Boolean = false,
     onClick: (() -> Unit)? = null,
+    /** Shown inside the card, under the hint (e.g. "Add savings"); null for none. */
+    onAddSavings: (() -> Unit)? = null,
 ) {
     val progress = if (target > 0) saved.toFloat() / target else 0f
     KoshCard(modifier = modifier, onClick = onClick) {
@@ -181,6 +185,21 @@ fun GoalCard(
                         maxLines = 3,
                     )
                 }
+            }
+        }
+        if (onAddSavings != null) {
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.material3.FilledTonalButton(
+                onClick = onAddSavings,
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                    containerColor = KoshTheme.colors.accentTint,
+                    contentColor = KoshTheme.colors.accent,
+                ),
+            ) {
+                Icon(androidx.compose.material.icons.Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(tr("Add savings"), style = MaterialTheme.typography.labelLarge)
             }
         }
     }

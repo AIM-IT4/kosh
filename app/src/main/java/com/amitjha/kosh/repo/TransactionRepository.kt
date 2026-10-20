@@ -232,6 +232,8 @@ class TransactionRepository(private val db: KoshDatabase) {
 
     suspend fun markAllReviewed() = dao.markAllReviewed()
 
+    suspend fun markUnreviewed(ids: List<Long>) { if (ids.isNotEmpty()) dao.markUnreviewed(ids) }
+
     private fun withRefs(source: Flow<List<TransactionEntity>>): Flow<List<TransactionItem>> =
         combine(source, db.categories().observeAll(), db.accounts().observeActive()) { txns, cats, accounts ->
             val catByKey = cats.associateBy { it.key }

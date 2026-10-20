@@ -3,6 +3,7 @@ package com.amitjha.kosh.designsystem.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -89,7 +90,8 @@ fun CreditCardVisual(
             .fillMaxWidth()
             .aspectRatio(1.586f)
             .clip(RoundedCornerShape(18.dp))
-            .background(InkFace)
+            .background(KoshTheme.colors.emphasis)
+            .then(if (KoshTheme.colors.isDark) Modifier.border(1.dp, KoshTheme.colors.hairline, RoundedCornerShape(18.dp)) else Modifier)
             .semantics {
                 contentDescription = "${bank.displayName} card ${last4?.let { "ending $it" } ?: ""}"
             }

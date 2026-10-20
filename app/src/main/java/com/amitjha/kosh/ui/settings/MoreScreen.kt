@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.FamilyRestroom
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -235,6 +236,12 @@ fun MoreScreen(nav: NavController) {
                         onSelect = { scope.launch { c.settings.setThemeMode(ThemeMode.entries[it]) } },
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                        SwitchRow(
+                            "Wallpaper colours", "Material You: buttons and surfaces take your wallpaper's colours",
+                            s.dynamicColor, { v -> scope.launch { c.settings.setDynamicColor(v) } }, Icons.Outlined.Palette,
+                        )
+                    }
                     val lang = c.featurePrefs.settings.collectAsState(initial = null).value?.language
                     SegmentedTabs(
                         com.amitjha.kosh.ui.common.AppLanguage.entries.map { it.title },

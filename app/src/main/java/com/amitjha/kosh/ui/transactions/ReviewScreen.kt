@@ -19,14 +19,20 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.TaskAlt
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,9 +73,24 @@ class ReviewViewModel(private val c: AppContainer) : ViewModel() {
         ReviewState(items, cats, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReviewState())
 
-    fun confirm(id: Long) = viewModelScope.launch { c.transactions.markReviewed(id) }
-    fun confirmAll() = viewModelScope.launch { c.transactions.markAllReviewed() }
-    fun delete(id: Long) = viewModelScope.launch { c.tombstones.deleteTransaction(id) }
+    /** Confirms [t]; the returned action undoes it. */
+    suspend fun confirm(t: TransactionItem): suspend () -> Unit {
+        c.transactions.markReviewed(t.txn.id)
+        return { c.transactions.update(t.txn) }
+    }
+
+    /** Confirms everything not held for review; the returned action puts them back. */
+    suspend fun confirmAll(): Pair<Int, suspend () -> Unit> {
+        val ids = state.value.items.filter { !it.txn.suspicious }.map { it.txn.id }
+        c.transactions.markAllReviewed()
+        return ids.size to { c.transactions.markUnreviewed(ids) }
+    }
+
+    /** Deletes [id]; the returned action brings it back. */
+    suspend fun delete(id: Long): (suspend () -> Unit)? {
+        val removed = c.tombstones.deleteTransaction(id) ?: return null
+        return { c.tombstones.undoDelete(removed) }
+    }
     fun recategorise(id: Long, key: String, all: Boolean) = viewModelScope.launch { c.transactions.recategorise(id, key, all) }
     fun markTransfer(id: Long, otherAccountId: Long?) = viewModelScope.launch { c.transactions.markSelfTransfer(id, otherAccountId) }
 }
@@ -82,16 +103,30 @@ fun ReviewScreen(nav: NavController) {
     val haptic = rememberHaptic()
     var editing by remember { mutableStateOf<TransactionItem?>(null) }
     var transferring by remember { mutableStateOf<TransactionItem?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // Every action on this screen can be taken back for a few seconds.
+    fun offerUndo(message: String, undo: (suspend () -> Unit)?) {
+        if (undo == null) return
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            if (snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) undo()
+        }
+    }
 
     KoshScreen(
         title = "Review",
         subtitle = if (state.items.isEmpty()) null else "${state.items.size} imported from SMS & email",
         onBack = { nav.popBackSafely() },
+        snackbar = snackbar,
         actions = {
             if (state.items.isNotEmpty()) {
                 TextButton(onClick = {
                     haptic()
-                    vm.confirmAll()
+                    scope.launch {
+                        val (n, undo) = vm.confirmAll()
+                        if (n > 0) offerUndo(if (n == 1) "1 confirmed" else "$n confirmed", undo)
+                    }
                 }) {
                     Icon(Icons.Outlined.DoneAll, contentDescription = null)
                     Spacer(Modifier.size(6.dp))
@@ -116,7 +151,7 @@ fun ReviewScreen(nav: NavController) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(state.items, key = { it.txn.id }) { t ->
-                    KoshCard(Modifier.animateContentSize(), contentPadding = PaddingValues(12.dp)) {
+                    KoshCard(Modifier.animateItem().animateContentSize(), contentPadding = PaddingValues(12.dp)) {
                         if (t.txn.suspicious) {
                             Text(
                                 "This amount looks unusually large, maybe a reference number read as an amount. It isn't " +
@@ -137,14 +172,28 @@ fun ReviewScreen(nav: NavController) {
                             )
                         }
                         Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            ReviewAction(if (t.txn.suspicious) "Looks right" else "Confirm", Icons.Outlined.Check, KoshTheme.colors.good) {
-                                haptic()
-                                vm.confirm(t.txn.id)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            // The main action stands out as a tonal button; the rest stay quiet.
+                            FilledTonalButton(
+                                onClick = {
+                                    haptic()
+                                    scope.launch { offerUndo("Confirmed", vm.confirm(t)) }
+                                },
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = KoshTheme.colors.accentTint,
+                                    contentColor = KoshTheme.colors.good,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            ) {
+                                Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(4.dp))
+                                Text(if (t.txn.suspicious) "Looks right" else "Confirm", style = MaterialTheme.typography.labelMedium)
                             }
                             ReviewAction("Category", Icons.Outlined.Category, MaterialTheme.colorScheme.primary) { editing = t }
                             ReviewAction("Transfer", Icons.Outlined.SwapHoriz, KoshTheme.colors.transfer) { transferring = t }
-                            ReviewAction("Delete", Icons.Outlined.DeleteOutline, KoshTheme.colors.alert) { vm.delete(t.txn.id) }
+                            ReviewAction("Delete", Icons.Outlined.DeleteOutline, KoshTheme.colors.alert) {
+                                scope.launch { offerUndo("Deleted", vm.delete(t.txn.id)) }
+                            }
                         }
                     }
                 }

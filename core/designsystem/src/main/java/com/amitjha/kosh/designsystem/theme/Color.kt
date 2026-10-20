@@ -18,7 +18,7 @@ object BrandPalette {
     val Divider = Color(0xFFEFEFEC)
     val Ink = Color(0xFF111111)
     val InkSecondary = Color(0xFF6B6B6B)
-    val InkTertiary = Color(0xFFA3A3A3)
+    val InkTertiary = Color(0xFF737373)
     val Fill = Color(0xFFF1F1EE)
 
     // Neutrals (dark)
@@ -28,7 +28,7 @@ object BrandPalette {
     val NightFill = Color(0xFF1E1E21)
     val Snow = Color(0xFFF2F2F0)
     val SnowSecondary = Color(0xFF9B9B9B)
-    val SnowTertiary = Color(0xFF6A6A6A)
+    val SnowTertiary = Color(0xFF8C8C8C)
 
     // Accent
     val Emerald = Color(0xFF059669)
@@ -89,6 +89,8 @@ data class KoshColors(
     val tipTint: Color,
     /** Neutral fill for icon tiles, chips and inputs. */
     val fill: Color,
+    /** Face of emphasis cards, under white content; lifted off the background in the dark theme. */
+    val emphasis: Color = Color(0xFF111111),
 ) {
     /** Kept for compatibility; a flat surface instead of a gradient. */
     val heroGradient: Brush get() = SolidColor(cardSurface)
@@ -152,6 +154,7 @@ internal val DarkKoshColors = KoshColors(
     warningTint = Color(0xFF2A2010),
     tipTint = Color(0xFF14202F),
     fill = BrandPalette.NightFill,
+    emphasis = Color(0xFF1F1F23),
 )
 
 val LocalKoshColors = staticCompositionLocalOf { LightKoshColors }

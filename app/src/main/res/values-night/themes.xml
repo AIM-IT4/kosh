@@ -1,0 +1,8 @@
+<resources>
+    <!-- Matches the dark theme's background, so a phone in dark mode doesn't flash paper white at launch. -->
+    <style name="Theme.Kosh" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF0B0B0C</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

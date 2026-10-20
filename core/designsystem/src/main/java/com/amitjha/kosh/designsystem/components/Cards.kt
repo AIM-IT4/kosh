@@ -68,7 +68,7 @@ fun KoshCard(
 @Composable
 fun GradientCard(
     modifier: Modifier = Modifier,
-    brush: Brush = SolidColor(InkFace),
+    brush: Brush = SolidColor(KoshTheme.colors.emphasis),
     onClick: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(KoshTheme.spacing.xl),
     shape: Shape = RoundedCornerShape(20.dp),
@@ -78,6 +78,8 @@ fun GradientCard(
         modifier = modifier
             .clip(shape)
             .background(brush)
+            // On the near-black dark background the face alone has no edge.
+            .then(if (KoshTheme.colors.isDark) Modifier.border(1.dp, KoshTheme.colors.hairline, shape) else Modifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(contentPadding),
         content = content,
@@ -133,7 +135,7 @@ fun BalanceHeroCard(
                 color = KoshTheme.colors.subtleText,
             )
             if (onToggleHidden != null) {
-                IconButton(onClick = onToggleHidden, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = onToggleHidden) {
                     Icon(
                         imageVector = if (hidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                         contentDescription = if (hidden) "Show amounts" else "Hide amounts",

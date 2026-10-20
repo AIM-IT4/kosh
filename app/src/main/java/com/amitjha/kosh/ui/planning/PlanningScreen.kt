@@ -558,16 +558,10 @@ private fun GoalsTab(
                     onTrack = g.looksOnTrack,
                     hidden = hidden,
                     onClick = { onOpen(g.goal) },
+                    onAddSavings = if (plan.reached) null else { { contributing = g } },
                 )
                 state.outlooks[g.goal.id]?.let { o ->
                     GoalOutlookSection(o, g.deadline, hidden, onInflation = { pct -> onInflation(g.goal.id, pct) })
-                }
-                if (!plan.reached) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { contributing = g }) {
-                            Text("+ Add savings", color = KoshTheme.colors.accent, style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
                 }
             }
         }
