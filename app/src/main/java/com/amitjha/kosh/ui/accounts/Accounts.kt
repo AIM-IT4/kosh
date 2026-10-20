@@ -562,12 +562,13 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
                 SegmentedTabs(listOf("Bank", "Card", "Cash", "Wallet"), TYPES.indexOf(type), onSelect = { type = TYPES[it] })
                 if (members.isNotEmpty()) {
                     // A family member's account: their forwarded SMS match it, and only theirs do.
+                    val mine = -1L
                     com.amitjha.kosh.ui.common.ChoiceField(
                         "Whose account",
-                        listOf<Long?>(null) + members.map { it.id },
-                        memberId,
+                        listOf(mine) + members.map { it.id },
+                        memberId ?: mine,
                         { id -> members.firstOrNull { it.id == id }?.name ?: "Mine" },
-                        { memberId = it },
+                        { id -> memberId = id.takeIf { it != mine } },
                     )
                 }
                 if (needsBank) {
