@@ -235,6 +235,7 @@ fun AddTransactionContent(
 
     KoshScreen(
         title = if (existing == null) "New transaction" else "Edit transaction",
+        largeTitle = false,
         onBack = onBack,
         actions = {
             if (existing != null) {

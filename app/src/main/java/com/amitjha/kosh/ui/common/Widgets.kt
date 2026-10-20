@@ -1,6 +1,9 @@
 package com.amitjha.kosh.ui.common
 
 import com.amitjha.kosh.designsystem.components.tr
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -74,7 +77,12 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** Standard screen: top bar, optional snackbar host, edge-to-edge content. */
+/**
+ * Standard screen: top bar, optional snackbar host, edge-to-edge content. With [largeTitle] the title starts large
+ * and collapses into the bar as the content scrolls (Material 3's large top app bar); forms that need the room, like
+ * the amount keypad, pass false for a compact bar.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KoshScreen(
     title: String,
@@ -84,15 +92,52 @@ fun KoshScreen(
     snackbar: SnackbarHostState? = null,
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
     floating: @Composable () -> Unit = {},
+    largeTitle: Boolean = true,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    val behavior = if (largeTitle) androidx.compose.material3.TopAppBarDefaults.exitUntilCollapsedScrollBehavior() else null
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.then(
+            if (behavior != null) Modifier.nestedScroll(behavior.nestedScrollConnection) else Modifier,
+        ),
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Box(Modifier) {
+            if (behavior == null) {
                 KoshTopBar(title = title, subtitle = subtitle, onBack = onBack, actions = actions)
+            } else {
+                androidx.compose.material3.LargeTopAppBar(
+                    title = {
+                        Column {
+                            Text(tr(title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            // The subtitle belongs to the large title; the collapsed bar shows the title alone.
+                            if (subtitle != null && behavior.state.collapsedFraction < 0.5f) {
+                                Text(
+                                    tr(subtitle),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = KoshTheme.colors.subtleText,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        if (onBack != null) {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        }
+                    },
+                    actions = actions,
+                    scrollBehavior = behavior,
+                    // The root already pads for the status bar.
+                    windowInsets = WindowInsets(0, 0, 0, 0),
+                    colors = androidx.compose.material3.TopAppBarDefaults.largeTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        scrolledContainerColor = KoshTheme.colors.cardSurface,
+                    ),
+                )
             }
         },
         snackbarHost = { snackbar?.let { SnackbarHost(it, Modifier.navigationBarsPadding()) } },

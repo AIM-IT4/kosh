@@ -73,6 +73,8 @@ fun TransactionRow(
     hidden: Boolean = false,
     trailingNote: String? = null,
     onClick: (() -> Unit)? = null,
+    /** Applied to the category icon, e.g. to fly it into the detail screen. */
+    iconModifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
@@ -83,7 +85,7 @@ fun TransactionRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            CategoryIcon(iconName = iconName, color = categoryColor, size = 36.dp)
+            CategoryIcon(iconName = iconName, color = categoryColor, size = 36.dp, modifier = iconModifier)
             if (unreviewed) {
                 Box(
                     Modifier

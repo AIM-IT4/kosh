@@ -1,6 +1,7 @@
 package com.amitjha.kosh.ui.home
 
 import com.amitjha.kosh.designsystem.components.tr
+import com.amitjha.kosh.ui.common.sharedTxnIcon
 import com.amitjha.kosh.ui.common.NameDialog
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -854,6 +855,7 @@ fun TxnRow(t: TransactionItem, hidden: Boolean, modifier: Modifier = Modifier, o
         unreviewed = !t.txn.reviewed,
         hidden = hidden,
         onClick = onClick,
+        iconModifier = Modifier.sharedTxnIcon(t.txn.id),
     )
 }
 

@@ -309,6 +309,7 @@ fun RecurringEditScreen(nav: NavController, id: Long?, fromSeries: String?) {
 
     KoshScreen(
         title = if (id == null) "Schedule a payment" else "Edit schedule",
+        largeTitle = false,
         onBack = { nav.popBackSafely() },
         actions = {
             if (existing != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, "Delete") }

@@ -40,6 +40,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.amitjha.kosh.data.CategoryEntity
 import com.amitjha.kosh.data.tombstones
+import com.amitjha.kosh.ui.common.sharedTxnIcon
 import com.amitjha.kosh.ui.common.launchGuarded
 import com.amitjha.kosh.designsystem.components.AmountText
 import com.amitjha.kosh.designsystem.components.CategoryIcon
@@ -125,7 +126,7 @@ fun TransactionDetailScreen(nav: NavController, id: Long) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                CategoryIcon(item.category?.icon, item.category.color(), size = 64.dp)
+                CategoryIcon(item.category?.icon, item.category.color(), size = 64.dp, modifier = Modifier.sharedTxnIcon(t.id))
                 Spacer(Modifier.height(12.dp))
                 Text(t.merchant ?: item.category?.name ?: "Transaction", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)

@@ -549,7 +549,7 @@ fun AccountEditScreen(nav: NavController, editId: Long?, defaultCard: Boolean) {
     val needsBank = type == AccountType.BANK || isCard
     val valid = name.isNotBlank() && (last4.isEmpty() || last4.length == 4)
 
-    KoshScreen(title = if (existing == null) (if (isCard) "Add credit card" else "Add account") else "Edit account", onBack = { nav.popBackSafely() }) { padding ->
+    KoshScreen(title = if (existing == null) (if (isCard) "Add credit card" else "Add account") else "Edit account", largeTitle = false, onBack = { nav.popBackSafely() }) { padding ->
         Column(
             Modifier
                 .fillMaxSize()

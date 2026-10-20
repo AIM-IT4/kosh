@@ -131,6 +131,7 @@ fun InvestmentEditScreen(nav: NavController, editId: Long?, type: InvestmentType
     }
     val kind = item?.type ?: type ?: InvestmentType.FD
     KoshScreen(
+        largeTitle = false,
         title = (if (editId == null) "Add " else "Edit ") + when (kind) {
             InvestmentType.FD -> "fixed deposit"
             InvestmentType.EPF -> "EPF"

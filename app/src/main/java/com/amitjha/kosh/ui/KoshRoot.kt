@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui
 
+import com.amitjha.kosh.ui.common.ProvideNavScope
 import com.amitjha.kosh.designsystem.components.tr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -412,9 +413,13 @@ fun KoshBottomBar(current: String?, onSelect: (String) -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
 private fun KoshNavHost(nav: NavHostController) {
     val idArg = listOf(navArgument("id") { type = NavType.LongType })
+    // Shared elements (a transaction's icon flying into its detail screen) need one layout around every destination.
+    androidx.compose.animation.SharedTransitionLayout {
+    androidx.compose.runtime.CompositionLocalProvider(com.amitjha.kosh.ui.common.LocalSharedScope provides this) {
     NavHost(
         navController = nav,
         startDestination = Routes.HOME,
@@ -429,13 +434,13 @@ private fun KoshNavHost(nav: NavHostController) {
             else slideOutHorizontally(tween(260)) { it / 4 } + fadeOut(tween(260))
         },
     ) {
-        composable(Routes.HOME) { HomeScreen(nav) }
-        composable(Routes.TRANSACTIONS) { TransactionsScreen(nav) }
+        composable(Routes.HOME) { ProvideNavScope(this) { HomeScreen(nav) } }
+        composable(Routes.TRANSACTIONS) { ProvideNavScope(this) { TransactionsScreen(nav) } }
         composable(Routes.PLANNING) { PlanningScreen(nav) }
         composable(Routes.WEALTH) { WealthScreen(nav) }
         composable(Routes.MORE) { MoreScreen(nav) }
 
-        composable(Routes.REVIEW) { ReviewScreen(nav) }
+        composable(Routes.REVIEW) { ProvideNavScope(this) { ReviewScreen(nav) } }
         composable(
             Routes.ADD_TXN,
             arguments = listOf(
@@ -450,9 +455,9 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.EDIT_TXN, arguments = idArg) { entry ->
             AddTransactionScreen(nav, editId = entry.arguments?.getLong("id"), initialType = TxnType.EXPENSE, initialAccountId = null)
         }
-        composable(Routes.TXN_DETAIL, arguments = idArg) { entry -> TransactionDetailScreen(nav, entry.arguments!!.getLong("id")) }
+        composable(Routes.TXN_DETAIL, arguments = idArg) { entry -> ProvideNavScope(this) { TransactionDetailScreen(nav, entry.arguments!!.getLong("id")) } }
         composable(Routes.ACCOUNTS) { AccountsScreen(nav) }
-        composable(Routes.ACCOUNT_DETAIL, arguments = idArg) { entry -> AccountDetailScreen(nav, entry.arguments!!.getLong("id")) }
+        composable(Routes.ACCOUNT_DETAIL, arguments = idArg) { entry -> ProvideNavScope(this) { AccountDetailScreen(nav, entry.arguments!!.getLong("id")) } }
         composable(
             Routes.ACCOUNT_EDIT,
             arguments = listOf(
@@ -512,6 +517,8 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.WARRANTIES) { com.amitjha.kosh.ui.features.WarrantiesScreen(nav) }
         composable(Routes.SMS_CHECKUP) { com.amitjha.kosh.ui.settings.SmsCheckupScreen(nav) }
         composable(Routes.FAMILY) { com.amitjha.kosh.ui.family.FamilyScreen(nav) }
+    }
+    }
     }
 }
 
