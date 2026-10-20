@@ -89,6 +89,15 @@ class SmsMappingTest {
     }
 
     @Test
+    fun aFamilyMembersNewAccountIsTheirsAndNamedForThem() {
+        val mom = com.amitjha.kosh.data.FamilyMemberEntity(id = 3, name = "Mom", linkCode = "482913")
+        val account = SmsMapping.newAccountFor(Bank.SBI, "1234", isCard = false, now = 0, owner = mom)
+        assertEquals("Mom · SBI Account ••1234", account.name)
+        assertEquals(3L, account.memberId)
+        assertNull(SmsMapping.newAccountFor(Bank.SBI, "1234", isCard = false, now = 0).memberId)
+    }
+
+    @Test
     fun mapsRealCardSpend() {
         val parsed = SmsParser.parse(
             SmsMessage(

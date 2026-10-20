@@ -718,18 +718,21 @@ private fun PayoutCredits(state: InvestmentDetailState, hidden: Boolean, onUseAm
         if (past.isNotEmpty()) {
             HorizontalDivider(Modifier.padding(vertical = 6.dp), color = KoshTheme.colors.divider)
             past.forEach { p ->
+                val credited = p.credited
+                val on = p.creditedOn
                 val text = when {
-                    p.credited != null && p.creditedOn != null -> "✓ " + Money.format(p.credited) + " on " + Fmt.date(p.creditedOn)
+                    credited != null && on != null -> "✓ " + Money.format(credited) + " on " + Fmt.date(on)
                     state.payoutAccount == null -> Money.format(p.due.amount)
                     else -> "Not seen in SMS"
                 }
-                Info(Fmt.fullDate(p.due.date), text, p.credited != null || state.payoutAccount == null)
+                Info(Fmt.fullDate(p.due.date), text, credited != null || state.payoutAccount == null)
             }
             val last = past.firstOrNull { it.credited != null }
-            if (spec != null && last?.credited != null && last.credited != last.due.amount && !last.due.final && !hidden) {
+            val lastAmount = last?.credited
+            if (spec != null && last != null && lastAmount != null && lastAmount != last.due.amount && !last.due.final && !hidden) {
                 Text(
-                    "Use ${Money.format(last.credited)} for the credits to come",
-                    modifier = Modifier.clickable { onUseAmount(last.credited) }.padding(vertical = 6.dp),
+                    "Use ${Money.format(lastAmount)} for the credits to come",
+                    modifier = Modifier.clickable { onUseAmount(lastAmount) }.padding(vertical = 6.dp),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.labelLarge,
                 )
