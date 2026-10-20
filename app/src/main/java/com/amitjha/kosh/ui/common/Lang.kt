@@ -378,5 +378,6 @@ object Hindi {
         "Paste an SMS" to "SMS पेस्ट करें",
         "Paste a forwarded SMS" to "फ़ॉरवर्ड किया SMS पेस्ट करें",
         "Add a forwarded bank SMS" to "फ़ॉरवर्ड किया बैंक SMS जोड़ें",
+        "Is one of them theirs? Pick who sent it. Bank SMS they forwarded before move to their accounts." to "क्या इनमें से कोई उनका है? चुनें किसने भेजा। पहले फ़ॉरवर्ड किए बैंक SMS उनके खातों में चले जाएँगे।",
     )
 }
