@@ -132,7 +132,15 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     /** What "Look for their SMS" found: numbers not linked yet that sent a code or bank alerts. */
-    data class Check(val running: Boolean = false, val done: Boolean = false, val candidates: List<FamilyCandidate> = emptyList(), val smsAccess: Boolean = true)
+    data class Check(
+        val running: Boolean = false,
+        val done: Boolean = false,
+        val candidates: List<FamilyCandidate> = emptyList(),
+        val smsAccess: Boolean = true,
+        /** SMS Kosh could read, and the newest one's time: proof that reading works when no family SMS turns up. */
+        val smsRead: Int = 0,
+        val newestAt: Long? = null,
+    )
 
     private val _check = MutableStateFlow(Check())
     val check: StateFlow<Check> = _check
@@ -147,8 +155,15 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
     fun lookForSms() = viewModelScope.launch {
         _check.value = _check.value.copy(running = true)
         runCatching { com.amitjha.kosh.sms.SmsCatchUp.run(c, alert = false) }
-        val found = runCatching { c.smsImporter.familyCandidates() }.getOrDefault(emptyList())
-        _check.value = Check(running = false, done = true, candidates = found, smsAccess = c.smsImporter.hasPermission())
+        val scan = runCatching { c.smsImporter.familyScan() }.getOrNull()
+        _check.value = Check(
+            running = false,
+            done = true,
+            candidates = scan?.candidates.orEmpty(),
+            smsAccess = c.smsImporter.hasPermission(),
+            smsRead = scan?.smsRead ?: 0,
+            newestAt = scan?.newestAt,
+        )
     }
 
     fun rename(id: Long, name: String) = viewModelScope.launch { c.family.rename(id, name) }
@@ -268,6 +283,7 @@ fun FamilyScreen(nav: NavController) {
                         onLook = vm::lookForSms,
                         onLink = { member, phone -> vm.linkNumber(member.id, phone) },
                         onPaste = { pasting = "" },
+                        onType = { typingNumber = it },
                     )
                 }
             }
@@ -450,7 +466,7 @@ private fun MemberCard(
         }
         if (row.accounts.isEmpty() && m.phone != null) {
             Text(
-                tr("Their accounts appear here with the first SMS they forward."),
+                tr("Their accounts appear here with the first SMS they forward. Nothing after they forwarded one? It came as an RCS chat: ask them to turn RCS off for you, or paste it here."),
                 style = MaterialTheme.typography.bodySmall,
                 color = KoshTheme.colors.subtleText,
                 modifier = Modifier.padding(top = 8.dp),
@@ -557,6 +573,7 @@ private fun LinkHelp(
     onLook: () -> Unit,
     onLink: (FamilyMemberEntity, String) -> Unit,
     onPaste: () -> Unit,
+    onType: (FamilyMemberEntity) -> Unit,
 ) {
     KoshCard(Modifier.padding(vertical = 6.dp)) {
         when {
@@ -564,7 +581,7 @@ private fun LinkHelp(
             check.candidates.isNotEmpty() -> {
                 Text(tr("SMS from numbers not linked yet"), fontWeight = FontWeight.SemiBold)
                 Text(
-                    tr("Pick who sent them. Bank SMS they forwarded before move to their accounts."),
+                    tr("Is one of them theirs? Pick who sent it. Bank SMS they forwarded before move to their accounts."),
                     style = MaterialTheme.typography.bodySmall,
                     color = KoshTheme.colors.subtleText,
                 )
@@ -574,12 +591,12 @@ private fun LinkHelp(
                     val what = listOfNotNull(
                         cand.linkCode?.let { "sent link code $it" },
                         cand.forwards.takeIf { it > 0 }?.let { "$it bank SMS" },
+                        com.amitjha.kosh.ui.common.Fmt.date(Time.toDate(cand.lastAt)),
                     ).joinToString(" · ")
-                    Text(
-                        what + " · " + com.amitjha.kosh.ui.common.Fmt.date(Time.toDate(cand.lastAt)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = KoshTheme.colors.subtleText,
-                    )
+                    Text(what, style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                    if (cand.snippet.isNotEmpty()) {
+                        Text("“${cand.snippet}”", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    }
                     // The member whose code it sent first, then everyone else still waiting.
                     val order = waiting.sortedBy { if (it.linkCode == cand.linkCode) 0 else 1 }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
@@ -592,11 +609,23 @@ private fun LinkHelp(
             check.done -> {
                 Text(tr("No SMS from them yet"), fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    if (!check.smsAccess) tr("Kosh can't read SMS: allow SMS access in More › Bank SMS.") else tr(NOT_SMS_HELP),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = KoshTheme.colors.subtleText,
-                )
+                if (!check.smsAccess) {
+                    Text(tr("Kosh can't read SMS: allow SMS access in More › Bank SMS."), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.alert)
+                } else {
+                    // Reading works (here is the newest SMS's time), so their message didn't arrive as an SMS.
+                    check.newestAt?.let {
+                        Text(
+                            "Kosh can read your SMS (${check.smsRead} in the last 2 months, newest " +
+                                com.amitjha.kosh.ui.common.Fmt.date(Time.toDate(it)) + " " +
+                                java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH)
+                                    .format(java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault())) +
+                                "), but none from a family member's number.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Text(tr(NOT_SMS_HELP), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.subtleText)
+                }
             }
             else -> Text(tr("Their link SMS hasn't arrived yet."), style = MaterialTheme.typography.bodyMedium)
         }
@@ -604,15 +633,21 @@ private fun LinkHelp(
             SecondaryButton("Look again", onClick = onLook, enabled = !check.running, modifier = Modifier.weight(1f))
             SecondaryButton("Paste an SMS", onClick = onPaste, modifier = Modifier.weight(1f))
         }
+        // Linking doesn't need any message: their number is enough.
+        waiting.take(2).forEach { m ->
+            SecondaryButton("Type ${m.name}'s number", onClick = { onType(m) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        }
     }
 }
 
 /** Why a family member's messages may not reach Kosh, and what to do. */
 const val NOT_SMS_HELP =
-    "Kosh can only read SMS. If their messages show as chats in your Messages app (RCS, or \"Chat message\"; " +
-        "iPhones use RCS too), Android doesn't let Kosh see them. Ask them to send as SMS: in Google Messages, turn off " +
-        "Settings › RCS chats; on an iPhone, Settings › Apps › Messages › RCS Messaging. Or copy a forwarded SMS and paste " +
-        "it here, or use Share › Kosh. You can also type their number (⋮ › Type their number instead)."
+    "Their message most likely arrived as an RCS chat, not an SMS: Google Messages shows both in the same " +
+        "conversation (and iPhones send RCS too), but Android only lets other apps read SMS. To fix it, the sender " +
+        "turns off RCS for messages to you: in Google Messages, Settings › RCS chats › off; on an iPhone, Settings › " +
+        "Apps › Messages › RCS Messaging › off. Or turn off RCS chats on your phone, and everyone's messages to you " +
+        "come as SMS. Meanwhile, type their number below to link them, and paste or share (Share › Kosh) any " +
+        "forward that comes as a chat."
 
 /** A forwarded bank SMS typed, pasted or shared in, and whose it is. */
 @Composable
