@@ -58,6 +58,10 @@ data class FeatureSettings(
     val salary: Long? = null,
     /** What the user wants to save out of each month's salary; null until they set it. */
     val savingsTarget: Long? = null,
+    /** Home's card order (card names); empty for the default. */
+    val homeOrder: List<String> = emptyList(),
+    /** Home cards the user hid. */
+    val homeHidden: Set<String> = emptySet(),
 )
 
 /** The real profile's preferences or, for the decoy profile, its own separate ones. */
@@ -82,6 +86,8 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
         val language = stringPreferencesKey("app_language")
         val salary = longPreferencesKey("plan_salary")
         val savingsTarget = longPreferencesKey("plan_savings_target")
+        val homeOrder = stringPreferencesKey("home_order")
+        val homeHidden = stringSetPreferencesKey("home_hidden")
     }
 
     val settings: Flow<FeatureSettings> = store.data.catch { emit(emptyPreferences()) }.map { p ->
@@ -104,6 +110,8 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
             language = p[Keys.language] ?: "en",
             salary = p[Keys.salary],
             savingsTarget = p[Keys.savingsTarget],
+            homeOrder = p[Keys.homeOrder]?.split(',')?.filter { it.isNotBlank() }.orEmpty(),
+            homeHidden = p[Keys.homeHidden] ?: emptySet(),
         )
     }
         .distinctUntilChanged()
@@ -130,6 +138,12 @@ class FeaturePrefs(context: Context, private val store: DataStore<Preferences> =
     suspend fun setEnvelopeMode(on: Boolean) = edit { it[Keys.envelope] = on }
 
     suspend fun setLanguage(code: String) = edit { it[Keys.language] = code }
+
+    /** Home's cards: their order and the ones hidden. */
+    suspend fun setHomeLayout(order: List<String>, hidden: Set<String>) = edit {
+        it[Keys.homeOrder] = order.joinToString(",")
+        it[Keys.homeHidden] = hidden
+    }
 
     /** Salary plan for "left to spend": null clears a value. */
     suspend fun setSalaryPlan(salary: Long?, savingsTarget: Long?) = edit {

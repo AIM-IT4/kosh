@@ -610,7 +610,7 @@ private fun LinkHelp(
                 Text(tr("No SMS from them yet"), fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
                 if (!check.smsAccess) {
-                    Text(tr("Kosh can't read SMS: allow SMS access in More › Bank SMS."), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.alert)
+                    Text(tr("Kosh can't read SMS: allow SMS access in Settings › Bank SMS."), style = MaterialTheme.typography.bodySmall, color = KoshTheme.colors.alert)
                 } else {
                     // Reading works (here is the newest SMS's time), so their message didn't arrive as an SMS.
                     check.newestAt?.let {

@@ -55,7 +55,10 @@ object Routes {
     const val WARRANTIES = "warranties"
     const val SMS_CHECKUP = "sms/checkup"
     const val FAMILY = "family"
+    const val SETTINGS = "settings"
+    const val SETTINGS_PAGE = "settings/{page}"
 
+    fun settings(page: String) = "settings/$page"
     fun addTxn(type: TxnType = TxnType.EXPENSE, accountId: Long? = null) = "txn/add?type=${type.name}&account=${accountId ?: -1}"
     fun editTxn(id: Long) = "txn/edit/$id"
     fun txn(id: Long) = "txn/$id"

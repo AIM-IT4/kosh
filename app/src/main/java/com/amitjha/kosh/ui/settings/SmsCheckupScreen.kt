@@ -120,7 +120,7 @@ fun SmsCheckupScreen(nav: NavController) {
                 KoshCard {
                     StatusLine(status.readSms, "Read bank SMS", "Needed to find bank messages in your inbox")
                     StatusLine(status.receiveSms, "Get new SMS as they arrive", "Without it, new SMS wait for the next check")
-                    StatusLine(status.autoImport, "Import automatically", "Turned off in More › Bank SMS")
+                    StatusLine(status.autoImport, "Import automatically", "Turned off in Settings › Bank SMS")
                     StatusLine(
                         status.batteryUnrestricted, "Battery: not restricted",
                         "Battery saving can stop Kosh hearing new SMS; the hourly check still catches up",

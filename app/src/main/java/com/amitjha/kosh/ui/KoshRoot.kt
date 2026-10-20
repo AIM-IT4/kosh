@@ -517,6 +517,10 @@ private fun KoshNavHost(nav: NavHostController) {
         composable(Routes.WARRANTIES) { com.amitjha.kosh.ui.features.WarrantiesScreen(nav) }
         composable(Routes.SMS_CHECKUP) { com.amitjha.kosh.ui.settings.SmsCheckupScreen(nav) }
         composable(Routes.FAMILY) { com.amitjha.kosh.ui.family.FamilyScreen(nav) }
+        composable(Routes.SETTINGS) { com.amitjha.kosh.ui.settings.SettingsScreen(nav) }
+        composable(Routes.SETTINGS_PAGE, arguments = listOf(navArgument("page") { type = NavType.StringType })) { entry ->
+            com.amitjha.kosh.ui.settings.SettingsPageScreen(nav, entry.arguments?.getString("page").orEmpty())
+        }
     }
     }
     }

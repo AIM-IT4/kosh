@@ -135,13 +135,14 @@ fun OnboardingScreen() {
             label = "onboarding",
             modifier = Modifier.weight(1f),
         ) { s ->
+            // SMS first: the inbox scan finds the accounts and cards, so the next steps only fill in what's missing.
             when (s) {
                 0 -> Welcome { step = 1 }
-                1 -> AccountsStep(card = false) { step = 2 }
-                2 -> AccountsStep(card = true) { step = 3 }
-                3 -> InvestmentsStep { step = 4 }
-                4 -> PermissionsStep { step = 5 }
-                5 -> ImportStep { step = 6 }
+                1 -> PermissionsStep { step = 2 }
+                2 -> ImportStep { step = 3 }
+                3 -> AccountsStep(card = false) { step = 4 }
+                4 -> AccountsStep(card = true) { step = 5 }
+                5 -> InvestmentsStep { step = 6 }
                 else -> DoneStep(finish)
             }
         }
@@ -257,10 +258,11 @@ private fun AccountsStep(card: Boolean, onNext: () -> Unit) {
 
     StepPage(
         title = if (card) "Your credit cards" else "Your bank accounts",
-        subtitle = if (card) {
-            "Add each card with its limit and dates, so Kosh can track dues and remind you before bills are due."
-        } else {
-            "Add the accounts you use with today's balance. The last 4 digits let Kosh match bank SMS to each account."
+        subtitle = when {
+            added.any { it.isPending } && card -> "Found in your card SMS. Add any card that's missing, with its limit and dates."
+            added.any { it.isPending } -> "Found in your bank SMS. Add any account that's missing; you can confirm these later in Accounts."
+            card -> "Add each card with its limit and dates, so Kosh can track dues and remind you before bills are due."
+            else -> "Add the accounts you use with today's balance. The last 4 digits let Kosh match bank SMS to each account."
         },
         primary = if (added.isEmpty()) "Continue" else "Continue with ${added.size}",
         onPrimary = onNext,
@@ -506,7 +508,7 @@ private fun ImportStep(onNext: () -> Unit) {
     StepPage(
         title = if (running) phase else "Your history",
         subtitle = if (context.hasSmsPermission()) "Kosh looks back 180 days and skips anything it has already seen."
-        else "SMS access wasn't allowed. You can scan later from More › Scan inbox now.",
+        else "SMS access wasn't allowed. You can scan later from More › Settings › Bank SMS.",
         primary = "Continue",
         onPrimary = onNext,
         primaryEnabled = !running,

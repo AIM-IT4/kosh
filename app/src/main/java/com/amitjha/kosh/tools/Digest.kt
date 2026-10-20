@@ -44,7 +44,7 @@ object DigestText {
         }
         parts += "${f.toReview} to review"
         val text = parts.joinToString(" · ")
-        return if (smsProblem == null) text else "$text\n$smsProblem. Open Kosh › More › SMS check-up."
+        return if (smsProblem == null) text else "$text\n$smsProblem. Open Kosh › Settings › Bank SMS › SMS check-up."
     }
 
     /**
