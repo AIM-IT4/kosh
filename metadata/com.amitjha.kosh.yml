@@ -14,9 +14,9 @@ Repo: https://github.com/AIM-IT4/kosh.git
 Binaries: https://github.com/AIM-IT4/kosh/releases/download/v%v/Kosh.apk
 
 Builds:
-  - versionName: 2.4.5
-    versionCode: 31
-    commit: 672ccce102ba511ff5ec446e94e6de6c4b641026
+  - versionName: 2.5.0
+    versionCode: 32
+    commit: 8aa98d2e32fc0cce1612b269dd642a062c560f91
     subdir: app
     gradle:
       - standard
@@ -25,5 +25,5 @@ AllowedAPKSigningKeys: 02283b8d09a5a1912906e9b5d3abed25ed4445de005f57a79cea0443f
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 2.4.5
-CurrentVersionCode: 31
+CurrentVersion: 2.5.0
+CurrentVersionCode: 32
