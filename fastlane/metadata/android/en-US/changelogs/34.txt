@@ -1,0 +1,4 @@
+- Family: forwarded SBI UPI, SBI transfer and Bank of Baroda alerts are now added (they were skipped)
+- Family: a forward that doesn't name its bank goes to their account with those digits, not a new one
+- Earlier forwards are read again and moved to the right account once, after the update
+- Family screen shows when each linked member's last bank SMS reached your phone

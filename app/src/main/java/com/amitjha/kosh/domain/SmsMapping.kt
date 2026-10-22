@@ -37,6 +37,26 @@ object SmsMapping {
     }
 
     /**
+     * [matchAccount] for a family member's forward. A forward loses the bank's sender, so its bank is read from the
+     * text and can be wrong: Other when the alert doesn't name it ("Rs 250 debited from a/c **1234"), or the payee's
+     * bank when only a UPI handle names one ("to VPA swiggy@icici"). So their confirmed account with those digits wins,
+     * whatever its bank (when only one has them), over an account Kosh made from an earlier forward; with no digits
+     * and no bank, their only confirmed account of that kind.
+     */
+    fun matchForwarded(accounts: List<AccountEntity>, bank: Bank, last4: String?, isCard: Boolean): AccountEntity? {
+        val exact = matchAccount(accounts, bank, last4, isCard)
+        if (exact != null && !exact.autoCreated) return exact
+        val type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK
+        val confirmed = accounts.filter { it.type == type && !it.archived && !it.autoCreated }
+        val byDigits = when {
+            last4 != null -> confirmed.filter { a -> a.allDigits.any { sameDigits(it, last4) } }
+            bank == Bank.OTHER -> confirmed
+            else -> emptyList()
+        }
+        return byDigits.singleOrNull() ?: exact
+    }
+
+    /**
      * Whether two masked numbers are the same: banks show the last 3 or 4 digits ("XX123", "XX0123"), so a
      * 3-digit number matches the end of a 4-digit one.
      */
