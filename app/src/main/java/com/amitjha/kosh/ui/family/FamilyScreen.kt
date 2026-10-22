@@ -736,13 +736,14 @@ private fun StepsSheet(member: FamilyMemberEntity, userName: String, myPhone: St
 @Composable
 private fun ForwardLine(status: FamilyForward.Status?, name: String) {
     val week = 7L * 24 * 60 * 60 * 1000
+    val lastAlert = status?.lastAlertAt
     val (text, warn) = when {
         status == null -> "No SMS from $name's number in the last 30 days. Their forwards aren't reaching this phone: " +
             "they need to forward each bank SMS to you as a text message, not as a chat (RCS)." to true
-        status.lastAlertAt == null -> "Their last SMS (${Fmt.ago(status.lastAt)}) wasn't a bank alert. Nothing to add yet." to true
-        System.currentTimeMillis() - status.lastAlertAt > week ->
-            "Last bank SMS from them ${Fmt.ago(status.lastAlertAt)}. Newer ones haven't been forwarded to you." to true
-        else -> "Last bank SMS from them ${Fmt.ago(status.lastAlertAt)} · ${status.alerts} in 30 days" to false
+        lastAlert == null -> "Their last SMS (${Fmt.ago(status.lastAt)}) wasn't a bank alert. Nothing to add yet." to true
+        System.currentTimeMillis() - lastAlert > week ->
+            "Last bank SMS from them ${Fmt.ago(lastAlert)}. Newer ones haven't been forwarded to you." to true
+        else -> "Last bank SMS from them ${Fmt.ago(lastAlert)} · ${status.alerts} in 30 days" to false
     }
     Text(
         text,
