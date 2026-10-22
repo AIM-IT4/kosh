@@ -35,7 +35,7 @@ class BackupFlow(private val app: KoshApp) {
         if (backupRepairs < settings.repairVersion()) {
             runCatching {
                 settings.setRepairVersion(backupRepairs)
-                DataRepairs.run(container.db, settings, container.netWorth)
+                DataRepairs.run(container.db, settings, container.netWorth, container.smsImporter)
             }
         }
         runCatching { container.insights.refresh() }

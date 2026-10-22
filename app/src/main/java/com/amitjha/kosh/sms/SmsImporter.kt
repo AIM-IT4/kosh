@@ -221,7 +221,7 @@ class SmsImporter(
                     phone != null && FamilyForward.linkCode(msg.body) != null -> link(msg, phone, family)
                     // Forwarded by a linked family member: their bank SMS, for their accounts only.
                     member != null -> FamilyForward.inner(msg).let { inner ->
-                        if (isFinancialMessage(inner.sender, inner.body)) importOne(inner, rules, member, family).copy(financial = 1) else ImportResult()
+                        if (isMemberAlert(inner)) importOne(inner, rules, member, family).copy(financial = 1) else ImportResult()
                     }
                     isFinancialMessage(msg.sender, msg.body) -> importOne(msg, rules, null, family).copy(financial = 1)
                     else -> ImportResult()
@@ -253,6 +253,13 @@ class SmsImporter(
         family.linkedNow += member.id
         return ImportResult(linkedMembers = listOf(member.name))
     }
+
+    /** What arrived from each linked number (phone keys) in the last [days] days; empty without SMS access. */
+    suspend fun forwardStatus(phones: Set<String>, days: Long = FORWARD_STATUS_DAYS): Map<String, FamilyForward.Status> =
+        withContext(Dispatchers.IO) {
+            if (phones.isEmpty() || !hasPermission()) return@withContext emptyMap()
+            FamilyForward.status(readAll(System.currentTimeMillis() - days * DAY_MILLIS).first, phones)
+        }
 
     /** After a member's number is linked by hand: what they forwarded before becomes theirs. */
     suspend fun adoptForwards(memberId: Long): ImportResult = lock.withLock {
@@ -325,7 +332,7 @@ class SmsImporter(
                     }
                     else -> false
                 }
-                if (!handled && isFinancialMessage(inner.sender, inner.body)) {
+                if (!handled && isMemberAlert(inner)) {
                     result += importOne(inner, rules, member, family).copy(financial = 1)
                 }
             }
@@ -348,7 +355,7 @@ class SmsImporter(
             val member = memberId?.let { id -> family.all.firstOrNull { it.id == id } }
             val rules = db.merchantRules().all().associate { it.merchant to it.categoryKey }
             val inner = FamilyForward.inner(SmsMessage(FamilyForward.SENDER, text.trim(), now))
-            if (!isFinancialMessage(inner.sender, inner.body)) return@withContext ImportResult(ignored = 1)
+            if (!isMemberAlert(inner)) return@withContext ImportResult(ignored = 1)
             val result = db.withTransaction { importOne(inner, rules, member, family) }.copy(financial = 1)
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(db) }
             runCatching { com.amitjha.kosh.repo.TransferPairer.run(db, now - com.amitjha.kosh.domain.TransferPairing.WINDOW_MILLIS - DAY_MILLIS) }
@@ -371,7 +378,7 @@ class SmsImporter(
             .groupBy({ it.first }, { it.second })
             .mapNotNull { (phone, msgs) ->
                 val code = msgs.firstNotNullOfOrNull { FamilyForward.linkCode(it.body) }
-                val forwards = msgs.count { m -> FamilyForward.linkCode(m.body) == null && looksTransactional(FamilyForward.unwrap(m.body).body) }
+                val forwards = msgs.count { m -> FamilyForward.linkCode(m.body) == null && FamilyForward.isBankAlert(m.body) }
                 val latest = msgs.maxBy { it.timestampMillis }
                 if (code == null && forwards == 0 && latest.timestampMillis < recent) {
                     null
@@ -503,6 +510,13 @@ class SmsImporter(
     }
 
     /** The user's own accounts, or a family member's: a message only ever matches its owner's. */
+    /**
+     * Whether a linked member's forward ([inner], unwrapped) is a bank alert: their kept bank header says so, or its
+     * text does by the looser rule a trusted number gets (see [FamilyForward.isBankAlert]).
+     */
+    private fun isMemberAlert(inner: SmsMessage): Boolean =
+        isFinancialMessage(inner.sender, inner.body) || FamilyForward.isBankAlert(inner.body)
+
     private suspend fun accountsOf(owner: FamilyMemberEntity?): List<AccountEntity> =
         db.accounts().all().filter { it.memberId == owner?.id }
 
@@ -515,7 +529,10 @@ class SmsImporter(
         onCreate: () -> Unit,
     ): AccountEntity {
         val accounts = accountsOf(owner)
-        SmsMapping.matchAccount(accounts, bank, last4, isCard)?.let { return fillDigits(it, last4, debitCard) }
+        // A member's forward often reads as "Other" (the bank's sender is lost): it still belongs to their account
+        // with those digits.
+        val match = if (owner != null) SmsMapping.matchForwarded(accounts, bank, last4, isCard) else SmsMapping.matchAccount(accounts, bank, last4, isCard)
+        match?.let { return fillDigits(it, last4, debitCard) }
         // A debit card's number isn't the account's: file it under the user's account at that bank and remember it.
         if (debitCard && last4 != null) SmsMapping.debitCardAccount(accounts, bank)?.let { return fillDigits(it, last4, debitCard = true) }
         val fresh = SmsMapping.newAccountFor(bank, last4, isCard, System.currentTimeMillis(), owner)
@@ -655,7 +672,7 @@ class SmsImporter(
         val items = messages
             // A linked family member's forward is checked as the bank message inside it.
             .map { msg -> if (FamilyForward.phoneKey(msg.sender)?.let { it in linked } == true) FamilyForward.inner(msg) else msg }
-            .filter { isFinancialMessage(it.sender, it.body) }
+            .filter { isFinancialMessage(it.sender, it.body) || (it.sender == FamilyForward.SENDER && isMemberAlert(it)) }
             .sortedByDescending { it.timestampMillis }
             .map { msg -> runCatching { checkOne(msg, accounts) }.getOrElse { e ->
                 CheckupItem(msg.timestampMillis, CheckupItem.Verdict.SKIPPED, "Couldn't be checked", e.javaClass.simpleName,
@@ -802,6 +819,9 @@ class SmsImporter(
 
         /** Marks a manual transfer whose credit side was matched to an SMS. */
         const val MANUAL_COVER_PREFIX = SmsMapping.SMS_MARKER
+
+        /** How far back the Family screen looks for what each linked number sent. */
+        const val FORWARD_STATUS_DAYS = 30L
 
         /** Ignore reasons that mean "we could not understand it" rather than "deliberately skipped". */
         private val UNPARSED_REASONS = setOf("no transaction found", "not a bank sender", "parse error")

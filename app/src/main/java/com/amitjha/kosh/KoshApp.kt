@@ -24,7 +24,7 @@ class KoshApp : Application() {
             // Seeding with IGNORE adds categories introduced by an update without touching existing ones.
             container.db.categories().insertAll(DefaultCategories.all)
             runCatching {
-                com.amitjha.kosh.repo.DataRepairs.run(container.db, container.settings, container.netWorth)
+                com.amitjha.kosh.repo.DataRepairs.run(container.db, container.settings, container.netWorth, container.smsImporter)
             }
             runCatching { com.amitjha.kosh.repo.AutoCategoriser.run(container.db) }
             runCatching { container.settings.clearLegacyGmail() }

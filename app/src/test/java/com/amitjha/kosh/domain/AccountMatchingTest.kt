@@ -70,4 +70,24 @@ class AccountMatchingTest {
         assertEquals(BalanceEffect.Moves, Balances.effectOf(txn(2_000), cardReport))
         assertEquals(BalanceEffect.InReportedBalance(3_000), Balances.effectOf(txn(2_000), cardReport.copy(creditLimit = 1_00_000_00)))
     }
+
+    @Test
+    fun aForwardThatDoesntNameItsBankFindsTheMembersAccountByDigits() {
+        val momHdfc = AccountEntity(id = 10, name = "Mom · HDFC Savings", type = AccountType.BANK, bank = "HDFC", last4 = "1234", memberId = 5)
+        val momSbi = AccountEntity(id = 11, name = "Mom · SBI", type = AccountType.BANK, bank = "SBI", last4 = "7788", memberId = 5)
+        val theirs = listOf(momHdfc, momSbi)
+        // "Rs 250.00 debited from a/c **1234": no bank in the text, so it reads as Other.
+        assertSame(momHdfc, SmsMapping.matchForwarded(theirs, Bank.OTHER, "1234", isCard = false))
+        assertSame(momSbi, SmsMapping.matchForwarded(theirs, Bank.OTHER, "788", isCard = false))
+        assertNull("no account of theirs has these digits", SmsMapping.matchForwarded(theirs, Bank.OTHER, "5555", isCard = false))
+        assertNull("a card message never lands on a bank account", SmsMapping.matchForwarded(theirs, Bank.OTHER, "1234", isCard = true))
+        // An "Other ••1234" an earlier forward made gives way to their real account with the same digits.
+        val madeEarlier = AccountEntity(id = 12, name = "Mom · Account ••1234", type = AccountType.BANK, bank = "OTHER", last4 = "1234",
+            memberId = 5, autoCreated = true)
+        assertSame(momHdfc, SmsMapping.matchForwarded(theirs + madeEarlier, Bank.OTHER, "1234", isCard = false))
+        // With no digits, their only bank account.
+        assertSame(momHdfc, SmsMapping.matchForwarded(listOf(momHdfc), Bank.OTHER, null, isCard = false))
+        // A forward that names its bank matches as before.
+        assertSame(momSbi, SmsMapping.matchForwarded(theirs, Bank.SBI, "7788", isCard = false))
+    }
 }

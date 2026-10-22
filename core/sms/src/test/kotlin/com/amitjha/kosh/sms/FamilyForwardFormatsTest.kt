@@ -42,7 +42,7 @@ class FamilyForwardFormatsTest {
         val msg = SmsMessage(member, body, SMS_TIME)
         if (!FamilyForward.mayBeFamily(msg.sender, msg.body)) return null
         val inner = FamilyForward.inner(msg)
-        if (!isFinancialMessage(inner.sender, inner.body)) return null
+        if (!isFinancialMessage(inner.sender, inner.body) && !FamilyForward.isBankAlert(inner.body)) return null
         return (SmsParser.parse(inner) as? SmsParseResult.Transaction)?.txn
     }
 
@@ -69,5 +69,32 @@ class FamilyForwardFormatsTest {
         listOf("Reached home, call you at 8", "Can you send 500 for the gas cylinder?", "KOSH LINK 123456").forEach {
             assertEquals(it, null, throughFamilyPath(it))
         }
+    }
+
+    @Test
+    fun theBankIsReadFromTheTextWhenTheForwardNamesIt() {
+        assertEquals(com.amitjha.kosh.model.Bank.SBI, throughFamilyPath(debits250[1])?.bank)
+        assertEquals(com.amitjha.kosh.model.Bank.BOB, throughFamilyPath(debits250[6])?.bank)
+        assertEquals(com.amitjha.kosh.model.Bank.ICICI, throughFamilyPath(debits250[3])?.bank)
+        // HDFC's UPI alert doesn't name the bank: Other, matched to the member's account by its digits instead.
+        assertEquals(com.amitjha.kosh.model.Bank.OTHER, throughFamilyPath(debits250.last())?.bank)
+        assertEquals("1234", throughFamilyPath(debits250.last())?.accountLast4)
+    }
+
+    @Test
+    fun statusTellsNothingArrivedFromAlertsArrived() {
+        val mom = "9876543210"
+        val dad = "9123456780"
+        val messages = listOf(
+            SmsMessage(member, "KOSH LINK 123456", SMS_TIME - 3_000),
+            SmsMessage(member, debits250[1], SMS_TIME - 2_000),
+            SmsMessage(member, "Reached home", SMS_TIME - 1_000),
+            SmsMessage("+919123456780", "Call me back", SMS_TIME),
+            SmsMessage("VM-SBIUPI", debits250[1], SMS_TIME),
+        )
+        val s = FamilyForward.status(messages, setOf(mom, dad, "9000000000"))
+        assertEquals(FamilyForward.Status(SMS_TIME - 1_000, SMS_TIME - 2_000, 1), s[mom])
+        assertEquals(FamilyForward.Status(SMS_TIME, null, 0), s[dad])
+        assertEquals(null, s["9000000000"])
     }
 }

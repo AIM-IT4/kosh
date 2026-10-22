@@ -89,7 +89,7 @@ private val txnVerbs = Regex(
     "(?i)\\b(debited|credited|spent|withdrawn|sent|received|paid|transferred|txn|transaction|purchase|" +
         "used for|deducted|deposited|refund(?:ed)?)\\b",
 )
-private val accountMention = Regex(
+internal val accountMention = Regex(
     "(?i)\\b(a/?c|ac|acct|account|card)\\b|\\bx{2,}\\s?\\d{3,4}\\b|\\*{2,}\\d{3,4}\\b|ending\\s*(?:with\\s*)?\\d{4}|\\bupi\\b",
 )
 
@@ -142,7 +142,7 @@ internal object BankDetector {
     /** Names of the banks modelled later, matched outside UPI handles ("rahul@pnb" names the payee's bank). */
     private val newerHints = listOf(
         Regex("(?i)punjab national bank|\\bpnb\\b(?!\\s*(?:housing|metlife))") to Bank.PNB,
-        Regex("(?i)bank of baroda|\\bbob ?card\\b") to Bank.BOB,
+        Regex("(?i)bank of baroda|\\bbob ?card\\b|-\\s?bob\\b") to Bank.BOB,
         Regex("(?i)canara bank") to Bank.CANARA,
         Regex("(?i)union bank") to Bank.UNION,
         Regex("(?i)idfc first|idfc bank") to Bank.IDFC,
@@ -157,7 +157,8 @@ internal object BankDetector {
     /** Returns the bank, [Bank.OTHER] for unmodelled financial senders, or null when not financial. */
     fun detect(sender: String, body: String): Bank? {
         bankFromSenderName(sender)?.let { return it }
-        if (!isFinancialMessage(sender, body)) return null
+        // A linked family member's forward has no sender to judge; the importer already checked its text.
+        if (sender != FamilyForward.SENDER && !isFinancialMessage(sender, body)) return null
         val legacy = legacyHints.firstOrNull { it.first.containsMatchIn(body) }?.second
         val text = body.replace(vpa, " ")
         // A legacy hint found only inside a UPI handle ("to VPA swiggy@icici ... -Punjab National Bank")

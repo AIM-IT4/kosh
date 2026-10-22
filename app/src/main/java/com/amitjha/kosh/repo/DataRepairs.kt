@@ -11,9 +11,10 @@ import com.amitjha.kosh.model.TxnSource
 object DataRepairs {
 
     /** Bump when adding a repair below. */
-    const val CURRENT = 3
+    const val CURRENT = 4
 
-    suspend fun run(db: KoshDatabase, settings: SettingsStore, netWorth: NetWorthRepository) {
+    /** [sms] re-reads linked family members' forwards (null where SMS can't be read, e.g. in tests). */
+    suspend fun run(db: KoshDatabase, settings: SettingsStore, netWorth: NetWorthRepository, sms: com.amitjha.kosh.sms.SmsImporter? = null) {
         val done = settings.repairVersion()
         if (done >= CURRENT) return
         if (done < 1) repairBalancesV1(db, netWorth)
@@ -24,7 +25,32 @@ object DataRepairs {
             db.categories().renameDefault("other_income", "Other Income", "Money received")
             db.categories().renameDefault("interest", "Interest", "Interest & dividends")
         }
+        // v2.6.1: family forwards that didn't name their bank went to an "Other" account instead of the member's own,
+        // and some formats (SBI UPI, Bank of Baroda) were skipped altogether.
+        if (done < 4) {
+            runCatching { mergeForwardedOther(db) }
+            if (sms != null) {
+                db.family().all().filter { it.phone != null }.forEach { m -> runCatching { sms.adoptForwards(m.id) } }
+            }
+        }
         settings.setRepairVersion(CURRENT)
+    }
+
+    /**
+     * Moves what a family member's forwards put on an "Other" account Kosh made for them onto their real account with
+     * the same digits (see [SmsMapping.matchForwarded]), then removes the empty "Other" account.
+     */
+    private suspend fun mergeForwardedOther(db: KoshDatabase) {
+        val accounts = db.accounts().all()
+        val repo = AccountRepository(db)
+        accounts.filter { it.memberId != null && it.autoCreated && it.bank == com.amitjha.kosh.model.Bank.OTHER.name }.forEach { other ->
+            val theirs = accounts.filter { it.memberId == other.memberId && it.id != other.id }
+            val isCard = other.type == com.amitjha.kosh.model.AccountType.CREDIT_CARD
+            val target = SmsMapping.matchForwarded(theirs, com.amitjha.kosh.model.Bank.OTHER, other.last4, isCard)
+                ?.takeIf { it.bank != com.amitjha.kosh.model.Bank.OTHER.name && other.last4 != null }
+                ?: return@forEach
+            repo.mergePending(other.id, target.id)
+        }
     }
 
     /**

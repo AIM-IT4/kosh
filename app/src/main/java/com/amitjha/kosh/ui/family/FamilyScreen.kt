@@ -1,5 +1,6 @@
 package com.amitjha.kosh.ui.family
 
+import com.amitjha.kosh.ui.common.Fmt
 import android.content.Intent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -145,6 +146,20 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
     private val _check = MutableStateFlow(Check())
     val check: StateFlow<Check> = _check
 
+    private val _forwards = MutableStateFlow<Map<String, FamilyForward.Status>?>(null)
+
+    /**
+     * What each linked number sent lately (by phone key), so "linked" can say whether forwards actually arrive; null
+     * until read, or when SMS can't be read at all.
+     */
+    val forwards: StateFlow<Map<String, FamilyForward.Status>?> = _forwards
+
+    fun refreshForwards() = viewModelScope.launch {
+        val phones = c.family.members().mapNotNull { it.phone }.toSet()
+        _forwards.value = if (!c.smsImporter.hasPermission()) null
+        else runCatching { c.smsImporter.forwardStatus(phones) }.getOrNull()
+    }
+
     /** One-line results for the snackbar. */
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
 
@@ -164,6 +179,7 @@ class FamilyViewModel(private val c: AppContainer) : ViewModel() {
             smsRead = scan?.smsRead ?: 0,
             newestAt = scan?.newestAt,
         )
+        refreshForwards()
     }
 
     fun rename(id: Long, name: String) = viewModelScope.launch { c.family.rename(id, name) }
@@ -241,6 +257,9 @@ fun FamilyScreen(nav: NavController) {
             SharedSms.pending.value = null
         }
     }
+    val forwards by vm.forwards.collectAsStateWithLifecycle()
+    // Whether linked members' forwards actually arrive, read once per visit (and after "Look for their SMS").
+    LaunchedEffect(state.rows.count { it.member.phone != null }) { vm.refreshForwards() }
     val waiting = state.rows.filter { it.member.phone == null }
     // Someone still to link: look through the inbox once on opening.
     LaunchedEffect(waiting.isNotEmpty()) { if (waiting.isNotEmpty() && !check.done && !check.running) vm.lookForSms() }
@@ -301,6 +320,8 @@ fun FamilyScreen(nav: NavController) {
                 MemberCard(
                     row,
                     hidden,
+                    forwards = row.member.phone?.let { forwards?.get(it) },
+                    forwardsKnown = forwards != null,
                     onQr = { showQr(row.member.id) },
                     onSteps = { stepsFor = row.member },
                     onCount = { vm.setCount(row.member.id, it) },
@@ -406,6 +427,8 @@ fun FamilyScreen(nav: NavController) {
 private fun MemberCard(
     row: FamilyRow,
     hidden: Boolean,
+    forwards: FamilyForward.Status?,
+    forwardsKnown: Boolean,
     onQr: () -> Unit,
     onSteps: () -> Unit,
     onCount: (Boolean) -> Unit,
@@ -425,6 +448,7 @@ private fun MemberCard(
                 Spacer(Modifier.height(4.dp))
                 if (m.phone != null) {
                     Pill("Linked · ••${m.phone.takeLast(4)}", KoshTheme.colors.income)
+                    if (forwardsKnown) ForwardLine(forwards, m.name)
                 } else {
                     Pill(tr("Not linked yet"), KoshTheme.colors.warning)
                 }
@@ -705,6 +729,29 @@ private fun StepsSheet(member: FamilyMemberEntity, userName: String, myPhone: St
 }
 
 /** The forwarding steps, addressed to the family member; [me] is who they forward to. */
+/**
+ * Under "Linked": whether their bank SMS actually reach this phone. Linking only tells Kosh their number; on Android
+ * each alert still has to be forwarded (as SMS, not chat) before Kosh can add it.
+ */
+@Composable
+private fun ForwardLine(status: FamilyForward.Status?, name: String) {
+    val week = 7L * 24 * 60 * 60 * 1000
+    val (text, warn) = when {
+        status == null -> "No SMS from $name's number in the last 30 days. Their forwards aren't reaching this phone: " +
+            "they need to forward each bank SMS to you as a text message, not as a chat (RCS)." to true
+        status.lastAlertAt == null -> "Their last SMS (${Fmt.ago(status.lastAt)}) wasn't a bank alert. Nothing to add yet." to true
+        System.currentTimeMillis() - status.lastAlertAt > week ->
+            "Last bank SMS from them ${Fmt.ago(status.lastAlertAt)}. Newer ones haven't been forwarded to you." to true
+        else -> "Last bank SMS from them ${Fmt.ago(status.lastAlertAt)} · ${status.alerts} in 30 days" to false
+    }
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (warn) KoshTheme.colors.warning else KoshTheme.colors.subtleText,
+        modifier = Modifier.padding(top = 6.dp),
+    )
+}
+
 fun forwardingSteps(me: String): String =
     "To share your bank SMS with $me's Kosh app:\n\n" +
         "Android: open the bank SMS, press and hold it, tap Forward and choose $me. You can select several messages and " +
