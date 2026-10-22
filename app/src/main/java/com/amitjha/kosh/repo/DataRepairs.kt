@@ -37,19 +37,20 @@ object DataRepairs {
     }
 
     /**
-     * Moves what a family member's forwards put on an "Other" account Kosh made for them onto their real account with
-     * the same digits (see [SmsMapping.matchForwarded]), then removes the empty "Other" account.
+     * Moves what a family member's forwards put on an account Kosh made for them (under "Other", or under the bank of
+     * a payee's UPI handle) onto their confirmed account with the same digits (see [SmsMapping.matchForwarded]), and
+     * removes the emptied one.
      */
     private suspend fun mergeForwardedOther(db: KoshDatabase) {
         val accounts = db.accounts().all()
         val repo = AccountRepository(db)
-        accounts.filter { it.memberId != null && it.autoCreated && it.bank == com.amitjha.kosh.model.Bank.OTHER.name }.forEach { other ->
-            val theirs = accounts.filter { it.memberId == other.memberId && it.id != other.id }
-            val isCard = other.type == com.amitjha.kosh.model.AccountType.CREDIT_CARD
-            val target = SmsMapping.matchForwarded(theirs, com.amitjha.kosh.model.Bank.OTHER, other.last4, isCard)
-                ?.takeIf { it.bank != com.amitjha.kosh.model.Bank.OTHER.name && other.last4 != null }
+        accounts.filter { it.memberId != null && it.autoCreated && it.last4 != null }.forEach { made ->
+            val theirs = accounts.filter { it.memberId == made.memberId && it.id != made.id }
+            val isCard = made.type == com.amitjha.kosh.model.AccountType.CREDIT_CARD
+            val target = SmsMapping.matchForwarded(theirs, com.amitjha.kosh.model.Bank.OTHER, made.last4, isCard)
+                ?.takeIf { !it.autoCreated }
                 ?: return@forEach
-            repo.mergePending(other.id, target.id)
+            repo.mergePending(made.id, target.id)
         }
     }
 

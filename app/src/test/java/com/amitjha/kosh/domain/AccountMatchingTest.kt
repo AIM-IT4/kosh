@@ -89,5 +89,10 @@ class AccountMatchingTest {
         assertSame(momHdfc, SmsMapping.matchForwarded(listOf(momHdfc), Bank.OTHER, null, isCard = false))
         // A forward that names its bank matches as before.
         assertSame(momSbi, SmsMapping.matchForwarded(theirs, Bank.SBI, "7788", isCard = false))
+        // HDFC's alert "to VPA swiggy@icici" reads as ICICI: an ICICI account Kosh made from it gives way to her HDFC one.
+        val madeAsIcici = madeEarlier.copy(id = 13, bank = "ICICI")
+        assertSame(momHdfc, SmsMapping.matchForwarded(theirs + madeAsIcici, Bank.ICICI, "1234", isCard = false))
+        // Until she has a confirmed account with those digits, the one Kosh made keeps them.
+        assertSame(madeAsIcici, SmsMapping.matchForwarded(listOf(momSbi, madeAsIcici), Bank.ICICI, "1234", isCard = false))
     }
 }

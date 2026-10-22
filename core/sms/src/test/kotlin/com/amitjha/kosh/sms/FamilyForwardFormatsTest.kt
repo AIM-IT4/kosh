@@ -76,8 +76,10 @@ class FamilyForwardFormatsTest {
         assertEquals(com.amitjha.kosh.model.Bank.SBI, throughFamilyPath(debits250[1])?.bank)
         assertEquals(com.amitjha.kosh.model.Bank.BOB, throughFamilyPath(debits250[6])?.bank)
         assertEquals(com.amitjha.kosh.model.Bank.ICICI, throughFamilyPath(debits250[3])?.bank)
-        // HDFC's UPI alert doesn't name the bank: Other, matched to the member's account by its digits instead.
-        assertEquals(com.amitjha.kosh.model.Bank.OTHER, throughFamilyPath(debits250.last())?.bank)
+        // HDFC's UPI alert doesn't name the bank, so the payee's handle (swiggy@icici) is all there is: the importer
+        // matches the member's account by its digits instead (SmsMapping.matchForwarded). The bank stays as it was read
+        // so fingerprints of forwards already imported don't change.
+        assertEquals(com.amitjha.kosh.model.Bank.ICICI, throughFamilyPath(debits250.last())?.bank)
         assertEquals("1234", throughFamilyPath(debits250.last())?.accountLast4)
     }
 

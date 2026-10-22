@@ -37,21 +37,23 @@ object SmsMapping {
     }
 
     /**
-     * [matchAccount] for a family member's forward. A forward loses the bank's sender, so an alert that doesn't name
-     * its bank ("Rs 250 debited from a/c **1234") reads as Other: it belongs to the member's account with those digits
-     * whatever its bank (when only one has them), or to their only account of that kind when it gives no digits.
+     * [matchAccount] for a family member's forward. A forward loses the bank's sender, so its bank is read from the
+     * text and can be wrong: Other when the alert doesn't name it ("Rs 250 debited from a/c **1234"), or the payee's
+     * bank when only a UPI handle names one ("to VPA swiggy@icici"). So their confirmed account with those digits wins,
+     * whatever its bank (when only one has them), over an account Kosh made from an earlier forward; with no digits
+     * and no bank, their only confirmed account of that kind.
      */
     fun matchForwarded(accounts: List<AccountEntity>, bank: Bank, last4: String?, isCard: Boolean): AccountEntity? {
+        val exact = matchAccount(accounts, bank, last4, isCard)
+        if (exact != null && !exact.autoCreated) return exact
         val type = if (isCard) AccountType.CREDIT_CARD else AccountType.BANK
-        val own = accounts.filter { it.type == type && !it.archived }
-        if (bank == Bank.OTHER) {
-            // A real (confirmed or named) account of theirs wins over an "Other" one an earlier forward made.
-            val named = own.filter { it.bank != Bank.OTHER.name }
-            val byDigits = if (last4 != null) named.filter { a -> a.allDigits.any { sameDigits(it, last4) } } else emptyList()
-            byDigits.singleOrNull()?.let { return it }
-            if (last4 == null) named.singleOrNull()?.let { return it }
+        val confirmed = accounts.filter { it.type == type && !it.archived && !it.autoCreated }
+        val byDigits = when {
+            last4 != null -> confirmed.filter { a -> a.allDigits.any { sameDigits(it, last4) } }
+            bank == Bank.OTHER -> confirmed
+            else -> emptyList()
         }
-        return matchAccount(accounts, bank, last4, isCard)
+        return byDigits.singleOrNull() ?: exact
     }
 
     /**
