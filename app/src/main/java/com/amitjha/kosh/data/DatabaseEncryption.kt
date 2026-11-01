@@ -84,7 +84,9 @@ object DatabaseEncryption {
         val key = String(passphrase, Charsets.US_ASCII)
         require(key.all { it in '0'..'9' || it in 'a'..'f' }) { "Unexpected passphrase format" }
         val plain = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
-            db.path, "", null, net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE, null, null,
+            // SQLite applies the connection's CREATE flag to newly attached databases too.
+            db.path, "", null, net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE or
+                net.zetetic.database.sqlcipher.SQLiteDatabase.CREATE_IF_NECESSARY, null, null,
         )
         try {
             val version = plain.version
