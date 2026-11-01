@@ -1,16 +1,15 @@
-name: Publish release files
+name: Publish validated release
 
-# Turns APKs that were built and signed elsewhere (the build box) into a GitHub release. The APKs come from a
-# branch with no history (default: release-files) holding Kosh.apk, Kosh-offline.apk, SHA256SUMS and NOTES.md.
+# Publishes the SAME candidate that passed CI and physical-device checks. No rebuild or file replacement.
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag, e.g. v2.1.0"
+      candidate_run_id:
+        description: "Successful Release candidate workflow run ID"
         required: true
-      files_branch:
-        description: "Branch holding the APKs"
-        default: release-files
+      validation_file:
+        description: "Committed device evidence JSON path on the selected workflow ref"
+        required: true
       prerelease:
         description: "Mark as a pre-release"
         type: boolean
@@ -18,6 +17,11 @@ on:
 
 permissions:
   contents: write
+  actions: read
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -25,20 +29,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.files_branch }}
-      - name: Check the files
-        run: sha256sum -c SHA256SUMS
-      - name: Create the release, or replace its files
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Download the successful candidate
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
+          RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
+          python3 - <<'PY'
+          import json, os
+          r = json.load(open('run.json'))
+          if (r['conclusion'] != 'success' or r['status'] != 'completed'
+              or r['path'] != '.github/workflows/release.yml'
+              or r['event'] not in ('push', 'workflow_dispatch')
+              or r['head_repository']['full_name'] != os.environ['GITHUB_REPOSITORY']):
+              raise SystemExit('Not a successful trusted release-candidate run')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('SOURCE_SHA=' + r['head_sha'] + '\n')
+          PY
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name kosh-release-candidate --dir candidate
+      - name: Reverify APKs and physical-device evidence
+        env:
+          RUN_ID: ${{ inputs.candidate_run_id }}
+          VALIDATION_FILE: ${{ inputs.validation_file }}
+        run: |
+          python3 scripts/release_checks.py apks candidate --source "$SOURCE_SHA" --run-id "$RUN_ID"
+          python3 scripts/release_checks.py evidence candidate "$VALIDATION_FILE"
+          cp "$VALIDATION_FILE" candidate/device-validation.json
+          python3 - <<'PY'
+          import json, os, re
+          m = json.load(open('candidate/candidate.json'))
+          if not re.fullmatch(r'\d+\.\d+\.\d+', m['version_name']):
+              raise SystemExit('Invalid release version')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('TAG=v' + m['version_name'] + '\n')
+          PY
+      - name: Publish without replacing an existing version
+        env:
+          GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          FILES="Kosh.apk Kosh-offline.apk SHA256SUMS"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$TAG" $FILES --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$TAG" --notes-file NOTES.md --prerelease="$PRERELEASE" --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG" $FILES --repo "$GITHUB_REPOSITORY" --target main \
-              --title "Kosh ${TAG#v}" --notes-file NOTES.md --prerelease="$PRERELEASE"
+          # A pre-existing tag must point to the tested source. Existing releases are never overwritten.
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$SOURCE_SHA"
           fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; use a new version."; exit 1
+          fi
+          gh release create "$TAG" candidate/Kosh.apk candidate/Kosh-offline.apk candidate/SHA256SUMS \
+            candidate/candidate.json candidate/device-validation.json \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "Kosh ${TAG#v}" \
+            --notes-file candidate/NOTES.md --prerelease="$PRERELEASE"

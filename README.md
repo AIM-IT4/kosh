@@ -121,10 +121,16 @@ can be installed side by side. CI builds both on every push (see `.github/workfl
 Release signing reads `keystore/kosh-release.jks` and the `KOSH_STORE_PASSWORD` / `KOSH_KEY_PASSWORD`
 Gradle properties from `~/.gradle/gradle.properties`. Neither is committed.
 
-Pushing a version tag (`git tag v2.0.1 && git push origin v2.0.1`), or running **Release** from the Actions tab
-(which tags the commit with `v<versionName>`), runs `.github/workflows/release.yml`, which
-builds both editions with the release key and publishes them as a GitHub release (`Kosh.apk`, `Kosh-offline.apk`).
-It reads the key from the `KOSH_KEYSTORE_BASE64`, `KOSH_STORE_PASSWORD` and `KOSH_KEY_PASSWORD` repository secrets.
+Run **Release candidate** in Actions to build both signed editions after unit,
+build and emulator migration checks pass. Version changes on main also build a
+candidate; this does not publish it. The workflow reads `KOSH_KEYSTORE_BASE64`,
+`KOSH_STORE_PASSWORD` and `KOSH_KEY_PASSWORD` repository secrets.
+
+Test the candidate APKs on physical devices, record results against their hashes,
+then run **Publish validated release** with the candidate run ID and committed
+evidence file. It publishes the exact tested bytes and never overwrites a release.
+See [the release checklist](docs/scanning-validation.md) for commands, required
+SMS/upgrade checks, and the evidence template. Tag pushes do not publish.
 
 ## Contributing
 

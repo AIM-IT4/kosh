@@ -8,3 +8,6 @@ local.properties
 *.iml
 .kotlin/
 .claude/worktrees/
+
+# Python verification scripts
+__pycache__/

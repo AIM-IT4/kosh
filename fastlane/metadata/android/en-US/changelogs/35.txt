@@ -1,0 +1,3 @@
+- Catch up missed bank SMS after an empty first inbox scan
+- Keep failed imports available for retry
+- Show when inbox access is allowed but live SMS import is still blocked
