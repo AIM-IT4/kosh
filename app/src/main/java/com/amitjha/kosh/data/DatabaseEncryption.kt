@@ -93,13 +93,15 @@ object DatabaseEncryption {
                 while (c.moveToNext()) tables += c.getString(0)
             }
             val counts = tables.associateWith { t -> countRows(plain, "\"$t\"") }
-            plain.rawExecSQL("ATTACH DATABASE '${tmp.path.replace("'", "''")}' AS enc KEY '$key'")
+            // execSQL records the attachment and disables WAL's connection pool. rawExecSQL bypasses
+            // that bookkeeping, so sqlcipher_export can run on a different connection and miss `enc`.
+            plain.execSQL("ATTACH DATABASE ? AS enc KEY ?", arrayOf<Any>(tmp.path, key))
             plain.rawExecSQL("SELECT sqlcipher_export('enc')")
-            plain.rawExecSQL("PRAGMA enc.user_version = $version")
+            plain.execSQL("PRAGMA enc.user_version = $version")
             for ((t, n) in counts) {
                 check(countRows(plain, "enc.\"$t\"") == n) { "Row count mismatch in $t" }
             }
-            plain.rawExecSQL("DETACH DATABASE enc")
+            plain.execSQL("DETACH DATABASE enc")
         } finally {
             plain.close()
         }
