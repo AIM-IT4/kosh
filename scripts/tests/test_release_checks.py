@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import subprocess
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -50,6 +51,35 @@ class ReleaseChecksTest(unittest.TestCase):
             checks.validate_evidence(self.manifest, self.evidence)
         record['exceptions'] = {'split_permissions': 'This device grants the SMS group together'}
         checks.validate_evidence(self.manifest, self.evidence)
+
+    def test_release_apks_require_correct_signer_package_and_version(self):
+        gradle = 'versionName = "2.6.2"\nversionCode = 35'
+        sms = "uses-permission: name='android.permission.READ_SMS'\nuses-permission: name='android.permission.RECEIVE_SMS'"
+        for fault in (None, 'signer', 'package', 'version'):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+                for filename, _ in checks.EDITIONS.values():
+                    (Path(directory) / filename).write_bytes(b'test APK')
+                def output(*args):
+                    if args[0] == 'git':
+                        return gradle
+                    if args[0].endswith('apksigner'):
+                        signer = '0' * 64 if fault == 'signer' else checks.SIGNER
+                        return f'Signer #1 certificate SHA-256 digest: {signer}'
+                    if args[2] == 'permissions':
+                        return sms
+                    package = 'com.amitjha.kosh.offline' if args[-1].endswith('Kosh-offline.apk') else 'com.amitjha.kosh'
+                    if fault == 'package':
+                        package = 'wrong.app'
+                    code = '34' if fault == 'version' else '35'
+                    return f"package: name='{package}' versionCode='{code}' versionName='2.6.2'"
+                with patch.object(checks, 'build_tools', return_value=Path('/tools')), patch.object(checks, 'run', side_effect=output):
+                    if fault:
+                        with self.assertRaises(ValueError):
+                            checks.verify_apks(directory, 'a' * 40, '123')
+                    else:
+                        manifest = checks.verify_apks(directory, 'a' * 40, '123')
+                        self.assertEqual(manifest['version_code'], 35)
+                        self.assertEqual(set(manifest['apks']), {'standard', 'offline'})
 
     def test_failed_permission_inspection_is_not_a_pass(self):
         with patch.object(checks, 'run', side_effect=subprocess.CalledProcessError(1, 'aapt2')):

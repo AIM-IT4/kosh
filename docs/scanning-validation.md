@@ -84,6 +84,8 @@ installed version code. The template is pending and cannot authorize publishing.
 7. **empty_inbox_catch_up:** On a fresh test profile with no inbox messages, complete
    the initial scan, then miss a new bank SMS and reopen. Catch-up must work without
    requiring a manual scan first. Never clear someone's real SMS for this test.
+   Also upgrade an older completed install whose empty scan left its timestamp
+   unset; reopening must recover automatically.
 8. **revoke_regrant:** After a successful scan revoke access. The next manual scan
    or catch-up must report the problem; regrant access and verify recovery without
    losing imported data. Failed reads/writes must not advance past unsaved messages.

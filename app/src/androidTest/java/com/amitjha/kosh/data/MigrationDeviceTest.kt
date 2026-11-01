@@ -42,10 +42,15 @@ class MigrationDeviceTest {
         assertTrue(DatabaseEncryption.prepare(isolated, key))
         assertEquals(FileHeader.Kind.ENCRYPTED, FileHeader.kindOf(context.getDatabasePath(name)))
         repeat(2) {
-            Room.databaseBuilder(context, KoshDatabase::class.java, name)
+            val db = Room.databaseBuilder(context, KoshDatabase::class.java, name)
                 .openHelperFactory(SupportOpenHelperFactory(key.copyOf()))
                 .addMigrations(*KoshDatabase.ALL_MIGRATIONS)
-                .build().use { db -> assertRows(db.openHelper.writableDatabase) }
+                .build()
+            try {
+                assertRows(db.openHelper.writableDatabase)
+            } finally {
+                db.close()
+            }
         }
         context.deleteDatabase(name)
     }

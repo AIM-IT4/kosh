@@ -1,11 +1,22 @@
 package com.amitjha.kosh.sms
 
+import com.amitjha.kosh.data.prefs.Settings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
 class InboxScanTest {
+    @Test fun upgradedEmptyInboxInstallCanCatchUpWithoutManualScan() {
+        assertTrue(Settings(onboardingDone = true, smsLastScanMillis = 0).shouldCatchUpSms())
+    }
+
+    @Test fun initialSetupAndDisabledImportDoNotStartCatchUp() {
+        assertFalse(Settings(onboardingDone = false, smsLastScanMillis = 0).shouldCatchUpSms())
+        assertFalse(Settings(onboardingDone = true, smsAutoImport = false, smsLastScanMillis = 100).shouldCatchUpSms())
+        assertTrue(Settings(onboardingDone = false, smsLastScanMillis = 100).shouldCatchUpSms())
+    }
+
     @Test fun emptyFirstScanEnablesCatchUpAndClearsOldError() = runBlocking {
         var lastScan = 0L
         var problem: String? = "SMS access is off"

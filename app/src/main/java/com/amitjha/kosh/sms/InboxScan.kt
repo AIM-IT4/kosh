@@ -1,5 +1,10 @@
 package com.amitjha.kosh.sms
 
+import com.amitjha.kosh.data.prefs.Settings
+
+internal fun Settings.shouldCatchUpSms(): Boolean =
+    smsAutoImport && (onboardingDone || smsLastScanMillis > 0)
+
 /** Commit a completed inbox read. An empty inbox is a successful initial scan too. */
 internal suspend fun completeInboxScan(
     started: Long,
