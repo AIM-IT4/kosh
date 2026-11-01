@@ -24,20 +24,27 @@ fun rememberSmsPermissionRequest(onGranted: () -> Unit): () -> Unit {
     val context = LocalContext.current
     val grantedCallback by rememberUpdatedState(onGranted)
     var showHelp by remember { mutableStateOf(false) }
+    var inboxAllowed by remember { mutableStateOf(false) }
+    fun refreshAccess() {
+        inboxAllowed = context.hasSmsPermission()
+        // READ_SMS is sufficient for a manual scan. Keep recovery visible when live delivery is still off.
+        if (inboxAllowed) grantedCallback()
+        showHelp = !inboxAllowed || !com.amitjha.kosh.sms.SmsCatchUp.canReceive(context)
+    }
     val settings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (context.hasSmsPermission()) grantedCallback()
-        else showHelp = true
+        refreshAccess()
     }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (context.hasSmsPermission()) grantedCallback()
-        else showHelp = true
+        refreshAccess()
     }
     if (showHelp) {
         AlertDialog(
             onDismissRequest = { showHelp = false },
-            title = { Text("Allow SMS access") },
+            title = { Text(if (inboxAllowed) "Allow live SMS import" else "Allow SMS access") },
             text = {
-                Text("Kosh needs SMS permission to read bank messages on this phone. " +
+                Text((if (inboxAllowed) "Inbox scanning is allowed, but receiving new SMS is still blocked. " +
+                    "Manual scans can import messages; live import needs receive access. "
+                    else "Kosh needs SMS permission to read bank messages on this phone. ") +
                     "Open app settings, then Permissions › SMS › Allow. " +
                     "If SMS is unavailable or disabled, Android or your app installer may be restricting access. " +
                     "You can still add transactions manually.")

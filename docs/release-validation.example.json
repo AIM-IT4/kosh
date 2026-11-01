@@ -1,0 +1,112 @@
+{
+  "source_sha": "REPLACE_WITH_TESTED_SOURCE_SHA",
+  "build_run_id": "REPLACE_WITH_CANDIDATE_RUN_ID",
+  "apks": {
+    "standard": {
+      "sha256": "REPLACE_WITH_APK_SHA256",
+      "runs": [
+        {
+          "device": "",
+          "android_api": 26,
+          "installer": "",
+          "physical": false,
+          "tested_by": "",
+          "tested_at": "",
+          "upgrade_from_version_code": 34,
+          "checks": {
+            "denial_recovery": "pending",
+            "empty_inbox_catch_up": "pending",
+            "fresh_scan": "pending",
+            "live_import": "pending",
+            "manual_entry": "pending",
+            "missed_sms_catch_up": "pending",
+            "no_duplicates": "pending",
+            "restricted_installer": "pending",
+            "return_without_grant": "pending",
+            "revoke_regrant": "pending",
+            "split_permissions": "pending",
+            "upgrade_data_preserved": "pending"
+          },
+          "exceptions": {}
+        },
+        {
+          "device": "",
+          "android_api": 35,
+          "installer": "",
+          "physical": false,
+          "tested_by": "",
+          "tested_at": "",
+          "upgrade_from_version_code": 34,
+          "checks": {
+            "denial_recovery": "pending",
+            "empty_inbox_catch_up": "pending",
+            "fresh_scan": "pending",
+            "live_import": "pending",
+            "manual_entry": "pending",
+            "missed_sms_catch_up": "pending",
+            "no_duplicates": "pending",
+            "restricted_installer": "pending",
+            "return_without_grant": "pending",
+            "revoke_regrant": "pending",
+            "split_permissions": "pending",
+            "upgrade_data_preserved": "pending"
+          },
+          "exceptions": {}
+        }
+      ]
+    },
+    "offline": {
+      "sha256": "REPLACE_WITH_APK_SHA256",
+      "runs": [
+        {
+          "device": "",
+          "android_api": 26,
+          "installer": "",
+          "physical": false,
+          "tested_by": "",
+          "tested_at": "",
+          "upgrade_from_version_code": 34,
+          "checks": {
+            "denial_recovery": "pending",
+            "empty_inbox_catch_up": "pending",
+            "fresh_scan": "pending",
+            "live_import": "pending",
+            "manual_entry": "pending",
+            "missed_sms_catch_up": "pending",
+            "no_duplicates": "pending",
+            "restricted_installer": "pending",
+            "return_without_grant": "pending",
+            "revoke_regrant": "pending",
+            "split_permissions": "pending",
+            "upgrade_data_preserved": "pending"
+          },
+          "exceptions": {}
+        },
+        {
+          "device": "",
+          "android_api": 35,
+          "installer": "",
+          "physical": false,
+          "tested_by": "",
+          "tested_at": "",
+          "upgrade_from_version_code": 34,
+          "checks": {
+            "denial_recovery": "pending",
+            "empty_inbox_catch_up": "pending",
+            "fresh_scan": "pending",
+            "live_import": "pending",
+            "manual_entry": "pending",
+            "missed_sms_catch_up": "pending",
+            "no_duplicates": "pending",
+            "restricted_installer": "pending",
+            "return_without_grant": "pending",
+            "revoke_regrant": "pending",
+            "split_permissions": "pending",
+            "upgrade_data_preserved": "pending"
+          },
+          "exceptions": {}
+        }
+      ]
+    }
+  }
+}

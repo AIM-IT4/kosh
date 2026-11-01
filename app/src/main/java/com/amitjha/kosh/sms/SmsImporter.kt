@@ -143,16 +143,17 @@ class SmsImporter(
      * [FIRST_SCAN_DAYS] days on the first run.
      */
     suspend fun importInbox(sinceMillis: Long? = null): ImportResult {
-        if (!hasPermission()) return ImportResult(permissionMissing = true)
+        if (!hasPermission()) {
+            val result = ImportResult(permissionMissing = true)
+            settings.setSmsProblem(result.problem)
+            return result
+        }
         val lastScan = settings.current().smsLastScanMillis
         val since = sinceMillis ?: if (lastScan > 0) lastScan - OVERLAP_MILLIS else System.currentTimeMillis() - FIRST_SCAN_DAYS * DAY_MILLIS
         val started = System.currentTimeMillis()
         val read = withContext(Dispatchers.IO) { readAll(since) }
-        val result = importMessages(read.first).copy(scanned = read.first.size, readError = read.second)
-        // Only move the scan cursor forward when something could actually be read.
-        if (read.second == null && read.first.isNotEmpty()) settings.setSmsLastScan(started)
-        settings.setSmsProblem(result.problem, started)
-        return result
+        return completeInboxScan(started, read.first, read.second, ::importMessages,
+            settings::setSmsLastScan, settings::setSmsProblem)
     }
 
     /** "Scan inbox now": always re-reads the last [FIRST_SCAN_DAYS] days; fingerprints prevent duplicates. */
@@ -783,7 +784,9 @@ class SmsImporter(
 
     private inline fun readFrom(uri: android.net.Uri, selection: String, sinceMillis: Long, sink: (SmsMessage) -> Unit) {
         val projection = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.DATE_SENT)
-        context.contentResolver.query(uri, projection, selection, arrayOf(sinceMillis.toString()), "${Telephony.Sms.DATE} ASC")?.use { c ->
+        val cursor = context.contentResolver.query(uri, projection, selection, arrayOf(sinceMillis.toString()), "${Telephony.Sms.DATE} ASC")
+            ?: error("SMS provider did not return a cursor")
+        cursor.use { c ->
             val iAddr = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
             val iBody = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
             val iDate = c.getColumnIndexOrThrow(Telephony.Sms.DATE)

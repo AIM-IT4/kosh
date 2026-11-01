@@ -1,15 +1,19 @@
 # Publishing Kosh on F-Droid
 
 Kosh has no proprietary dependencies (no Google Play Services, Firebase or trackers), so it qualifies for
-the main F-Droid repository. F-Droid builds the app from source and signs it with its own key.
+the main F-Droid repository. The recipes request reproducible builds: F-Droid rebuilds from source, verifies
+against the GitHub APK and retains the Kosh signing certificate.
 
 ## Before you submit
 
 1. **Make the GitHub repository public** (`gh repo edit AIM-IT4/kosh --visibility public`). F-Droid can only
    build from public source.
-2. **Release first**: bumping `versionName`/`versionCode` on main makes the Release workflow tag `v<versionName>`
-   and attach `Kosh.apk` and `Kosh-offline.apk`. Update the build entry in `metadata/com.amitjha.kosh.yml` (and the
-   `.offline.yml` copy) to that version. After inclusion F-Droid picks up new tags on its own.
+2. **Validate and release first**: follow [scanning-validation.md](scanning-validation.md).
+   The Release candidate workflow only builds artifacts; Publish validated release requires
+   the candidate's passing CI and device evidence before tagging/publishing those exact APKs.
+   After publication, update **both** metadata recipes to that release's version and tested
+   source SHA. The recipes currently describe published 2.6.1/code 34; 2.6.2/code 35 is a
+   candidate until validation and publication finish. Do not point `Binaries` at a missing release.
 3. Add `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` for that release. F-Droid shows the
    title, descriptions, icon and screenshots from `fastlane/metadata/android/en-US/`.
 
@@ -33,11 +37,13 @@ the main F-Droid repository. F-Droid builds the app from source and signs it wit
   `AllowedAPKSigningKeys` (the Kosh release key). F-Droid builds the tag from source, checks that its unsigned
   APK is identical to the release APK, and then publishes the release APK with the Kosh signature. F-Droid and
   GitHub updates therefore install over each other. If a rebuild ever differs, F-Droid publishes nothing for
-  that version, so check before tagging:
+  that version, so check both editions before publishing:
 
   ```
-  ./gradlew :app:assembleStandardRelease        # without keystore/ → unsigned APK
+  # Fresh checkout, without keystore/: unsigned APKs from the exact candidate source.
+  ./gradlew clean :app:assembleStandardRelease :app:assembleOfflineRelease --no-build-cache
   apksigcopier compare Kosh.apk --unsigned app/build/outputs/apk/standard/release/app-standard-release-unsigned.apk
+  apksigcopier compare Kosh-offline.apk --unsigned app/build/outputs/apk/offline/release/app-offline-release-unsigned.apk
   ```
 
   Builds with JDK 17 and 21 produce the same APK. Native libraries are never stripped (`keepDebugSymbols`), so

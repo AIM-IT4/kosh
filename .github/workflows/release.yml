@@ -1,24 +1,20 @@
-name: Release
+name: Release candidate
 
-# Builds both editions signed with the Kosh release key and publishes them as a GitHub release.
-# Runs when a version tag is pushed (`git tag v2.0.1 && git push origin v2.0.1`), or from the Actions tab
-# (Release > Run workflow), which tags the chosen commit with v<versionName> itself.
-# Needs three repository secrets: KOSH_KEYSTORE_BASE64 (`base64 -w0 keystore/kosh-release.jks`),
-# KOSH_STORE_PASSWORD and KOSH_KEY_PASSWORD.
-
+# Builds immutable candidates for device testing. This workflow never publishes a release.
 on:
   push:
-    tags: ["v*"]
-    # A version bump on main releases it, once: versions that already have a release are skipped.
     branches: [main]
     paths: ["app/build.gradle.kts", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  validate:
+    uses: ./.github/workflows/validate.yml
+  candidate:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,79 +23,35 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Check the tag matches versionName
-        run: |
-          VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
-          VERSION_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
-          TAG="v$VERSION"
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$TAG" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match versionName $VERSION"; exit 1
-          fi
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
-          if [ "$GITHUB_REF_TYPE" = "branch" ] && [ "$GITHUB_EVENT_NAME" = "push" ] && GH_TOKEN="${{ github.token }}" gh release view "$TAG" > /dev/null 2>&1; then
-            echo "$TAG is already released; nothing to do."
-            echo "SKIP=1" >> "$GITHUB_ENV"
-          fi
-      - name: Restore the release keystore
-        if: env.SKIP != '1'
+      - name: Restore the existing release key
         env:
           KOSH_KEYSTORE_BASE64: ${{ secrets.KOSH_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KOSH_KEYSTORE_BASE64" ]; then
-            echo "The KOSH_KEYSTORE_BASE64 secret is not set"; exit 1
-          fi
+          test -n "$KOSH_KEYSTORE_BASE64"
           mkdir -p keystore
-          echo "$KOSH_KEYSTORE_BASE64" | base64 -d > keystore/kosh-release.jks
-      - name: Build both editions (release-signed)
-        if: env.SKIP != '1'
+          printf '%s' "$KOSH_KEYSTORE_BASE64" | base64 -d > keystore/kosh-release.jks
+      - name: Build signed release APKs without cached outputs
         env:
-          KOSH_STORE_PASSWORD: ${{ secrets.KOSH_STORE_PASSWORD }}
-          KOSH_KEY_PASSWORD: ${{ secrets.KOSH_KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_KOSH_STORE_PASSWORD: ${{ secrets.KOSH_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_KOSH_KEY_PASSWORD: ${{ secrets.KOSH_KEY_PASSWORD }}
         run: |
-          # No build cache: a cached compile can differ from a clean one, and F-Droid rebuilds from scratch and
-          # only publishes the release APK when its own build is identical.
-          ./gradlew :app:assembleStandardRelease :app:assembleOfflineRelease --console=plain --no-build-cache \
-            -PKOSH_STORE_PASSWORD="$KOSH_STORE_PASSWORD" -PKOSH_KEY_PASSWORD="$KOSH_KEY_PASSWORD"
-      - name: Check signatures and that the offline edition has no INTERNET permission
-        if: env.SKIP != '1'
-        env:
-          # The key installed copies of Kosh are signed with; an APK signed with anything else can't update them.
-          EXPECTED_SIGNER: 02283b8d09a5a1912906e9b5d3abed25ed4445de005f57a79cea0443f0317934
+          test -n "$ORG_GRADLE_PROJECT_KOSH_STORE_PASSWORD"
+          test -n "$ORG_GRADLE_PROJECT_KOSH_KEY_PASSWORD"
+          ./gradlew clean :app:assembleStandardRelease :app:assembleOfflineRelease --console=plain --no-build-cache
+      - name: Verify and identify the candidate
         run: |
-          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          cp app/build/outputs/apk/standard/release/app-standard-release.apk Kosh.apk
-          cp app/build/outputs/apk/offline/release/app-offline-release.apk Kosh-offline.apk
-          for apk in Kosh.apk Kosh-offline.apk; do
-            signer=$("$BUILD_TOOLS/apksigner" verify --print-certs "$apk" | grep -m1 "SHA-256 digest" | awk '{print $NF}')
-            if [ "$signer" != "$EXPECTED_SIGNER" ]; then
-              echo "$apk is signed with $signer, not the Kosh release key. Check the KOSH_* secrets."; exit 1
-            fi
-          done
-          sha256sum Kosh.apk Kosh-offline.apk > SHA256SUMS
-          if "$BUILD_TOOLS/aapt2" dump permissions Kosh-offline.apk | grep -q "android.permission.INTERNET"; then
-            echo "Offline edition must not request INTERNET"; exit 1
-          fi
-      - name: Publish the GitHub release
-        if: env.SKIP != '1'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          {
-            echo "Kosh $VERSION"
-            cat "fastlane/metadata/android/en-US/changelogs/$VERSION_CODE.txt" 2>/dev/null
-            echo
-            echo "Signed with the Kosh release key: installs over earlier versions and keeps your data."
-            echo "Kosh.apk is the standard edition; Kosh-offline.apk has no internet permission. Checksums: SHA256SUMS."
-          } > notes.txt
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            # Replaces any files published earlier under this tag and makes it the latest full release.
-            gh release upload "$TAG" Kosh.apk Kosh-offline.apk SHA256SUMS --clobber
-            gh release edit "$TAG" --title "Kosh $VERSION" --notes-file notes.txt --prerelease=false --latest
-          else
-            gh release create "$TAG" Kosh.apk Kosh-offline.apk SHA256SUMS --target "$GITHUB_SHA" --title "Kosh $VERSION" --notes-file notes.txt
-          fi
+          mkdir candidate
+          cp app/build/outputs/apk/standard/release/app-standard-release.apk candidate/Kosh.apk
+          cp app/build/outputs/apk/offline/release/app-offline-release.apk candidate/Kosh-offline.apk
+          python3 scripts/release_checks.py apks candidate --source "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --write
+          CODE=$(python3 -c 'import json; print(json.load(open("candidate/candidate.json"))["version_code"])')
+          cp "fastlane/metadata/android/en-US/changelogs/$CODE.txt" candidate/NOTES.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kosh-release-candidate
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 30
       - name: Remove the keystore
         if: always()
         run: rm -f keystore/kosh-release.jks

@@ -84,7 +84,9 @@ object DatabaseEncryption {
         val key = String(passphrase, Charsets.US_ASCII)
         require(key.all { it in '0'..'9' || it in 'a'..'f' }) { "Unexpected passphrase format" }
         val plain = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
-            db.path, "", null, net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE, null, null,
+            // SQLite applies the connection's CREATE flag to newly attached databases too.
+            db.path, "", null, net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE or
+                net.zetetic.database.sqlcipher.SQLiteDatabase.CREATE_IF_NECESSARY, null, null,
         )
         try {
             val version = plain.version
@@ -93,13 +95,15 @@ object DatabaseEncryption {
                 while (c.moveToNext()) tables += c.getString(0)
             }
             val counts = tables.associateWith { t -> countRows(plain, "\"$t\"") }
-            plain.rawExecSQL("ATTACH DATABASE '${tmp.path.replace("'", "''")}' AS enc KEY '$key'")
+            // execSQL records the attachment and disables WAL's connection pool. rawExecSQL bypasses
+            // that bookkeeping, so sqlcipher_export can run on a different connection and miss `enc`.
+            plain.execSQL("ATTACH DATABASE ? AS enc KEY ?", arrayOf<Any>(tmp.path, key))
             plain.rawExecSQL("SELECT sqlcipher_export('enc')")
-            plain.rawExecSQL("PRAGMA enc.user_version = $version")
+            plain.execSQL("PRAGMA enc.user_version = $version")
             for ((t, n) in counts) {
                 check(countRows(plain, "enc.\"$t\"") == n) { "Row count mismatch in $t" }
             }
-            plain.rawExecSQL("DETACH DATABASE enc")
+            plain.execSQL("DETACH DATABASE enc")
         } finally {
             plain.close()
         }

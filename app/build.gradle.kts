@@ -14,8 +14,9 @@ android {
         applicationId = "com.amitjha.kosh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 34
-        versionName = "2.6.1"
+        versionCode = 35
+        versionName = "2.6.2"
+        testInstrumentationRunner = "com.amitjha.kosh.MigrationTestRunner"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -73,6 +74,7 @@ android {
         // machine has, which would make F-Droid's rebuild differ from the release APK (reproducible builds).
         jniLibs.keepDebugSymbols += "**/*.so"
     }
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
     // No "dependency metadata" in the APK signing block: it is encrypted for Google Play only, and F-Droid's scanner
     // rejects APKs that carry it.
     dependenciesInfo {
@@ -119,4 +121,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
 }

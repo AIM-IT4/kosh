@@ -24,12 +24,13 @@ object SmsCatchUp {
 
     /**
      * Reads the inbox since the last scan. Returns what was imported (with [ImportResult.problem] set when SMS access
-     * is missing or the scan failed or took too long), or null when import is off or the first scan hasn't been done
-     * yet (onboarding does that long one). A failure is remembered for More › Bank SMS instead of passing silently.
+     * is missing or the scan failed or took too long), or null when import is off or initial onboarding is still
+     * pending. Completed installs with no scan timestamp are retried too (including older empty-inbox installs).
+     * A failure is remembered for More › Bank SMS instead of passing silently.
      */
     suspend fun run(container: AppContainer, alert: Boolean, timeoutMillis: Long = 30_000): ImportResult? {
         val settings = container.settings.current()
-        if (!settings.smsAutoImport || settings.smsLastScanMillis <= 0) return null
+        if (!settings.shouldCatchUpSms()) return null
         if (!container.smsImporter.hasPermission()) {
             container.settings.setSmsProblem(ImportResult(permissionMissing = true).problem)
             return ImportResult(permissionMissing = true)
